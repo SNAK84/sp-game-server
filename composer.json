@@ -1,0 +1,13 @@
+{
+  "name": "snak84/sp-game-server",
+  "description": "Game server for SP project",
+  "type": "project",
+  "require": {
+    "php": ">=8.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}

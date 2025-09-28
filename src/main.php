@@ -6,19 +6,22 @@ define('ROOT_DIR', str_replace('\\', '/', dirname(__FILE__)) . "/");
 set_include_path(ROOT_DIR);
 
 
+
+require __DIR__ . '/../vendor/autoload.php';
+/*
 require_once "Core/Time.php";
 require_once "Core/Environment.php";
 require_once "Core/Validator.php";
 require_once "Core/Logger.php";
 require_once "Core/Helpers.php";
 require_once "Core/Input.php";
-
+*/
 
 use Core\Logger;
 use Core\Environment;
 
 try {
-    Environment::init(dirname(__FILE__) . '/config.env');
+    Environment::init(dirname(__FILE__) . '/.env');
     $logger = Logger::getInstance();
 
     // Set error reporting based on environment
