@@ -1,0 +1,7 @@
+{
+  "php.validate.executablePath": "/usr/local/bin/php",
+  "intelephense.files.maxSize": 5000000,
+  "remote.SSH.remoteForward": {
+    "9003": "9003"
+  }
+}

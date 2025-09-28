@@ -1,7 +1,8 @@
 <?php
 
 
-namespace Core;
+namespace SPGame\Core;
+
 
 
 enum LogLevel: int

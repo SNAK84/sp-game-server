@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  swoole:
+    build: .
+    container_name: swoole_app
+    working_dir: /var/www/html
+    volumes:
+      - ./main.php:/var/www/html/main.php
+      - ./src:/var/www/html/src
+      - ./vendor:/var/www/html/vendor
+    ports:
+      - "9501:9501"
+    command: ["php", "/var/www/html/main.php"]
+    restart: unless-stopped
+    environment:
+      XDEBUG_MODE: debug
+      XDEBUG_CONFIG: client_host=host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

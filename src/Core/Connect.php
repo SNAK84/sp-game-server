@@ -1,15 +1,15 @@
 <?php
 
-namespace Core;
+namespace SPGame\Core;
 
 use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
 
-use Input;
 
 use Game\Repositories\Accounts;
 use Game\Account;
-use Core\Database;
+use SPGame\Core\Database;
+use SPGame\Core\Input;
 
 class Connect
 {

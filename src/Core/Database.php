@@ -1,6 +1,6 @@
 <?php
 
-namespace Core;
+namespace SPGame\Core;
 
 use PDO;
 use PDOException;

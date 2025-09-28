@@ -6,6 +6,7 @@ use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
 use Swoole\Timer;
 
+
 class WSocket
 {
     private ?Server $ws = null;
@@ -14,30 +15,7 @@ class WSocket
     public function __construct()
     {
         $this->logger = Logger::getInstance();
-        $this->startServer();
-    }
-
-    private function startServer(): void
-    {
-        try {
-            $host = Environment::get('WS_HOST', '0.0.0.0');
-            $port = Environment::getInt('WS_PORT', 9501);
-
-            $this->ws = new Server($host, $port);
-            $this->logger->info('WebSocket server created', ['host' => $host, 'port' => $port]);
-
-            $this->ws->on('Start', [$this, 'onStart']);
-            $this->ws->on('open', function ($server, $req) {
-                $this->logger->info('New WebSocket connection', ['fd' => $req->fd]);
-            });
-            $this->ws->on('message', [$this, 'onMessage']);
-            $this->ws->on('close', [$this, 'onClose']);
-
-            $this->ws->start();
-        } catch (\Exception $e) {
-            $this->logger->logException($e, 'Failed to start WebSocket server');
-            throw $e;
-        }
+        $this->Start();
     }
 
     public function onStart(Server $server)
@@ -47,10 +25,12 @@ class WSocket
             'port' => $server->port
         ]);
 
+        // Resource update timer (every second)
         Timer::tick(1000, function () {
-            // Resource tick logic
+            //Tick();
         });
 
+        // Statistics timer (every 5 seconds)
         Timer::tick(5000, function () {
             global $OnLines;
             $this->logger->info('Server statistics', [
@@ -67,10 +47,12 @@ class WSocket
             $this->logger->debug('Received WebSocket message', ['fd' => $frame->fd]);
 
             $frame->data = json_decode($frame->data, true);
-            $response = Connect::handle($frame);
+            
+            $response = Connect::handle($frame); // Передаем текущий Frame
+            //$connected = Connect($server, $frame);
 
-            $this->send($frame);
-        } catch (\Exception $e) {
+            $this->Send($frame);
+        } catch (Exception $e) {
             $this->logger->logException($e, 'Error processing WebSocket message');
         }
     }
@@ -87,12 +69,42 @@ class WSocket
                     'login_id' => $LID
                 ]);
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->logException($e, 'Error handling WebSocket close');
         }
     }
 
-    private function send(Frame $frame, array $Data = []): void
+    private function Start(): void
+    {
+        try {
+
+            $host = Environment::get('WS_HOST', '0.0.0.0');
+            $port = Environment::getInt('WS_PORT', 9501);
+
+            $this->ws = new Server($host, $port);
+            $this->logger->info('WebSocket server created', ['host' => $host, 'port' => $port]);
+
+            $this->ws->on("Start", [$this, 'onStart']);
+
+            $this->ws->on('open', function ($server, $req) {
+                $this->logger->info('New WebSocket connection', ['fd' => $req->fd]);
+            });
+
+            // websocket message handler
+            $this->ws->on('message', [$this, 'onMessage']);
+
+            $this->ws->on('close', [$this, 'onClose']);
+
+            $this->ws->start();
+        } catch (Exception $e) {
+            $this->logger->logException($e, 'Failed to start WebSocket server');
+            throw $e;
+        }
+    }
+
+
+
+    private function Send(Frame $frame, array $Data = []): void
     {
         global $OnLines;
 
@@ -111,8 +123,18 @@ class WSocket
 
             $this->ws->push($frame->fd, $jsonData);
             $this->logger->debug('Sent WebSocket message', ['fd' => $frame->fd]);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->logException($e, 'Error sending WebSocket message');
         }
     }
 }
+
+/*
+try {
+    $WS = new WSocket();
+} catch (Exception $e) {
+    $logger = Logger::getInstance();
+    $logger->logException($e, 'Failed to start WebSocket server');
+    exit(1);
+}
+*/

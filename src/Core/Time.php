@@ -1,5 +1,8 @@
 <?php
 
+namespace SPGame\Core;
+
+
 class Time
 {
 

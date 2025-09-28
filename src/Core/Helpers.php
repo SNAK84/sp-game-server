@@ -1,5 +1,7 @@
 <?php
 
+namespace SPGame\Core;
+
 /**
  * helpers.php
  * Вспомогательные функции

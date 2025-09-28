@@ -1,7 +1,7 @@
 <?php
 
 
-namespace Core;
+namespace SPGame\Core;
 
 use RuntimeException;
 

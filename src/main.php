@@ -2,29 +2,18 @@
 
 declare(strict_types=1);
 
-define('ROOT_DIR', str_replace('\\', '/', dirname(__FILE__)) . "/");
-set_include_path(ROOT_DIR);
-
-
+namespace SPGame;
 
 require __DIR__ . '/../vendor/autoload.php';
-/*
-require_once "Core/Time.php";
-require_once "Core/Environment.php";
-require_once "Core/Validator.php";
-require_once "Core/Logger.php";
-require_once "Core/Helpers.php";
-require_once "Core/Input.php";
-*/
 
-use Core\Logger;
-use Core\Environment;
+use SPGame\Core\Logger;
+use SPGame\Core\Environment;
+use SPGame\Core\WSocket;
 
 try {
-    Environment::init(dirname(__FILE__) . '/.env');
+    Environment::init(__DIR__ . '/../.env');
     $logger = Logger::getInstance();
 
-    // Set error reporting based on environment
     if (Environment::getBool('DEBUG_MODE', false)) {
         error_reporting(E_ALL);
         ini_set('display_errors', '1');
@@ -34,10 +23,10 @@ try {
     }
 
     $logger->info('Starting SP-Game WebSocket Server');
-} catch (Exception $e) {
-    error_log('Failed to initialize environment: ' . $e->getMessage());
+
+    $server = new WSocket(); // Создаём и запускаем сервер
+    
+} catch (\Exception $e) {
+    error_log('Failed to start SP-Game WebSocket Server: ' . $e->getMessage());
     exit(1);
 }
-
-
-require_once "Core/WSocket.php";

@@ -1,6 +1,7 @@
 <?php
 
-namespace Core;
+namespace SPGame\Core;
+
 
 class Validator
 {
