@@ -4,204 +4,338 @@ namespace SPGame\Core;
 
 use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
+use Swoole\Table;
 
 
-use Game\Repositories\Accounts;
-use Game\Account;
-use SPGame\Core\Database;
+use SPGame\Game\Repositories\Accounts;
+use SPGame\Core\Message;
 use SPGame\Core\Input;
+use SPGame\Core\Environment;
+use SPGame\Core\Logger;
+
+
+
+/*
+
+{
+  "status": "ok|error",  // только для ответов
+  "requestId": "string", // уникальный идентификатор запроса
+  "token": "string (128 chars)",
+  "mode": "connect | build | research | fleet | chat | system",
+  "action": "list | start | cancel | move | send | message",
+  "data": {
+    "...": "зависит от mode/action"
+  }
+  "error": {             // если status = "error"
+    "code": "string",
+    "message": "string"
+  }
+}
+
+*/
+
+
 
 class Connect
 {
     protected Server $server;
-    protected Logger $logger;
+    // removed instance logger, use Logger::getInstance() statically
 
-    /*public function __construct(Server $server)
+    protected static Table $connections;
+
+    public static function init(int $size = 1024): void
     {
-        $this->server = $server;
-        $this->logger = Logger::getInstance();
-    }*/
+        self::$connections = new Table($size);
+
+        // Определяем колонки
+        self::$connections->column('fd', Table::TYPE_INT, 4);
+        self::$connections->column('ip', Table::TYPE_STRING, 45); // IPv6
+        self::$connections->column('port', Table::TYPE_INT, 4);
+        self::$connections->column('account', Table::TYPE_INT, 11); // JSON или ID
+
+        self::$connections->create();
+    }
+
+    public static function set(int $fd, $ip, $port, $account)
+    {
+        self::$connections->set($fd, [
+            'fd'      => $fd,
+            'ip'      => $ip,
+            'port'    => $port,
+            'account' => $account ?? null,
+        ]);
+        /*
+        self::$connections[$fd] = [
+            'headers' => $headers,
+            'ip'      => $ip,
+            'port'    => $port,
+            'account' => $account,
+        ];*/
+    }
+    public static function unset(int $fd)
+    {
+        self::$connections->del($fd);
+    }
+
+    public static function getCount(): int
+    {
+        return self::$connections->count();
+    }
+
+    public static function getAuthorizedCount()
+    {
+        $count = 0;
+        foreach (self::$connections as $row) {
+            if (!empty($row['account'])) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    public static function getAuthorizedFds(): array
+    {
+        $fds = [];
+        foreach (self::$connections as $row) {
+            if (!empty($row['account'])) {
+                $fds[] = $row['fd'];
+            }
+        }
+        return $fds;
+    }
+
+    public static function setAccount(int $fd, int $account): void
+    {
+        if ($row = self::$connections->get($fd)) {
+            $row['account'] = $account ?? null;
+            self::$connections->set($fd, $row);
+        }
+    }
+
+    public static function getAccount(int $fd): ?int
+    {
+        if ($row = self::$connections->get($fd)) {
+            return $row['account'] !== '' ? $row['account'] : null;
+        }
+        return null;
+    }
+
+    public static function getIp(int $fd): string
+    {
+        return self::$connections->get($fd)['ip'] ?? '0.0.0.0';
+    }
+
+    public static function getPort(int $fd): int
+    {
+        return self::$connections->get($fd)['port'] ?? 0;
+    }
+
+    /**
+     * Прямой доступ к таблице (для итераций в Timer и других случаях)
+     */
+    public function getTable(): Table
+    {
+        return self::$connections;
+    }
+
+    /**
+     * Обработка ошибки EMAIL_NOT_VERIFIED
+     */
+    private static function handleEmailNotVerified(array $result, Message $response, int $fd): array
+    {
+        $aid = self::getAccount($fd);
+        $accaunt = Accounts::getAccount($aid);
+
+        $response->setToken($accaunt['token'] ?? '');
+        $response->setData("cooldown",  Accounts::getResendCooldownEmail($aid));
+        $response->setData("PinLeght", Environment::getInt('PIN_LENGTH', 6));
+        $response->setMode("login")->setAction("verify_email");
+
+        return $response->source();
+    }
 
     /**
      * Обработка входящего сообщения
      */
-    public static function handle(Frame $frame)
+    public static function handle(Frame $frame, WSocket $wsocket)
     {
 
-        $mode = Input::get((array)$frame->data, 'mode', '');
-        $action = Input::get((array)$frame->data, 'action', '');
+        // Logger is accessed via Logger::getInstance()
 
-        if ($mode == "login") {
-            // Авторизация
-            switch ($action) {
-                case 'register':
-                    return $this->register((array)$frame->data);
+        $Msg = new Message((array)$frame->data);
+
+        /*Logger::getInstance()->info(
+            'Input Message',
+            $Msg->source()
+        );*/
+
+        // Преобразуем данные фрейма в удобный массив
+        //$payload = (array)$frame->data;
+
+        $mode      = $Msg->getMode();
+        $action    = $Msg->getAction();
+        $requestId = $Msg->getRequestId();
+        $token     = $Msg->getToken();
+
+        $response = new Message();
+        $response->setMode($mode)->setAction($action)->setRequestId($requestId);
+
+        try {
+            // --- special case: handshake / connect (токен не обязателен) ---
+            if ($mode === 'connect' || $mode === 'handshake') {
+                if ($action === 'ping') {
+                    $response->setData('message', 'Connected');
+                    return $response->source();
+                }
+            }
+
+            $result  = [];
+
+            // --- логин / регистрация (обработка до проверки токена) ---
+            if ($mode === 'login') {
+                switch ($action) {
+                    case 'register':
+                        // Accounts::register должен вернуть массив в формате ответа
+                        $result  = Accounts::register($Msg, $frame->fd, $wsocket);
+                        break;
+                    case 'verify_email':
+                        $result  = Accounts::verifyEmail($Msg, $frame->fd, $wsocket);
+                        break;
+                    case 'send_verify_email':
+                        $result  = Accounts::resendVerificationPin($Msg, $frame->fd, $wsocket);
+                        Logger::getInstance()->info("Verification PIN Connect", $result);
+                        break;
+                    case 'login':
+                    default:
+                        $result  = Accounts::login($Msg, $frame->fd, $wsocket);
+                        break;
+                }
+
+                if ($result['verify_email']) {
+                    return self::handleEmailNotVerified($result, $response, $frame->fd);
+                }
+
+                if (isset($result['success']) && $result['success'] === true && isset($result['id'])) {
+                    // при успешной регистрации/логине добавляем токен в Message
+                    $response->setToken($result['token'] ?? '');
+                    $response->setData('id', $result['id']);
+                    $response->setData('login', $result['login']);
+                } elseif (isset($result['success']) && $result['success'] === true) {
+
+                    if ($action == 'send_verify_email') {
+                        $response->setData('message', $result['message']);
+                        $response->setMode("overview");
+                        $response->setAction("");
+                        return $response->source();
+                    }
+                    /*
+                    $aid = self::getAccount($frame->fd);
+                    $accaunt = Accounts::getAccount($aid);
+
+                    $response->setToken($accaunt['token'] ?? '');
+                    $response->setData("cooldown",  Accounts::getResendCooldownEmail($aid));
+                    $response->setData("PinLeght", Environment::getInt('PIN_LENGTH', 6));
+*/
+
+                    /*return self::handleEmailNotVerified($result, $response, $frame->fd);*/
+                } else {
+
+
+                    $response->setError($result['error']['code'] ?? 'unknown', $result['error']['message'] ?? 'Error');
+
+                    if ($result['error']['code'] == Errors::PIN_RESEND_COOLDOWN) {
+                        $response->setToken($result['token'] ?? '');
+                        $response->setData("cooldown", $result['cooldown']);
+                        $response->setData("PinLeght", Environment::getInt('PIN_LENGTH', 6));
+                    }
+                }
+
+                return $response->source();
+            }
+
+            // --- для всех остальных режимов требуется токен ---
+            if (empty($token)) {
+                Logger::getInstance()->warning('Missing token for action', [
+                    'fd' => $frame->fd,
+                    'mode' => $mode,
+                    'action' => $action
+                ]);
+
+                $response->setError('missing_token', 'Token is required')->setMode("login")->setAction("login");
+                return $response->source();
+            }
+
+            // Проверяем токен — authByToken должен возвращать массив с success
+            $authResult = Accounts::authByToken($token, $frame->fd, $wsocket);
+            if (!isset($authResult['success']) || $authResult['success'] !== true) {
+                Logger::getInstance()->warning('Invalid token', [
+                    'fd' => $frame->fd,
+                    'token' => $token,
+                    'mode' => $mode,
+                    'action' => $action,
+                    'authResult' => $authResult
+                ]);
+
+                $response->setError('invalid_token', 'Invalid token')->setMode("login")->setAction("login");
+                return $response->source();
+            }
+
+            if ($authResult['verify_email']) {
+                return self::handleEmailNotVerified($authResult, $response, $frame->fd);
+            }
+
+            // --- Роутинг по режимам (game logic) ---
+            switch ($mode) {
+                /*case 'build':
+                    // BuildModule::handle должен вернуть массив-ответ
+                    $result = BuildModule::handle($action, $payload, $authResult, $frame, $wsocket);
+                    break;
+
+                case 'research':
+                    $result = ResearchModule::handle($action, $payload, $authResult, $frame, $wsocket);
+                    break;
+
+                case 'fleet':
+                    $result = FleetModule::handle($action, $payload, $authResult, $frame, $wsocket);
+                    break;
+
+                case 'chat':
+                    $result = Chat::handle($action, $payload, $authResult, $frame, $wsocket);
+                    break;
+
+                case 'system':
+                    $result = SystemModule::handle($action, $payload, $authResult, $frame, $wsocket);
+                    break;*/
+                    
+                case 'overview':
                 default:
-                    return $this->login((array)$frame->data);
-            }
-        } else {
-            $Token = Input::get((array)$frame->data, 'Token', '');
-            if (empty($Token)) {
-                Logger::getInstance()->warning('Missing token for action', ['fd' => $frame->fd, 'action' => $action]);
-                return null;
+                    $response->setError('unknown_mode', 'Unknown mode');
+                    return $response->source();
             }
 
-        }
-
-    }
-
-    // =============================
-    // Регистрация
-    // =============================
-    protected function register(array $data): array
-    {
-        $login = $data['login'] ?? '';
-        $email = $data['email'] ?? '';
-        $password = $data['password'] ?? '';
-        $ip = $data['ip'] ?? '0.0.0.0';
-
-        if (empty($login) || empty($email) || empty($password)) {
-            return ['error' => 'Missing registration fields'];
-        }
-
-        // Валидация email
-        if (!\Core\Validator::validateEmail($email)) {
-            return ['error' => 'Invalid email format'];
-        }
-
-        // Валидация логина (3-20 символов, буквы, цифры, _)
-        if (!preg_match('/^[a-zA-Z0-9_]{3,20}$/', $login)) {
-            return ['error' => 'Invalid login format'];
-        }
-
-        // Проверка пароля
-        if (!\Core\Validator::validatePassword($password)) {
-            return ['error' => 'Password must be at least 8 characters and contain letters and numbers'];
-        }
-
-        // Проверка на существующий логин
-        if (Accounts::findByLogin($login)) {
-            return ['error' => 'Login already exists'];
-        }
-
-        // Проверка на существующий email
-        foreach (Accounts::all() as $acc) {
-            if ($acc->getEmail() === $email) {
-                return ['error' => 'Email already registered'];
+            // Гарантируем стандартную структуру ответа
+            // --- объединяем результат с Message ---
+            if (is_array($result)) {
+                foreach ($result as $key => $val) {
+                    if (!in_array($key, ['mode', 'action', 'requestId'])) {
+                        $response->setData($key, $val);
+                    }
+                }
+            } else {
+                $response->setError('invalid_response', 'Handler returned invalid response');
             }
+
+            return $response->source();
+        } catch (\Throwable $e) {
+            Logger::getInstance()->error('Unhandled exception in WS handler', [
+                'exception' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'fd' => $frame->fd,
+                'payload' => (array)$frame->data
+            ]);
+
+            $response->setError('exception', "Server error");
+            return $response->source();
         }
-
-        // Хешируем пароль
-        $hash = password_hash($password, PASSWORD_DEFAULT);
-        $time = time();
-
-        $db = Database::getInstance();
-        $db->query(
-            "INSERT INTO accounts (login, email, password, reg_time, last_time, reg_ip, last_ip) 
-         VALUES (:login, :email, :password, :reg_time, :last_time, :reg_ip, :last_ip)",
-            [
-                ':login' => $login,
-                ':email' => $email,
-                ':password' => $hash,
-                ':reg_time' => $time,
-                ':last_time' => $time,
-                ':reg_ip' => $ip,
-                ':last_ip' => $ip
-            ]
-        );
-
-        $accountId = (int)$db->lastInsertId();
-
-        $account = new \Game\Account([
-            'id' => $accountId,
-            'login' => $login,
-            'email' => $email,
-            'password' => $hash,
-            'reg_time' => $time,
-            'last_time' => $time,
-            'reg_ip' => $ip,
-            'last_ip' => $ip,
-            'level' => 5,
-            'credit' => 0,
-            'lang' => 'ru'
-        ]);
-
-        Accounts::add($account);
-
-        return ['success' => true, 'id' => $accountId];
-    }
-
-    // =============================
-    // Логин
-    // =============================
-    protected function login(array $data): array
-    {
-        $login = $data['login'] ?? '';
-        $password = $data['password'] ?? '';
-        $ip = $data['ip'] ?? '0.0.0.0';
-
-        if (empty($login) || empty($password)) {
-            return ['error' => 'Missing login fields'];
-        }
-
-        // Валидация логина (можно повторно проверить формат)
-        if (!preg_match('/^[a-zA-Z0-9_]{3,20}$/', $login)) {
-            return ['error' => 'Invalid login format'];
-        }
-
-        $account = Accounts::findByLogin($login);
-        if (!$account) {
-            return ['error' => 'Account not found'];
-        }
-
-        if (!password_verify($password, $account->getPassword())) {
-            return ['error' => 'Incorrect password'];
-        }
-
-        // Генерация нового токена
-        $token = hash('sha512', $account->getId() . bin2hex(random_bytes(6)) . microtime(true));
-        $account->setToken($token);
-
-        $db = Database::getInstance();
-        $db->query(
-            "UPDATE accounts SET token = :token, last_time = :last_time, last_ip = :last_ip WHERE id = :id",
-            [
-                ':token' => $token,
-                ':last_time' => time(),
-                ':last_ip' => $ip,
-                ':id' => $account->getId()
-            ]
-        );
-
-        return ['success' => true, 'token' => $token];
-    }
-
-
-    // =============================
-    // Авторизация по токену
-    // =============================
-    protected function authByToken(string $token): array
-    {
-        $account = Accounts::findByToken($token);
-        if (!$account) {
-            return ['error' => 'Invalid token'];
-        }
-
-        $db = Database::getInstance();
-
-        // Обновление last_time при каждом запросе
-        $db->query(
-            "UPDATE accounts SET last_time = :last_time WHERE id = :id",
-            [
-                ':last_time' => time(),
-                ':id' => $account->getId()
-            ]
-        );
-
-        return [
-            'success' => true,
-            'id' => $account->getId(),
-            'login' => $account->getLogin()
-        ];
     }
 }

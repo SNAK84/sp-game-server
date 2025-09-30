@@ -7,8 +7,10 @@ namespace SPGame;
 require __DIR__ . '/../vendor/autoload.php';
 
 use SPGame\Core\Logger;
+use SPGame\Core\Connect;
 use SPGame\Core\Environment;
 use SPGame\Core\WSocket;
+use SPGame\Game\Repositories\Accounts;
 
 try {
     Environment::init(__DIR__ . '/../.env');
@@ -24,6 +26,9 @@ try {
 
     $logger->info('Starting SP-Game WebSocket Server');
 
+    Accounts::init();
+    Connect::init();
+    
     $server = new WSocket(); // Создаём и запускаем сервер
     
 } catch (\Exception $e) {

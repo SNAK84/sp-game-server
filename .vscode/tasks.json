@@ -1,4 +1,3 @@
-
 {
   "version": "2.0.0",
   "tasks": [
@@ -12,6 +11,12 @@
       "label": "Docker Compose Down",
       "type": "shell",
       "command": "docker-compose down",
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker Compose Logs",
+      "type": "shell",
+      "command": "docker-compose logs -f swoole",
       "problemMatcher": []
     }
   ]

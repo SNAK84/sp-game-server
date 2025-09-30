@@ -4,6 +4,7 @@ namespace SPGame\Core;
 
 use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
+use Swoole\Http\Request;
 use Swoole\Timer;
 
 class WSocket
@@ -11,9 +12,12 @@ class WSocket
     private ?Server $ws = null;
     private Logger $logger;
 
+    //private array $connections = [];
+
     public function __construct()
     {
         $this->logger = Logger::getInstance();
+
         $this->startServer();
     }
 
@@ -27,9 +31,7 @@ class WSocket
             $this->logger->info('WebSocket server created', ['host' => $host, 'port' => $port]);
 
             $this->ws->on('Start', [$this, 'onStart']);
-            $this->ws->on('open', function ($server, $req) {
-                $this->logger->info('New WebSocket connection', ['fd' => $req->fd]);
-            });
+            $this->ws->on('open', [$this, 'onOpen']);
             $this->ws->on('message', [$this, 'onMessage']);
             $this->ws->on('close', [$this, 'onClose']);
 
@@ -47,18 +49,57 @@ class WSocket
             'port' => $server->port
         ]);
 
+        Time::Start();
+
         Timer::tick(1000, function () {
             // Resource tick logic
         });
 
         Timer::tick(5000, function () {
-            global $OnLines;
+
             $this->logger->info('Server statistics', [
-                'uptime' => Time::WorkTime(true, false),
-                'memory_usage' => format_number_short(memory_get_usage()),
+                'uptime' => Time::WorkTime(true, true),
+                'memory_usage' => Helpers::formatNumberShort(memory_get_usage()),
+                'Accaunts' => \SPGame\Game\Repositories\Accounts::count(),
+                'connections' => \SPGame\Core\Connect::getCount(),
+                'authorized' => \SPGame\Core\Connect::getAuthorizedCount()
                 //'online_users' => count($OnLines)
             ]);
         });
+    }
+
+    public function onOpen(Server $server, Request $request): void
+    {
+        $fd = $request->fd;
+
+        // сохраняем заголовки и IP
+        $info = $server->getClientInfo($fd);
+
+        $ip = $request->header['x-forwarded-for'] ?? $request->header['x-real-ip'] ?? null;
+
+        if ($ip) {
+            if (strpos($ip, ',') !== false) {
+                $ip = trim(explode(',', $ip)[0]);
+            }
+        } else {
+            $ip = $info['remote_ip'] ?? '0.0.0.0';
+        }
+
+        Connect::set(
+            $fd,
+            $ip,
+            $info['remote_port'] ?? 0,
+            null
+        );
+
+        /* $this->connections[$fd] = [
+            'headers' => $request->header ?? [],
+            'ip'      => $info['remote_ip'] ?? '0.0.0.0',
+            'port'    => $info['remote_port'] ?? 0,
+            'account' => null,
+        ];*/
+
+        $this->logger->info("Client {$fd} connected. IP: " . Connect::getIp($fd) . ":" . Connect::getPort($fd));
     }
 
     public function onMessage(Server $server, Frame $frame)
@@ -66,18 +107,32 @@ class WSocket
         try {
             $this->logger->debug('Received WebSocket message', ['fd' => $frame->fd]);
 
-            $frame->data = json_decode($frame->data, true);
-            $response = Connect::handle($frame);
 
-            $this->send($frame);
+            $data = json_decode($frame->data, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $this->logger->warning('Invalid JSON received', [
+                    'fd' => $frame->fd,
+                    'raw' => $frame->data,
+                ]);
+                return;
+            }
+            $frame->data = $data;
+            $response = Connect::handle($frame, $this);
+
+            $this->ws->push($frame->fd, json_encode($response));
         } catch (\Exception $e) {
             $this->logger->logException($e, 'Error processing WebSocket message');
         }
     }
 
-    public function onClose($server, $fd)
+    public function onClose(Server $server, int $fd)
     {
-        global $OnLines;
+
+        
+        Connect::unset($fd);
+        $this->logger->info("Client {$fd} disconnected");
+
+        /*global $OnLines;
         try {
             $LID = $OnLines->GetIdByFd($fd);
             if ($LID) {
@@ -89,30 +144,7 @@ class WSocket
             }
         } catch (\Exception $e) {
             $this->logger->logException($e, 'Error handling WebSocket close');
-        }
+        }*/
     }
 
-    private function send(Frame $frame, array $Data = []): void
-    {
-        global $OnLines;
-
-        try {
-            $LID = $OnLines->GetIdByFd($frame->fd);
-            if ($LID > 0) {
-                $Data['Token'] = $OnLines[$LID]['token'];
-                $Data["Resource"] = $OnLines[$LID]['User']['Planet']['Resouce'];
-            }
-
-            $jsonData = json_encode($Data);
-            if ($jsonData === false) {
-                $this->logger->error('Failed to encode JSON data', ['fd' => $frame->fd]);
-                return;
-            }
-
-            $this->ws->push($frame->fd, $jsonData);
-            $this->logger->debug('Sent WebSocket message', ['fd' => $frame->fd]);
-        } catch (\Exception $e) {
-            $this->logger->logException($e, 'Error sending WebSocket message');
-        }
-    }
 }

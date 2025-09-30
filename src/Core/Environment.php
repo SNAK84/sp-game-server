@@ -15,7 +15,7 @@ class Environment
         if (empty($envFile)) {
             $envFile = dirname(__DIR__, 2) . '/.env';
         }
-        
+
         self::$envFile = $envFile;
         self::loadEnv();
     }
@@ -38,13 +38,22 @@ class Environment
                 [$key, $value] = explode('=', $line, 2);
                 $key = trim($key);
                 $value = trim($value);
-                
-                // Remove quotes if present
+
+                // Если есть inline-комментарий и значение не в кавычках
+                if ((substr($value, 0, 1) !== '"' && substr($value, 0, 1) !== "'")) {
+                    $pos = strpos($value, '#');
+                    if ($pos !== false) {
+                        $value = trim(substr($value, 0, $pos));
+                    }
+                }
+
+                // Убираем кавычки, если есть
                 if ((substr($value, 0, 1) === '"' && substr($value, -1) === '"') ||
-                    (substr($value, 0, 1) === "'" && substr($value, -1) === "'")) {
+                    (substr($value, 0, 1) === "'" && substr($value, -1) === "'")
+                ) {
                     $value = substr($value, 1, -1);
                 }
-                
+
                 self::$env[$key] = $value;
             }
         }
@@ -71,7 +80,7 @@ class Environment
         if ($value === null) {
             return $default;
         }
-        
+
         return in_array(strtolower($value), ['true', '1', 'yes', 'on'], true);
     }
 
@@ -81,7 +90,7 @@ class Environment
         if ($value === null) {
             throw new RuntimeException("Required environment variable not set: {$key}");
         }
-        
+
         return $value;
     }
 
@@ -90,7 +99,7 @@ class Environment
         if (self::$env === null) {
             self::init();
         }
-        
+
         return self::$env ?? [];
     }
 }
