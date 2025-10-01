@@ -11,6 +11,13 @@ use SPGame\Core\Connect;
 use SPGame\Core\Environment;
 use SPGame\Core\WSocket;
 use SPGame\Game\Repositories\Accounts;
+use SPGame\Game\Repositories\Users;
+use SPGame\Game\Repositories\Planets;
+use SPGame\Game\Repositories\Resources;
+use SPGame\Game\Repositories\Config;
+use SPGame\Game\Repositories\Vars;
+
+use SPGame\Game\Services\RepositorySaver;
 
 try {
     Environment::init(__DIR__ . '/../.env');
@@ -26,11 +33,20 @@ try {
 
     $logger->info('Starting SP-Game WebSocket Server');
 
-    Accounts::init();
+    $saver = new RepositorySaver();
+
+    Accounts::init($saver);
     Connect::init();
-    
+
+    Vars::init();
+    Config::init($saver);
+
+    Users::init($saver);
+    Planets::init($saver);
+    Resources::init($saver);
+
     $server = new WSocket(); // Создаём и запускаем сервер
-    
+
 } catch (\Exception $e) {
     error_log('Failed to start SP-Game WebSocket Server: ' . $e->getMessage());
     exit(1);

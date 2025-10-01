@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../var/www/spa.snak84.ru"
+		},
+		{
+			"path": "../../var/www/sp.snak84.ru"
+		}
+	],
+	"settings": {
+		"intelephense.files.maxSize": 5000000
+	}
+}

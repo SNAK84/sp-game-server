@@ -12,260 +12,103 @@ use SPGame\Core\Message;
 use SPGame\Core\WSocket;
 use SPGame\Core\Mailer;
 use SPGame\Core\Environment;
+use SPGame\Core\Defaults;
 
 use Swoole\Table;
 
-class Accounts
+class Accounts extends BaseRepository
 {
-    /** @var Table Массив всех аккаунтов по ID */
-    protected static Table $accounts;
 
-    protected static Table $indexLogin;
-    protected static Table $indexEmail;
-    protected static Table $indexToken;
+    /** @var Table Основная таблица */
+    protected static Table $table;
 
-    /** @var Logger */
-    protected static Logger $logger;
+    /** @var array Таблицы индексов Swoole */
+    protected static array $indexTables = [];
 
-    public static function init(): void
-    {
-        self::$logger = Logger::getInstance();
+    protected static string $className = 'Accounts';
 
-        $size = 10240;
-        self::$accounts = new Table($size);
+    protected static string $tableName = 'accounts';
 
-        self::$accounts->column('id', Table::TYPE_INT, 8);
-        self::$accounts->column('login', Table::TYPE_STRING, 64);
-        self::$accounts->column('email', Table::TYPE_STRING, 128);
-        self::$accounts->column('password', Table::TYPE_STRING, 128);
-        self::$accounts->column('token', Table::TYPE_STRING, 128);
-        self::$accounts->column('verify_email', Table::TYPE_INT, 1);
-        self::$accounts->column('last_send_verify_mail', Table::TYPE_INT, 8);
-        self::$accounts->column('level', Table::TYPE_INT, 1);
-        self::$accounts->column('reg_time', Table::TYPE_INT, 8);
-        self::$accounts->column('last_time', Table::TYPE_INT, 8);
-        self::$accounts->column('reg_ip', Table::TYPE_STRING, 45);
-        self::$accounts->column('last_ip', Table::TYPE_STRING, 45);
-        self::$accounts->column('credit', Table::TYPE_INT, 8);
-        self::$accounts->column('lang', Table::TYPE_STRING, 4);
-        self::$accounts->column('frame', Table::TYPE_INT, 8); // fd для Frame
-        self::$accounts->column('email_pin', Table::TYPE_INT, 4); // 4 байта, подходит для PIN до 99999999
+    protected static array $tableSchema = [
+        'columns' => [
+            'id' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(11) UNSIGNED NOT NULL AUTO_INCREMENT', 'default' => Defaults::NONE],
+            'login' => ['swoole' => [Table::TYPE_STRING, 64], 'sql' => 'VARCHAR(64) NOT NULL', 'default' => ''],
+            'email' => ['swoole' => [Table::TYPE_STRING, 128], 'sql' => 'VARCHAR(128) NOT NULL', 'default' => ''],
+            'password' => ['swoole' => [Table::TYPE_STRING, 128], 'sql' => 'VARCHAR(128) NOT NULL', 'default' => ''],
+            'token' => ['swoole' => [Table::TYPE_STRING, 128], 'sql' => 'VARCHAR(128) DEFAULT NULL', 'default' => ''],
+            'verify_email' => ['swoole' => [Table::TYPE_INT, 1], 'sql' => 'TINYINT(1) DEFAULT 0', 'default' => 0],
+            'last_send_verify_mail' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(11) DEFAULT 0', 'default' => 0],
+            'level' => ['swoole' => [Table::TYPE_INT, 1], 'sql' => 'TINYINT(1) DEFAULT 5', 'default' => 5],
+            'reg_time' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(11) NOT NULL', 'default' => Defaults::TIME],
+            'last_time' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(11) NOT NULL', 'default' => Defaults::TIME],
+            'reg_ip' => ['swoole' => [Table::TYPE_STRING, 45], 'sql' => 'VARCHAR(45) DEFAULT NULL', 'default' => ''],
+            'last_ip' => ['swoole' => [Table::TYPE_STRING, 45], 'sql' => 'VARCHAR(45) DEFAULT NULL', 'default' => ''],
+            'credit' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(8) DEFAULT 0', 'default' => 0],
+            'lang' => ['swoole' => [Table::TYPE_STRING, 4], 'sql' => "VARCHAR(4) DEFAULT 'ru'", 'default' => 'ru'],
+            'frame' => ['swoole' => [Table::TYPE_INT, 8], 'default' => 0],
+            'email_pin' => ['swoole' => [Table::TYPE_INT, 4], 'default' => 0],
+        ],
+        'indexes' => [
+            ['name' => 'PRIMARY', 'type' => 'PRIMARY', 'fields' => ['id']],
+            ['name' => 'uniq_login', 'type' => 'UNIQUE', 'fields' => ['login']],
+            ['name' => 'uniq_email', 'type' => 'UNIQUE', 'fields' => ['email']],
+            ['name' => 'uniq_token', 'type' => 'UNIQUE', 'fields' => ['token']],
+        ]
+    ];
 
+    /** @var array Список изменённых ID для синхронизации */
+    protected static array $dirtyIds = [];
 
-        self::$accounts->create();
-
-        // индексы (ключ => id)
-        self::$indexLogin = new Table($size);
-        self::$indexLogin->column('id', Table::TYPE_INT);
-        self::$indexLogin->create();
-
-        self::$indexEmail = new Table($size);
-        self::$indexEmail->column('id', Table::TYPE_INT);
-        self::$indexEmail->create();
-
-        self::$indexToken = new Table($size);
-        self::$indexToken->column('id', Table::TYPE_INT);
-        self::$indexToken->create();
-
-        self::ensureTableExists();
-
-        self::loadAll();
-    }
-
-    protected static function ensureTableExists(): void
-    {
-        $db = Database::getInstance();
-        $tableName = 'accounts';
-
-        // Определяем все столбцы и их типы один раз
-        $columnsDefinition = [
-            'id' => 'INT(11) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY',
-            'login' => 'VARCHAR(64) NOT NULL',
-            'email' => 'VARCHAR(128) NOT NULL',
-            'password' => 'VARCHAR(128) NOT NULL',
-            'token' => 'VARCHAR(128) DEFAULT NULL',
-            'verify_email' => 'TINYINT(1) DEFAULT 0',
-            'last_send_verify_mail' => 'INT(11) DEFAULT NULL',
-            'level' => 'TINYINT(1) DEFAULT 5',
-            'reg_time' => 'INT(11) NOT NULL',
-            'last_time' => 'INT(11) NOT NULL',
-            'reg_ip' => 'VARCHAR(45) DEFAULT NULL',
-            'last_ip' => 'VARCHAR(45) DEFAULT NULL',
-            'credit' => 'INT(8) DEFAULT 0',
-            'lang' => "VARCHAR(4) DEFAULT 'ru'"
-        ];
-
-        $exists = $db->fetchOne("SHOW TABLES LIKE '$tableName'");
-        if (!$exists) {
-            // Собираем строку для CREATE TABLE из определения столбцов
-            $columnsSql = [];
-            foreach ($columnsDefinition as $col => $def) {
-                $columnsSql[] = "`$col` $def";
-            }
-            $db->query("CREATE TABLE `$tableName` (" . implode(", ", $columnsSql) . ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-            self::$logger->info("Create table MySQL `$tableName`");
-        }
-
-        // Проверяем и добавляем недостающие столбцы
-        $existingColumns = $db->fetchAll("SHOW COLUMNS FROM `$tableName`");
-        $existingColumns = array_column($existingColumns, 'Field');
-
-        foreach ($columnsDefinition as $col => $def) {
-            if (!in_array($col, $existingColumns)) {
-                $db->query("ALTER TABLE `$tableName` ADD COLUMN `$col` $def");
-                self::$logger->info("Add column `$col` to table MySQL `$tableName`");
-            }
-        }
-
-        // Добавляем уникальные индексы и индексы при их отсутствии
-        $indexes = $db->fetchAll("SHOW INDEX FROM `$tableName`");
-        $existingIndexNames = array_map(function ($row) {
-            return $row['Key_name'];
-        }, $indexes);
-
-        $ensureIndex = function (string $sqlCreate, string $indexName) use ($db, $existingIndexNames, $tableName) {
-            if (!in_array($indexName, $existingIndexNames, true)) {
-                $db->query($sqlCreate);
-                self::$logger->info("Add index `$indexName` on MySQL `$tableName`");
-            }
-        };
-
-        $ensureIndex("ALTER TABLE `$tableName` ADD UNIQUE `uniq_login` (`login`)", 'uniq_login');
-        $ensureIndex("ALTER TABLE `$tableName` ADD UNIQUE `uniq_email` (`email`)", 'uniq_email');
-        $ensureIndex("ALTER TABLE `$tableName` ADD UNIQUE `uniq_token` (`token`)", 'uniq_token');
-    }
-
+    // Индексы Swoole Table
+    protected static array $indexes = [
+        'login' => 'login',
+        'email' => 'email',
+        'token' => 'token'
+    ];
 
     // ==============================
-    // Работа с массивом аккаунтов
+    // Поиск
     // ==============================
-    public static function loadAll(): void
-    {
-        $db = Database::getInstance();
-        $start = microtime(true);
-        $rows = $db->fetchAll("SELECT * FROM accounts");
-
-        foreach ($rows as $row) {
-            //$account = new Account($row);
-            self::add($row);
-        }
-        $duration = round(microtime(true) - $start, 3);
-        self::$logger->info("Accounts loaded", [
-            'count' => count(self::$accounts),
-            'duration' => $duration . 's'
-        ]);
-    }
-
-    public static function add(array $data): void
-    {
-        // нормализуем ключи для индексов
-        $normalizedLogin = isset($data['login']) ? mb_strtolower(trim((string)$data['login'])) : '';
-        $normalizedEmail = isset($data['email']) ? mb_strtolower(trim((string)$data['email'])) : '';
-        $tokenValue = isset($data['token']) ? trim((string)$data['token']) : '';
-
-        self::$accounts->set(
-            (int)$data['id'],
-            [
-                'id' => $data['id'] ?? 0,
-                'login' => $normalizedLogin,
-                'email' => $normalizedEmail,
-                'password' => $data['password'] ?? '',
-                'token' => $tokenValue,
-                'verify_email' => !empty($data['verify_email']) ? 1 : 0,
-                'last_send_verify_mail' => $data['last_send_verify_mail'] ?? 0,
-                'level' => $data['level'] ?? 5,
-                'reg_time' => $data['reg_time'] ?? time(),
-                'last_time' => $data['last_time'] ?? time(),
-                'reg_ip' => $data['reg_ip'] ?? '',
-                'last_ip' => $data['last_ip'] ?? '',
-                'credit' => $data['credit'] ?? 0,
-                'lang' => $data['lang'] ?? 'ru',
-                'frame' => 0,
-            ]
-        );
-
-        // индексируем только непустые значения
-        if ($normalizedLogin !== '') {
-            self::$indexLogin->set($normalizedLogin, ['id' => $data['id']]);
-        }
-        if ($normalizedEmail !== '') {
-            self::$indexEmail->set($normalizedEmail, ['id' => $data['id']]);
-        }
-        if ($tokenValue !== '') {
-            self::$indexToken->set($tokenValue, ['id' => $data['id']]);
-        }
-    }
-
-    /*
-    public static function get(int $id): ?Account
-    {
-        return self::$accounts[$id] ?? null;
-    }*/
-
     public static function findByLogin(string $login): ?array
     {
-        $row = self::$indexLogin->get($login);
-        return $row ? self::$accounts->get($row['id']) : null;
+        return self::findByIndex('login', mb_strtolower(trim($login)));
     }
 
-
-    public static function findByEMail(string $email): ?array
+    public static function findByEmail(string $email): ?array
     {
-        $row = self::$indexEmail->get($email);
-        return $row ? self::$accounts->get($row['id']) : null;
+        return self::findByIndex('email', mb_strtolower(trim($email)));
     }
 
     public static function findByToken(string $token): ?array
     {
-        $row = self::$indexToken->get($token);
-        return $row ? self::$accounts->get($row['id']) : null;
-    }
-
-    public static function getAccount(int $id): array
-    {
-        return self::$accounts->get($id);
-    }
-
-    public static function all(): array
-    {
-        $result = [];
-        foreach (self::$accounts as $row) {
-            $result[] = $row;
-        }
-        return $result;
-    }
-
-    public static function count(): int
-    {
-        return self::$accounts->count();
+        return self::findByIndex('token', $token);
     }
 
     /** Генерация нового токена для аккаунта */
     public static function generateToken(int $id): string
     {
 
-        $row = self::$accounts->get($id);
+        $account  = self::findById($id);
 
-        if (!$row) {
+        if (!$account) {
             throw new \RuntimeException("Account with id {$id} not found");
         }
 
-        $old = self::$accounts->get($id)['token'] ?? '';
-        if ($old) {
-            self::$indexToken->del($old);
+        $oldToken = $account['token'] ?? '';
+        if ($oldToken !== '') {
+            self::$indexTables['token']->del($oldToken);
         }
 
-        $row['token'] = hash('sha512', $id . bin2hex(random_bytes(6)) . microtime(true));
-        self::$accounts->set($id, $row);
+        $account['token'] = hash('sha512', $id . bin2hex(random_bytes(6)) . microtime(true));
 
-        self::$indexToken->set($row['token'], ['id' => $id]);
+        self::update($account);
 
-        return $row['token'];
+        return $account['token'];
     }
 
     public static function getResendCooldownEmail(int $id): int
     {
-        $account = self::$accounts->get($id);
+        $account = self::findById($id);
         if (!$account) {
             return 0;
         }
@@ -324,7 +167,7 @@ class Accounts
         $account['frame'] = $fd;
         $account['token'] = $token;
 
-        self::$accounts->set($account['id'], $account);
+        self::update($account);
 
         $db = Database::getInstance();
         $db->query(
@@ -382,7 +225,7 @@ class Accounts
         $account['last_ip'] = $ip;
         $account['frame'] = $fd;
 
-        self::$accounts->set((int)$account['id'], $account);
+        self::update($account);
 
         $verify_email = false;
         // Блокируем доступ для не верифицированных аккаунтов
@@ -452,7 +295,7 @@ class Accounts
 
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
         $db = Database::getInstance();
-        $db->query(
+        $id = $db->insert(
             "INSERT INTO accounts (login, email, password, reg_time, last_time, reg_ip, last_ip)
              VALUES (:login, :email, :password, :reg_time, :last_time, :reg_ip, :last_ip)",
             [
@@ -466,7 +309,6 @@ class Accounts
             ]
         );
 
-        $id = $db->lastInsertId();
         $account = [
             'id' => $id,
             'login' => $login,
@@ -482,14 +324,17 @@ class Accounts
 
         self::$logger->info("New account registered: $login | IP: $ip");
 
-        $token = self::generateToken($account['id']);
+        $account['token'] = self::generateToken($account['id']);
+
         $db->query(
             "UPDATE accounts SET token = :token WHERE id = :id",
             [
-                ':token' => $token,
+                ':token' => $account['token'],
                 ':id' => $id
             ]
         );
+
+        self::update($account);
 
         self::sendEmailConfirmation($id);
 
@@ -497,7 +342,7 @@ class Accounts
             'success' => true,
             'id' => $id,
             'login' => $login,
-            'token' => $token
+            'token' => $account['token']
         ];
     }
 
@@ -529,7 +374,7 @@ class Accounts
         //$account['email_pin'] = 0; // или NULL
 
         // Обновляем время последней отправки
-        self::$accounts->set($accountId, $account);
+        self::update($account);
 
         /*
         self::$logger->info("Resending verification PIN for account {$account['login']} | ID: $accountId");
@@ -573,7 +418,7 @@ class Accounts
     /** Генерация PIN для подтверждения e-mail */
     public static function generateEmailPin(int $id): string
     {
-        $account = self::$accounts->get($id);
+        $account = self::findById($id);
         if (!$account) {
             throw new \RuntimeException("Account with id {$id} not found");
         }
@@ -582,7 +427,7 @@ class Accounts
 
         // Сохраняем PIN в аккаунт (в таблице Swoole)
         $account['email_pin'] = $pin;
-        self::$accounts->set($id, $account);
+        self::update($account);
 
         self::$logger->info("Generated e-mail PIN for account {$account['login']}");
 
@@ -592,7 +437,7 @@ class Accounts
     /** Отправка e-mail для подтверждения */
     public static function sendEmailConfirmation(int $id): bool
     {
-        $account = self::$accounts->get($id);
+        $account = self::findById($id);
         if (!$account || empty($account['email'])) {
             self::$logger->error("Cannot send email confirmation: account not found or email empty | ID: $id");
             return false;
@@ -638,7 +483,7 @@ class Accounts
 
         // Обновляем время последней отправки
         $account['last_send_verify_mail'] = time();
-        self::$accounts->set($accountId, $account);
+        self::update($account);
 
         // Обновляем в базе данных
         /*$db = Database::getInstance();

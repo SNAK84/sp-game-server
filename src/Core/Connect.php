@@ -144,7 +144,7 @@ class Connect
     private static function handleEmailNotVerified(array $result, Message $response, int $fd): array
     {
         $aid = self::getAccount($fd);
-        $accaunt = Accounts::getAccount($aid);
+        $accaunt = Accounts::findById($aid);
 
         $response->setToken($accaunt['token'] ?? '');
         $response->setData("cooldown",  Accounts::getResendCooldownEmail($aid));
@@ -284,6 +284,8 @@ class Connect
                 return self::handleEmailNotVerified($authResult, $response, $frame->fd);
             }
 
+            $pageBuilder = new \SPGame\Game\PageBuilder($Msg, $frame->fd);
+
             // --- Роутинг по режимам (game logic) ---
             switch ($mode) {
                 /*case 'build':
@@ -306,10 +308,12 @@ class Connect
                 case 'system':
                     $result = SystemModule::handle($action, $payload, $authResult, $frame, $wsocket);
                     break;*/
-                    
+
                 case 'overview':
                 default:
-                    $response->setError('unknown_mode', 'Unknown mode');
+                    $result = $pageBuilder->build('overview');
+                    $response->setData('Page',$result);
+                    $response->setError('unknown_mode', 'Страница по умолчанию overview');
                     return $response->source();
             }
 
@@ -330,6 +334,8 @@ class Connect
             Logger::getInstance()->error('Unhandled exception in WS handler', [
                 'exception' => $e->getMessage(),
                 'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'Trace' => $e->getTraceAsString(),
                 'fd' => $frame->fd,
                 'payload' => (array)$frame->data
             ]);

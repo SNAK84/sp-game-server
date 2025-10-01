@@ -2,6 +2,8 @@
 
 namespace SPGame\Core;
 
+use SPGame\Game\Services\EventLoop;
+
 use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
 use Swoole\Http\Request;
@@ -44,6 +46,7 @@ class WSocket
 
     public function onStart(Server $server)
     {
+
         $this->logger->info('Swoole WebSocket Server started', [
             'host' => $server->host,
             'port' => $server->port
@@ -51,10 +54,38 @@ class WSocket
 
         Time::Start();
 
-        Timer::tick(1000, function () {
-            // Resource tick logic
-        });
+        $loop = new EventLoop();
+        //$loop->start(1000); // Tick каждую 1 секунду
 
+        // Раз в секунду
+        $loop->register([$loop, 'process'], 1000);
+
+        $loop->register(function () {
+            $this->logger->info('Server statistics', [
+                'uptime' => Time::WorkTime(true, true),
+                'memory_usage' => Helpers::formatNumberShort(memory_get_usage()),
+                'Accaunts' => \SPGame\Game\Repositories\Accounts::count(),
+                'connections' => \SPGame\Core\Connect::getCount(),
+                'authorized' => \SPGame\Core\Connect::getAuthorizedCount()
+            ]);
+        }, 5000);
+
+        // Раз в минуту – сохранение всех репозиториев
+        $loop->register(function () {
+            try {
+                global $saver; // берём из main.php
+                if ($saver) {
+                    $saver->saveAll();
+                    Logger::getInstance()->info("Repositories flushed to MySQL");
+                }
+            } catch (\Throwable $e) {
+                Logger::getInstance()->error("Repository flush failed: " . $e->getMessage());
+            }
+        }, 60000);
+
+        $loop->start();
+
+        /*
         Timer::tick(5000, function () {
 
             $this->logger->info('Server statistics', [
@@ -65,7 +96,7 @@ class WSocket
                 'authorized' => \SPGame\Core\Connect::getAuthorizedCount()
                 //'online_users' => count($OnLines)
             ]);
-        });
+        });*/
     }
 
     public function onOpen(Server $server, Request $request): void
@@ -128,7 +159,7 @@ class WSocket
     public function onClose(Server $server, int $fd)
     {
 
-        
+
         Connect::unset($fd);
         $this->logger->info("Client {$fd} disconnected");
 
@@ -146,5 +177,4 @@ class WSocket
             $this->logger->logException($e, 'Error handling WebSocket close');
         }*/
     }
-
 }

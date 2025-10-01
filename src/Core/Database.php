@@ -99,9 +99,11 @@ class Database
         return $stmt->fetch() ?: null;
     }
 
-    public function lastInsertId(): string
+    public function insert(string $sql, array $params = []): string
     {
         $this->ensureConnection();
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
         return $this->pdo->lastInsertId();
     }
 
