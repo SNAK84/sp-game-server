@@ -18,6 +18,9 @@ abstract class BaseRepository
     /** @var Logger */
     protected static Logger $logger;
 
+    // автоинкрементный ID для ключей
+    protected static int $lastId = 0;
+
     /** @var Table Основная таблица */
     protected static Table $table;
 
@@ -35,8 +38,11 @@ abstract class BaseRepository
     /** @var array Индексы (ключ => поле в основной таблице) */
     protected static array $indexes = [];
 
-    /** @var array Список изменённых ID для синхронизации */
-    protected static array $dirtyIds = [];
+
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsTable;
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsDelTable;
 
     /**
      * Инициализация репозитория
@@ -49,6 +55,14 @@ abstract class BaseRepository
 
         self::$logger = Logger::getInstance();
 
+        // Создаём Swoole Table для dirtyIds
+        static::$dirtyIdsTable = new Table(static::$tableSize);
+        static::$dirtyIdsTable->column('id', Table::TYPE_INT);
+        static::$dirtyIdsTable->create();
+        // Создаём Swoole Table для dirtyIdsDel
+        static::$dirtyIdsDelTable = new Table(static::$tableSize);
+        static::$dirtyIdsDelTable->column('id', Table::TYPE_INT);
+        static::$dirtyIdsDelTable->create();
 
         // Создаём основную таблицу Swoole
         static::$table = new Table(static::$tableSize);
@@ -60,17 +74,21 @@ abstract class BaseRepository
         static::$table->create();
 
         // Создаём индексы
-        foreach (static::$indexes as $key => $col) {
-            $tbl = new Table(static::$tableSize);
-            $tbl->column('id', Table::TYPE_INT);
-            $tbl->create();
-            static::$indexTables[$key] = $tbl;
+        foreach (static::$indexes as $key => $val) {
+            static::initIndex($key);
         }
 
-        static::ensureTableExists(static::$tableName, static::$tableSchema);
-        $count = static::loadAll(static::$tableName);
+        if (!empty(static::$tableName)) {
+            static::ensureTableExists(static::$tableName, static::$tableSchema);
+            $count = static::loadAll(static::$tableName);
+        }
+
+        foreach (static::$dirtyIdsTable as $row) {
+            static::$dirtyIdsTable->del($row['id']);
+        }
 
         if ($saver) $saver->register(static::class);
+
 
         $duration = round(microtime(true) - $start, 3);
         $use_memory = memory_get_usage() - $before_memory;
@@ -156,8 +174,162 @@ abstract class BaseRepository
         $rows = $db->fetchAll("SELECT * FROM `" . $tableName . "`");
         foreach ($rows as $row) {
             static::add($row);
+            if ($row['id'] > static::$lastId) static::$lastId = $row['id'];
         }
         return count($rows);
+    }
+
+    // ===============================
+    // Инициализация индекса
+    // ===============================
+    protected static function initIndex(string $indexKey): void
+    {
+        $Unique = static::$indexes[$indexKey]['Unique'];
+
+        //self::$logger->info(static::$className . " initIndex Unique" . $Unique, static::$indexes[$indexKey]);
+
+        $tbl = new Table(static::$tableSize);
+        $tbl->column('id', Table::TYPE_INT);
+        if (!$Unique) {
+            //self::$logger->info(static::$className . " initIndex unUnique", static::$indexes[$indexKey]);
+
+            $tbl->column('ids', Table::TYPE_STRING, 1024); // JSON-массив id
+        }
+        $tbl->create();
+        static::$indexTables[$indexKey] = $tbl;
+    }
+
+    // ===============================
+    // Формируем индексный ключ
+    // ===============================
+    protected static function buildIndexKey(array|string $value): string
+    {
+        if (is_array($value)) {
+            sort($value, SORT_STRING); // сортируем элементы для уникальности вне зависимости от порядка
+            $key = implode('_', array_map(fn($v) => (string)$v, $value));
+        } else {
+            $key = (string)$value;
+        }
+
+        return mb_strtolower(trim($key));
+    }
+
+    // ===============================
+    // Добавление в индекс
+    // ===============================
+    protected static function addIndex(string $indexKey, array|string $value, int $id): void
+    {
+        $key = static::buildIndexKey($value);
+        if ($key === '') return;
+
+        $Unique = static::$indexes[$indexKey]['Unique'] ?? false;
+
+        $tbl = static::$indexTables[$indexKey] ?? null;
+        if (!$tbl) return;
+
+        if ($Unique)
+            $tbl->set($key, ['id' => $id]);
+        else {
+            $existing = $tbl->get($key);
+            $ids = [];
+
+            if ($existing && !empty($existing['ids'])) {
+                $ids = unserialize($existing['ids']) ?: [];
+            }
+
+            // Добавляем id, если его там ещё нет
+            if (!in_array($id, $ids, true)) {
+                $ids[] = $id;
+            }
+
+            $tbl->set($key, [
+                'id'  => $ids[0] ?? 0,   // для удобства хранится первый id
+                'ids' => serialize($ids)
+            ]);
+        }
+    }
+
+    /**
+     * Удаление значения из индекса
+     */
+    protected static function removeIndex(string $indexKey, array|string $val, ?int $id = null): void
+    {
+        $key = static::buildIndexKey($val);
+        if ($key === '') return;
+
+        $Unique = static::$indexes[$indexKey]['Unique'] ?? false;
+        $tbl = static::$indexTables[$indexKey] ?? null;
+        if (!$tbl) return;
+
+        if ($Unique || $id === null) {
+            $tbl->del($key);
+        } else {
+            $existing = $tbl->get($key);
+            if (is_string($existing)) {
+                $existing = unserialize($existing) ?: [];
+            }
+
+            if (!$existing || empty($existing['ids'])) return;
+
+            $ids = $existing['ids'] ?? [];
+            if (is_string($ids)) {
+                $ids = unserialize($ids) ?: [];
+            }
+            if (!is_array($ids)) {
+                $ids = [];
+            }
+            $ids = array_filter($ids, fn($i) => $i !== $id);
+
+            if (empty($ids)) {
+                $tbl->del($key);
+            } else {
+                $tbl->set($key, [
+                    'id'  => (int)$ids[0],
+                    'ids' => serialize($ids)
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Обновление индекса (удаляем старое значение, добавляем новое)
+     */
+    protected static function updateIndex(string $indexKey, array|string $oldValue, array|string $newValue, int $id): void
+    {
+        self::removeIndex($indexKey, $oldValue, $id);
+        self::addIndex($indexKey, $newValue, $id);
+    }
+
+    /**
+     * Поиск по индексу
+     */
+    protected static function findByIndex(string $indexKey, array|string $val): ?array
+    {
+        $key = static::buildIndexKey($val);
+        if ($key === '') return null;
+
+        $Unique = static::$indexes[$indexKey]['Unique'] ?? false;
+        $tbl = static::$indexTables[$indexKey] ?? null;
+        if (!$tbl) return null;
+
+        $indexRow = $tbl->get($key);
+        if (!$indexRow) {
+            return null;
+        }
+
+        if ($Unique) {
+            $mainRow = static::$table->get((string)$indexRow['id']);
+            return $mainRow ?: null;
+        } else {
+            if (empty($indexRow['ids'])) return null;
+            $ids = unserialize($indexRow['ids']) ?: [];
+            $result = [];
+            foreach ($ids as $id) {
+                $row = static::$table->get((string)$id);
+                if ($row) $result[] = $row;
+            }
+            return !empty($result) ? $result : null;
+        }
     }
 
     /**
@@ -175,16 +347,24 @@ abstract class BaseRepository
 
         static::$table->set((string)$row['id'], $row);
 
+
         // Добавляем в индексы
-        foreach (static::$indexes as $key => $col) {
-            $value = mb_strtolower(trim($row[$col] ?? ''));
-            if ($value !== '') {
-                static::$indexTables[$key]->set((string)$value, ['id' =>  (int)$row['id']]);
+        foreach (static::$indexes as $indexKey => $col) {
+            // Получаем ключи из $col['key'], приводим к массиву для единообразия
+            $keys = is_array($col['key']) ? $col['key'] : [$col['key']];
+            $values = [];
+            foreach ($keys as $k) {
+                if (!array_key_exists($k, $row)) {
+                    $values[] = null; // можно решать, как обрабатывать отсутствующие поля
+                } else {
+                    $values[] = $row[$k];
+                }
             }
+            static::addIndex($indexKey, $values, (int)$row['id']);
         }
 
         // Помечаем для синхронизации
-        static::$dirtyIds[(int)$row['id']] = true;
+        static::$dirtyIdsTable->set((string)$row['id'], ['id' => (int)$row['id']]);
     }
 
     /**
@@ -197,7 +377,7 @@ abstract class BaseRepository
 
         $current = static::$table->get((string)$id);
         if (!$current) {
-            self::$logger->warning("Attempted to update non-existent user: " . json_encode($data));
+            self::$logger->warning("Attempted to update non-existent " . static::$className . ": " . json_encode($data));
             return;
         }
 
@@ -205,19 +385,51 @@ abstract class BaseRepository
         static::$table->set((string)$id, $updated);
 
         // Обновляем индексы
-        foreach (static::$indexes as $key => $col) {
-            $oldValue = mb_strtolower(trim($current[$col] ?? ''));
-            $newValue = mb_strtolower(trim($updated[$col] ?? ''));
-            if ($oldValue !== '' && $oldValue !== $newValue) {
-                static::$indexTables[$key]->del($oldValue);
+        foreach (static::$indexes as $indexKey => $col) {
+            // Приводим ключи к массиву
+            $keys = is_array($col['key']) ? $col['key'] : [$col['key']];
+            $oldValues = [];
+            $newValues = [];
+
+            foreach ($keys as $k) {
+                $oldValues[] = $current[$k] ?? null;
+                $newValues[] = $updated[$k] ?? null;
             }
-            if ($newValue !== '') {
-                static::$indexTables[$key]->set($newValue, ['id' => $id]);
-            }
+            static::updateIndex($indexKey, $oldValues, $newValues, $id);
         }
 
         // Помечаем для синхронизации
-        static::$dirtyIds[(int)$id] = true;
+        static::$dirtyIdsTable->set((string)$id, ['id' => (int)$id]);
+    }
+
+    public static function delete(array $data): void
+    {
+        $id = (int)($data['id'] ?? 0);
+
+        $current = static::$table->get((string)$id);
+        if (!$current) {
+            self::$logger->warning("Attempted to delete non-existent " . static::$className . ": " . json_encode($data));
+            return;
+        }
+
+        self::$logger->warning("Delete non-existent " . static::$className . ": " . json_encode($data));
+            
+
+        // Удаляем индексы
+        foreach (static::$indexes as $indexKey => $col) {
+            $keys = is_array($col['key']) ? $col['key'] : [$col['key']];
+            $Values = [];
+            foreach ($keys as $k) {
+                $Values[] = $current[$k] ?? null;
+            }
+            static::removeIndex($indexKey, $Values, $id);
+        }
+
+        static::$table->del((string)$id);
+
+        // Помечаем для удаления
+        static::$dirtyIdsDelTable->set((string)$id, ['id' => (int)$id]);
+        static::$dirtyIdsTable->del((string)$id);
     }
 
     public static function count(): int
@@ -236,49 +448,62 @@ abstract class BaseRepository
 
         foreach (static::$tableSchema['columns'] as $col => $def) {
             $hasValue = array_key_exists($col, $data);
+            $resolvedDefault = null;
 
             if ($fillDefaults && !$hasValue) {
                 $defaultValue = $def['default'] ?? Defaults::NONE;
+
+
+
+                if ($defaultValue == Defaults::AUTOID) {
+                    $resolvedDefault = ++static::$lastId;
+                } else {
+                    $resolvedDefault = Defaults::resolve($defaultValue);
+                }
+                /*
                 $resolved = Defaults::resolve($defaultValue);
                 if ($resolved !== null) {
                     $row[$col] = $resolved;
-                }
+                }*/
             }
 
+            // Если есть значение из входного массива — используем его,
+            // иначе — используем вычисленный дефолт (если он не null)
             if ($hasValue) {
                 $value = $data[$col];
-                switch ($def['swoole'][0]) {
-                    case Table::TYPE_INT:
-                        $row[$col] = (int)$value;
-                        break;
-                    case Table::TYPE_FLOAT:
-                        $row[$col] = (float)$value;
-                        break;
-                    case Table::TYPE_STRING:
-                    default:
-                        $row[$col] = (string)$value;
-                        break;
-                }
+            } elseif ($resolvedDefault !== null) {
+                $value = $resolvedDefault;
+            } else {
+                // Нет значения и нет дефолта — пропускаем колонку
+                continue;
             }
+            $type = $def['swoole'][0] ?? Table::TYPE_STRING;
+            //if ($hasValue) {
+            //$value = $data[$col];
+            switch ($type) {
+                case Table::TYPE_INT:
+                    if ($value === '' || $value === null) {
+                        $row[$col] = 0;
+                    } else {
+                        $row[$col] = (int)$value;
+                    }
+                    break;
+                case Table::TYPE_FLOAT:
+                    if ($value === '' || $value === null) {
+                        $row[$col] = 0.0;
+                    } else {
+                        $row[$col] = (float)$value;
+                    }
+                    break;
+                case Table::TYPE_STRING:
+                default:
+                    $row[$col] = (string)$value;
+                    break;
+            }
+            //}
         }
 
         return $row;
-    }
-
-    /**
-     * Найти запись по индексу
-     */
-    public static function findByIndex(string $indexKey, string $value): ?array
-    {
-        $value = mb_strtolower(trim($value));
-        $indexRow = static::$indexTables[$indexKey]->get($value);
-
-        if ($indexRow === false || !isset($indexRow['id'])) {
-            return null;
-        }
-
-        $mainRow = static::$table->get((string)$indexRow['id']);
-        return $mainRow !== false ? $mainRow : null;
     }
 
     /**
@@ -286,9 +511,29 @@ abstract class BaseRepository
      */
     public static function findById(int $id): ?array
     {
-        return static::$table->get((string)$id);
+        $mainRow = static::$table->get((string)$id);
+        if (!$mainRow) {
+            $mainRow  = static::castRowToSchema(['id' => $id], true);
+            static::add($mainRow);
+        }
+
+        return $mainRow;
     }
 
+    public static function getAll(): ?array
+    {
+
+        if (!isset(static::$table)) {
+            return null;
+        }
+
+        $result = [];
+        foreach (static::$table as $key => $row) {
+            $result[$key] = $row;
+        }
+
+        return $result;
+    }
 
     /**
      * Синхронизация всех изменений в MySQL
@@ -296,7 +541,19 @@ abstract class BaseRepository
      */
     public static function syncToDatabase(int $batchSize = 100): void
     {
-        if (empty(static::$dirtyIds)) {
+        $dirtyIds = [];
+        foreach (static::$dirtyIdsTable as $row) {
+            $dirtyIds[] = (int)$row['id'];
+        }
+
+        $dirtyIdsDelTable = [];
+        foreach (static::$dirtyIdsDelTable as $row) {
+            $dirtyIdsDelTable[] = (int)$row['id'];
+        }
+
+        // Если нет ни обновлений, ни удалений — выходим
+        if (empty($dirtyIds) && empty($dirtyIdsDelTable)) {
+            //self::$logger->info(static::$className . " syncToDatabase: nothing to sync");
             return;
         }
 
@@ -305,82 +562,136 @@ abstract class BaseRepository
             return;
         }
 
-        // Собираем список колонок, которые реально присутствуют в MySQL (имеют 'sql')
-        $columns = [];
-        foreach (static::$tableSchema['columns'] as $col => $def) {
-            if (!empty($def['sql'])) {
-                $columns[] = $col;
-            }
-        }
-
-        if (empty($columns)) {
-            self::$logger->warning(static::$className . " syncToDatabase: no SQL columns found in schema");
+        if (empty(static::$tableName)) {
+            self::$logger->warning(static::$className . " syncToDatabase: tableName is empty");
             return;
         }
 
-        $db = Database::getInstance();
-        $dirtyIds = array_keys(static::$dirtyIds);
+        // Подготавливаем столбцы только если нужно делать INSERT/UPDATE
+        $columns = [];
+        if (!empty($dirtyIds)) {
+            if (empty(static::$tableSchema['columns'])) {
+                self::$logger->warning(static::$className . " syncToDatabase: tableSchema['columns'] is empty");
+                return;
+            }
 
-        // Разбиваем на батчи
-        $chunks = array_chunk($dirtyIds, $batchSize);
+            foreach (static::$tableSchema['columns'] as $col => $def) {
+                if (!empty($def['sql'])) {
+                    $columns[] = $col;
+                }
+            }
+
+            if (empty($columns)) {
+                self::$logger->warning(static::$className . " syncToDatabase: no SQL columns found in schema");
+                return;
+            }
+        }
+
+        $db = Database::getInstance();
+        //$dirtyIds = array_keys($dirtyIds);
+
+
 
         $startAll = microtime(true);
-        $totalRows = 0;
+        $totalSynced = 0;   // количество вставленных/обновлённых "рядов" (батчи)
+        $totalDeleted = 0;  // количество удалённых id
 
-        foreach ($chunks as $chunkIndex => $chunk) {
-            $startChunk = microtime(true);
+        // -----------------------
+        // INSERT / ON DUPLICATE KEY UPDATE (если есть dirtyIds)
+        // -----------------------
+        if (!empty($dirtyIds)) {
+            $chunks = array_chunk($dirtyIds, $batchSize);
 
-            $values = [];
-            $placeholders = [];
+            foreach ($chunks as $chunkIndex => $chunk) {
+                $startChunk = microtime(true);
 
-            foreach ($chunk as $id) {
-                $row = static::$table->get((string)$id);
-                if ($row === false || $row === null) {
+                $values = [];
+                $placeholders = [];
+
+                foreach ($chunk as $id) {
+                    // получаем строку из локального хранилища
+                    $row = static::$table->get((string)$id);
+                    if ($row === false || $row === null) {
+                        continue;
+                    }
+
+                    $rowValues = [];
+                    foreach ($columns as $col) {
+                        $rowValues[] = $row[$col] ?? null;
+                    }
+
+                    $values = array_merge($values, $rowValues);
+                    $placeholders[] = '(' . rtrim(str_repeat('?,', count($columns)), ',') . ')';
+                }
+
+                if (empty($placeholders)) {
                     continue;
                 }
 
-                $rowValues = [];
+                // Формируем часть ON DUPLICATE KEY UPDATE
+                $updateSets = [];
                 foreach ($columns as $col) {
-                    $rowValues[] = $row[$col] ?? null;
+                    $updateSets[] = "`$col` = VALUES(`$col`)";
                 }
 
-                $values = array_merge($values, $rowValues);
-                $placeholders[] = '(' . rtrim(str_repeat('?,', count($columns)), ',') . ')';
+                $sql = "INSERT INTO `" . static::$tableName . "` (`" . implode('`,`', $columns) . "`) VALUES "
+                    . implode(',', $placeholders)
+                    . " ON DUPLICATE KEY UPDATE " . implode(', ', $updateSets);
+
+                try {
+                    $db->query($sql, $values);
+                    $chunkTime = round((microtime(true) - $startChunk) * 1000, 2);
+                    $rows = count($placeholders);
+                    $totalSynced  += $rows;
+
+                    self::$logger->info(static::$className . " syncToDatabase: synced {$rows} rows in chunk #{$chunkIndex} ({$chunkTime} ms)");
+                } catch (\Throwable $e) {
+                    self::$logger->error(static::$className . " syncToDatabase error: " . $e->getMessage(), [
+                        'sql' => $sql,
+                        'rows' => count($placeholders)
+                    ]);
+                }
             }
+        }
 
-            if (empty($placeholders)) {
-                continue;
-            }
+        // -----------------------
+        // DELETE (если есть dirtyIdsDelTable)
+        // -----------------------
+        if (!empty($dirtyIdsDelTable)) {
+            $chunksDel = array_chunk($dirtyIdsDelTable, $batchSize);
 
-            // Формируем часть ON DUPLICATE KEY UPDATE
-            $updateSets = [];
-            foreach ($columns as $col) {
-                $updateSets[] = "`$col` = VALUES(`$col`)";
-            }
+            foreach ($chunksDel as $chunkIndex => $chunkDel) {
+                $startChunk = microtime(true);
 
-            $sql = "INSERT INTO `" . static::$tableName . "` (`" . implode('`,`', $columns) . "`) VALUES "
-                . implode(',', $placeholders)
-                . " ON DUPLICATE KEY UPDATE " . implode(', ', $updateSets);
+                // placeholders для IN (?, ?, ...)
+                $placeholders = rtrim(str_repeat('?,', count($chunkDel)), ',');
+                $sqlDel = "DELETE FROM `" . static::$tableName . "` WHERE `id` IN ($placeholders)";
 
-            try {
-                $db->query($sql, $values);
-                $chunkTime = round((microtime(true) - $startChunk) * 1000, 2);
-                $rows = count($placeholders);
-                $totalRows += $rows;
+                try {
+                    $db->query($sqlDel, $chunkDel);
+                    $chunkTime = round((microtime(true) - $startChunk) * 1000, 2);
+                    $deleted = count($chunkDel);
+                    $totalDeleted += $deleted;
 
-                self::$logger->info(static::$className . " syncToDatabase: synced {$rows} rows in chunk #{$chunkIndex} ({$chunkTime} ms)");
-            } catch (\Throwable $e) {
-                self::$logger->error(static::$className . " syncToDatabase error: " . $e->getMessage(), [
-                    'sql' => $sql,
-                    'rows' => count($placeholders)
-                ]);
+                    self::$logger->info(static::$className . " syncToDatabase: deleted {$deleted} rows in chunk #{$chunkIndex} ({$chunkTime} ms)");
+                } catch (\Throwable $e) {
+                    self::$logger->error(static::$className . " syncToDatabase delete error: " . $e->getMessage(), [
+                        'sql' => $sqlDel,
+                        'ids' => $chunkDel
+                    ]);
+                }
             }
         }
 
         $totalTime = round((microtime(true) - $startAll) * 1000, 2);
-        self::$logger->info(static::$className . " syncToDatabase: total {$totalRows} rows synced in {$totalTime} ms");
+        self::$logger->info(static::$className . " syncToDatabase: total {$totalSynced} rows synced, {$totalDeleted} rows deleted in {$totalTime} ms");
 
-        // Очищаем список dirty ID после синхронизации
-        static::$dirtyIds = [];
+        // Очищаем список dirty ID после синхронизации (и вставок, и удалений)
+        foreach (static::$dirtyIdsTable as $row) {
+            static::$dirtyIdsTable->del($row['id']);
+        }
+        foreach (static::$dirtyIdsDelTable as $row) {
+            static::$dirtyIdsDelTable->del($row['id']);
+        }
     }
 }

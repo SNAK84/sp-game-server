@@ -30,6 +30,8 @@ class Message
     private ?string $token = null;
     private ?string $mode = null;
     private ?string $action = null;
+    private ?string $lang = null;
+    private float $serverTime = 0.0;
     private array $data = [];
     private array $error = [
         "code" => "",
@@ -46,6 +48,7 @@ class Message
             $this->token = Input::get($raw, 'token', '');
             $this->mode = Input::get($raw, 'mode', '');
             $this->action = Input::get($raw, 'action', '');
+            $this->lang = Input::get($raw, 'lang', '');
             $this->data = $raw['data'] ?? [];
         } else {
             $this->requestId = $this->generateRequestId();
@@ -80,6 +83,16 @@ class Message
         $this->action = $action;
         return $this;
     }
+    public function setlang(string $lang)
+    {
+        $this->lang = $lang;
+        return $this;
+    }
+    public function setServerTime(float $serverTime)
+    {
+        $this->serverTime = $serverTime;
+        return $this;
+    }
     public function setData($key, $data)
     {
         $this->data[$key] = $data;
@@ -104,7 +117,11 @@ class Message
     }
     public function getAction(): string
     {
-        return $this->action;
+        return $this->action ?? "";
+    }
+    public function getLang(): string
+    {
+        return $this->lang;
     }
     public function getToken(): string
     {
@@ -134,6 +151,8 @@ class Message
         if ($this->token) $source['token'] = $this->token;
         if ($this->mode) $source['mode'] = $this->mode;
         if ($this->action) $source['action'] = $this->action;
+        if ($this->lang) $source['lang'] = $this->lang;
+        $source['serverTime'] = microtime(true);
         //if (!empty($this->data)) 
         $source['data'] = $this->data;
 
@@ -143,6 +162,4 @@ class Message
 
         return $source;
     }
-
-    
 }

@@ -9,19 +9,41 @@ use SPGame\Core\Logger;
 class Vars
 {
 
-    protected static array $resource;       // Содежит имена по id [1 => metal_mine]
-    protected static array $requirement;    // Требования [6 => [14=>20, 31=>22, 15=>4,108=>12,123=>3]]
-    protected static array $pricelist;      // Стоимость производства по id [1 => [901=>60, 902=>15, 903=>0, 911=>0, 921=>0, 922=>0]]
-    protected static array $attributes;     // Артибуты по id factor,max,type,consumption,consumption2,speed,speed2,capacity,tech,time
+    public static array $resource;       // Содежит имена по id [1 => metal_mine]
+    public static array $requirement;    // Требования [6 => [14=>20, 31=>22, 15=>4,108=>12,123=>3]]
+    public static array $pricelist;      // Стоимость производства по id [1 => [901=>60, 902=>15, 903=>0, 911=>0, 921=>0, 922=>0]]
+    public static array $attributes;     // Артибуты по id factor,max,type,consumption,consumption2,speed,speed2,capacity,tech,time
 
-    protected static array $production;     // Производительность по id 1 => [901=>'30 * $BuildLevel * pow((1.1), $BuildLevel)) * (0.1 * $BuildLevelFactor)', 902=>0, 903=>0, 911=>0, 921=>0, 922=>0]]
-    protected static array $storage;        // Вместимость хранилища id [1 => [901=>'floor(2.5 * pow(1.8331954764, $BuildLevel)) * 5000', 902=>0, 903=>0, 911=>0, 921=>0, 922=>0]]
+    public static array $production;     // Производительность по id 1 => [901=>'30 * $BuildLevel * pow((1.1), $BuildLevel)) * (0.1 * $BuildLevelFactor)', 902=>0, 903=>0, 911=>0, 921=>0, 922=>0]]
+    public static array $storage;        // Вместимость хранилища id [1 => [901=>'floor(2.5 * pow(1.8331954764, $BuildLevel)) * 5000', 902=>0, 903=>0, 911=>0, 921=>0, 922=>0]]
 
-    protected static array $CombatCaps;     // Боевые характеристики attack, shield
-    protected static array $rapidfire;      // Скорострельность [202 => [210 = > 5, 212 => 5]]
+    public static array $CombatCaps;     // Боевые характеристики attack, shield
+    public static array $rapidfire;      // Скорострельность [202 => [210 = > 5, 212 => 5]]
 
+    public static array $bonus;
 
-    protected static array $reslist;
+    public static array $reslist;
+
+    public static array $bonusList = [
+        'Attack',
+        'Defensive',
+        'Shield',
+        'BuildTime',
+        'ResearchTime',
+        'ShipTime',
+        'DefensiveTime',
+        'Resource',
+        'Energy',
+        'ResourceStorage',
+        'ShipStorage',
+        'FlyTime',
+        'FleetSlots',
+        'Planets',
+        'SpyPower',
+        'Expedition',
+        'GateCoolTime',
+        'MoreFound',
+    ];
 
     /** @var Logger */
     protected static Logger $logger;
@@ -62,9 +84,21 @@ class Vars
                 700 => 'dmfunc',
             ],
             'nametype' => [
-                'build' => [1 => 'Ресурсы', 2 => 'Фабрики', 3 => 'Другие'],
-                'reseach' => [1 => 'Базовые', 2 => 'Продвинутые', 3 => 'Боевые', 4 => 'Двигатели'],
-                'fleet' => [1 => 'Гражданские', 2 => 'Боевые'],
+                'build' => [
+                    1 => 'resources',  // ключ
+                    2 => 'factories',
+                    3 => 'others'
+                ],
+                'reseach' => [
+                    1 => 'basic',
+                    2 => 'advanced',
+                    3 => 'combat',
+                    4 => 'engines'
+                ],
+                'fleet' => [
+                    1 => 'civil',
+                    2 => 'military'
+                ]
             ],
             'ressources' => [901, 902, 903, 911, 921, 922],
             'resstype' => [
@@ -127,17 +161,44 @@ class Vars
                 'time'        => $varsRow['timeBonus'],
             ];
 
-            self::$production[$id] = [
-                901 => $varsRow['production901'],
-                902 => $varsRow['production902'],
-                903 => $varsRow['production903'],
-                911 => $varsRow['production911'],
-            ];
-            self::$storage[$id] = [
-                901 => $varsRow['storage901'],
-                902 => $varsRow['storage902'],
-                903 => $varsRow['storage903'],
-            ];
+            $bonusData = [];
+            foreach (self::$bonusList as $bonusName) {
+                $value = $varsRow['bonus' . $bonusName] ?? null;
+                $unit  = $varsRow['bonus' . $bonusName . 'Unit'] ?? null;
+
+
+                if ($value !== null || $unit !== null) {
+                    $bonusData[$bonusName] = [$value, $unit];
+                }
+            }
+
+            if (!empty($bonusData)) {
+                self::$bonus[$id]   = $bonusData;
+                self::$reslist['bonus'][] = $varsRow['elementID'];
+            }
+
+            if (
+                $varsRow['production901'] ||
+                $varsRow['production902'] ||
+                $varsRow['production903'] ||
+                $varsRow['production911']
+            )
+                self::$production[$id] = [
+                    901 => $varsRow['production901'],
+                    902 => $varsRow['production902'],
+                    903 => $varsRow['production903'],
+                    911 => $varsRow['production911'],
+                ];
+            if (
+                $varsRow['storage901'] ||
+                $varsRow['storage902'] ||
+                $varsRow['storage903']
+            )
+                self::$storage[$id] = [
+                    901 => $varsRow['storage901'],
+                    902 => $varsRow['storage902'],
+                    903 => $varsRow['storage903'],
+                ];
 
             self::$CombatCaps[$id] = [
                 'attack' => $varsRow['attack'],
@@ -150,7 +211,7 @@ class Vars
             if (!empty(self::$storage[$id]) && array_filter(self::$storage[$id])) {
                 self::$reslist['storage'][] = $id;
             }
-            
+
             if ($varsRow['onePerPlanet'] == 1) self::$reslist['one'][] = $id;
 
             switch ($varsRow['class']) {

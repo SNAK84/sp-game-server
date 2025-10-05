@@ -25,8 +25,10 @@ class Config extends BaseRepository
 
     protected static string $tableName = 'config';
 
-    /** @var array Список изменённых ID для синхронизации */
-    protected static array $dirtyIds = [];
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsTable;
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsDelTable;
 
     private static array $DefaultConfig = [
         'LastGalaxyPos'      => 1,
@@ -44,9 +46,12 @@ class Config extends BaseRepository
         'StorageMultiplier'  => 10,
         'metalBasicIncome'   => 20,
         'crystalBasicIncome' => 10,
-        'deuteriumBasicIncome' => 0,
-        'MaxQueueBuild'      => 50,
-        'MaxQueueTech'       => 3,
+        'deuteriumBasicIncome'=> 0,
+        'MaxQueueBuild'      => 10,
+        'MaxQueueTech'       => 5,
+        'MaxQueueHangar'     => 10,
+        'FieldsByTerraformer'=> 5,
+        'FieldsByMoonBasis'  => 3,
     ];
 
     protected static array $tableSchema = [
@@ -54,7 +59,7 @@ class Config extends BaseRepository
             'id'    => [
                 'swoole' => [Table::TYPE_INT, 4],
                 'sql'    => 'INT(11) UNSIGNED NOT NULL AUTO_INCREMENT',
-                'default' => Defaults::NONE,
+                'default' => Defaults::AUTOID,
             ],
             'name'  => [
                 'swoole' => [Table::TYPE_STRING, 254],
@@ -74,7 +79,7 @@ class Config extends BaseRepository
     ];
 
     protected static array $indexes = [
-        'name' => 'name'
+        'name' => ['key' => 'name', 'Unique' => true]
     ];
     /**
      * Инициализация репозитория с дефолтными значениями

@@ -47,6 +47,7 @@ class Accounts extends BaseRepository
             'lang' => ['swoole' => [Table::TYPE_STRING, 4], 'sql' => "VARCHAR(4) DEFAULT 'ru'", 'default' => 'ru'],
             'frame' => ['swoole' => [Table::TYPE_INT, 8], 'default' => 0],
             'email_pin' => ['swoole' => [Table::TYPE_INT, 4], 'default' => 0],
+            'mode' => ['swoole' => [Table::TYPE_STRING, 32], 'default' => ''],
         ],
         'indexes' => [
             ['name' => 'PRIMARY', 'type' => 'PRIMARY', 'fields' => ['id']],
@@ -56,14 +57,16 @@ class Accounts extends BaseRepository
         ]
     ];
 
-    /** @var array Список изменённых ID для синхронизации */
-    protected static array $dirtyIds = [];
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsTable;
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsDelTable;
 
     // Индексы Swoole Table
     protected static array $indexes = [
-        'login' => 'login',
-        'email' => 'email',
-        'token' => 'token'
+        'login' => ['key' => 'login', 'Unique' => true],
+        'email' => ['key' => 'email', 'Unique' => true],
+        'token' => ['key' => 'token', 'Unique' => true]
     ];
 
     // ==============================
@@ -92,11 +95,6 @@ class Accounts extends BaseRepository
 
         if (!$account) {
             throw new \RuntimeException("Account with id {$id} not found");
-        }
-
-        $oldToken = $account['token'] ?? '';
-        if ($oldToken !== '') {
-            self::$indexTables['token']->del($oldToken);
         }
 
         $account['token'] = hash('sha512', $id . bin2hex(random_bytes(6)) . microtime(true));
@@ -214,7 +212,7 @@ class Accounts extends BaseRepository
             return ['error' => 'Invalid token'];
         }
 
-        self::$logger->info("authByToken", $account);
+        self::$logger->debug("authByToken", $account);
 
 
         $ip = Connect::getIp($fd); // Берём IP из WSocket
@@ -510,5 +508,29 @@ class Accounts extends BaseRepository
             'success' => true,
             'message' => 'Verification PIN sent'
         ];
+    }
+
+    /**
+     * Получить список аккаунтов, которые сейчас онлайн
+     *
+     * @return array<int, array>  [accountId => данные аккаунта]
+     */
+    public static function getOnline(): array
+    {
+        $result = [];
+
+        // идём по таблице соединений
+        foreach (Connect::getAuthorizedFds() as $fd) {
+            $aid = Connect::getAccount($fd);
+
+            if ($aid !== null) {
+                $account = static::findById($aid);
+                if ($account) {
+                    $result[$aid] = $account;
+                }
+            }
+        }
+
+        return $result;
     }
 }

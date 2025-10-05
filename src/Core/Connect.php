@@ -104,6 +104,15 @@ class Connect
         return $fds;
     }
 
+    public static function getAllFds(): array
+    {
+        $fds = [];
+        foreach (self::$connections as $row) {
+            $fds[] = $row['fd'];
+        }
+        return $fds;
+    }
+
     public static function setAccount(int $fd, int $account): void
     {
         if ($row = self::$connections->get($fd)) {
@@ -180,6 +189,10 @@ class Connect
         $response = new Message();
         $response->setMode($mode)->setAction($action)->setRequestId($requestId);
 
+        // --- добавляем язык пользователя ---
+        $langCode = 'en'; // язык по умолчанию
+        $aid = null;
+
         try {
             // --- special case: handshake / connect (токен не обязателен) ---
             if ($mode === 'connect' || $mode === 'handshake') {
@@ -211,6 +224,10 @@ class Connect
                         break;
                 }
 
+                if ($result['id']) {
+                    $response->setlang(Accounts::findById($result['id'])['lang']);
+                }
+
                 if ($result['verify_email']) {
                     return self::handleEmailNotVerified($result, $response, $frame->fd);
                 }
@@ -220,14 +237,29 @@ class Connect
                     $response->setToken($result['token'] ?? '');
                     $response->setData('id', $result['id']);
                     $response->setData('login', $result['login']);
+
+                    $response->setMode("over");
+                    $response->setAction("");
+
+                    $token = $result['token'];
+
+                    return $response->source();
                 } elseif (isset($result['success']) && $result['success'] === true) {
 
                     if ($action == 'send_verify_email') {
                         $response->setData('message', $result['message']);
-                        $response->setMode("overview");
+                        //$response->setMode("overview");
                         $response->setAction("");
                         return $response->source();
                     }
+
+                    $response->setMode("over");
+                    $response->setAction("");
+
+                    $token = $result['token'];
+
+                    return $response->source();
+
                     /*
                     $aid = self::getAccount($frame->fd);
                     $accaunt = Accounts::getAccount($aid);
@@ -235,7 +267,7 @@ class Connect
                     $response->setToken($accaunt['token'] ?? '');
                     $response->setData("cooldown",  Accounts::getResendCooldownEmail($aid));
                     $response->setData("PinLeght", Environment::getInt('PIN_LENGTH', 6));
-*/
+                    */
 
                     /*return self::handleEmailNotVerified($result, $response, $frame->fd);*/
                 } else {
@@ -248,9 +280,8 @@ class Connect
                         $response->setData("cooldown", $result['cooldown']);
                         $response->setData("PinLeght", Environment::getInt('PIN_LENGTH', 6));
                     }
+                    return $response->source();
                 }
-
-                return $response->source();
             }
 
             // --- для всех остальных режимов требуется токен ---
@@ -280,40 +311,57 @@ class Connect
                 return $response->source();
             }
 
+            if ($authResult['id']) {
+                $response->setlang(Accounts::findById($authResult['id'])['lang']);
+            }
+
             if ($authResult['verify_email']) {
                 return self::handleEmailNotVerified($authResult, $response, $frame->fd);
             }
 
+            if ($mode === 'connect' || $mode === 'handshake') {
+                if ($action === 'handshake') {
+                    $response->setMode("over");
+                    $response->setData('message', 'Connected');
+                    return $response->source();
+                }
+            }
+
             $pageBuilder = new \SPGame\Game\PageBuilder($Msg, $frame->fd);
 
+            if ($action == "planetselect") {
+                $User = \SPGame\Game\Repositories\Users::findByAccount($authResult['id']);
+                \SPGame\Game\Repositories\Users::SelectPlanet($User['id'], $Msg->getData("planetId"));
+            }
             // --- Роутинг по режимам (game logic) ---
             switch ($mode) {
-                /*case 'build':
-                    // BuildModule::handle должен вернуть массив-ответ
-                    $result = BuildModule::handle($action, $payload, $authResult, $frame, $wsocket);
+                case 'lang':
+                    $requestedLang = $Msg->getData('lang') ?? 'en'; // язык из запроса или по умолчанию
+                    $aid = self::getAccount($frame->fd);
+
+                    if ($aid) {
+                        $account = Accounts::findById($aid);
+                        // если у аккаунта установлен язык, используем его
+                        $langCode = $account['lang'] ?? $requestedLang;
+                    } else {
+                        $langCode = $requestedLang;
+                    }
+
+                    // загружаем серверные тексты для этого языка
+                    $serverTexts = \SPGame\Game\Services\Lang::load($langCode); // нужно реализовать метод getServerTexts
+
+                    $response->setData('lang', $langCode);
+                    $response->setData('texts', $serverTexts);
+                    return $response->source();
                     break;
 
-                case 'research':
-                    $result = ResearchModule::handle($action, $payload, $authResult, $frame, $wsocket);
-                    break;
-
-                case 'fleet':
-                    $result = FleetModule::handle($action, $payload, $authResult, $frame, $wsocket);
-                    break;
-
-                case 'chat':
-                    $result = Chat::handle($action, $payload, $authResult, $frame, $wsocket);
-                    break;
-
-                case 'system':
-                    $result = SystemModule::handle($action, $payload, $authResult, $frame, $wsocket);
-                    break;*/
-
+                case 'buildings':
                 case 'overview':
                 default:
-                    $result = $pageBuilder->build('overview');
-                    $response->setData('Page',$result);
-                    $response->setError('unknown_mode', 'Страница по умолчанию overview');
+                    $Account = Accounts::findById($authResult['id']);
+                    $Account['mode'] = $mode;
+                    Accounts::update($Account);
+                    $response = $pageBuilder->build($response);
                     return $response->source();
             }
 

@@ -14,13 +14,23 @@ class WSocket
     private ?Server $ws = null;
     private Logger $logger;
 
-    //private array $connections = [];
+    /** Синглтон-инстанс (удобно дергать из других частей) */
+    private static ?WSocket $instance = null;
 
     public function __construct()
     {
         $this->logger = Logger::getInstance();
 
+        // регистрируем синглтон до старта
+        self::$instance = $this;
+
         $this->startServer();
+    }
+
+    /** Получить текущий инстанс (может вернуть null если ещё не создан) */
+    public static function getInstance(): ?WSocket
+    {
+        return self::$instance;
     }
 
     private function startServer(): void
@@ -66,7 +76,8 @@ class WSocket
                 'memory_usage' => Helpers::formatNumberShort(memory_get_usage()),
                 'Accaunts' => \SPGame\Game\Repositories\Accounts::count(),
                 'connections' => \SPGame\Core\Connect::getCount(),
-                'authorized' => \SPGame\Core\Connect::getAuthorizedCount()
+                'authorized' => \SPGame\Core\Connect::getAuthorizedCount(),
+                'PlayerQueue' => \SPGame\Game\Repositories\PlayerQueue::count()
             ]);
         }, 5000);
 
@@ -81,7 +92,7 @@ class WSocket
             } catch (\Throwable $e) {
                 Logger::getInstance()->error("Repository flush failed: " . $e->getMessage());
             }
-        }, 60000);
+        }, 30000);
 
         $loop->start();
 
@@ -176,5 +187,77 @@ class WSocket
         } catch (\Exception $e) {
             $this->logger->logException($e, 'Error handling WebSocket close');
         }*/
+    }
+
+    /**
+     * Безопасная отправка сообщения клиенту.
+     * $payload - массив/объект/Message/string. Метод сериализует в JSON.
+     * Возвращает true если push вернул true, false - иначе.
+     */
+    public function Send(int $frameId, $payload)
+    {
+        if ($this->ws === null) {
+            $this->logger->warning("WSocket::Send: server not initialized");
+            return false;
+        }
+
+        // проверяем, существует ли соединение (swoole::server->exist)
+        try {
+            if (!$this->ws->exist($frameId)) {
+                $this->logger->debug("WSocket::Send: fd {$frameId} not exist");
+                // если у тебя есть класс Connect, можно сразу почистить запись:
+                Connect::unset($frameId);
+                return false;
+            }
+        } catch (\Throwable $e) {
+            // на некоторых версиях Swoole метод exist может бросать - логируем и пробуем отправить
+            $this->logger->debug("WSocket::Send: exist check failed for fd {$frameId}: " . $e->getMessage());
+        }
+
+        // подготовка payload
+        if (is_object($payload) && method_exists($payload, 'source')) {
+            $data = json_encode($payload->source());
+        } elseif (is_string($payload, JSON_UNESCAPED_UNICODE)) {
+            $data = $payload;
+        } else {
+            // массив/объект -> json
+            $data = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        }
+
+        try {
+            $ok = $this->ws->push($frameId, $data);
+            if ($ok === false) {
+                $this->logger->warning("WSocket::Send: push returned false for fd {$frameId}");
+            }
+            return (bool)$ok;
+        } catch (\Throwable $e) {
+            $this->logger->error("WSocket::Send error for fd {$frameId}: " . $e->getMessage(), ['fd' => $frameId]);
+            // при ошибке соединение вероятно уже закрыто
+            Connect::unset($frameId);
+            return false;
+        }
+    }
+
+    /**
+     * Broadcast / отправка списку FDs. Если $fds === null — постим всем соединениям,
+     * но обычно лучше отдавать список авторизованных FDs.
+     */
+    public function broadcast($payload, ?array $fds = null): void
+    {
+        if ($fds === null) {
+            // предполагаем, что Connect умеет отдавать список текущих FDs или авторизованных
+            if (method_exists(\SPGame\Core\Connect::class, 'getAllFds')) {
+                $fds = Connect::getAllFds();
+            } elseif (method_exists(\SPGame\Core\Connect::class, 'getAuthorizedFds')) {
+                $fds = Connect::getAuthorizedFds();
+            } else {
+                $this->logger->warning("WSocket::broadcast: no Connect::getAllFds / getAuthorizedFds method found");
+                return;
+            }
+        }
+
+        foreach ($fds as $fd) {
+            $this->Send((int)$fd, $payload);
+        }
     }
 }

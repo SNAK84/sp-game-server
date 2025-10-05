@@ -84,11 +84,36 @@ class Users extends BaseRepository
     ];
 
     protected static array $indexes = [
-        'account' => 'account_id'
+        'account' => ['key' => 'account_id', 'Unique' => true]
     ];
 
-    /** @var array Список изменённых ID для синхронизации */
-    protected static array $dirtyIds = [];
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsTable;
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsDelTable;
+
+    /**
+     * Получить запись по ID
+     */
+    public static function findById(int $id): ?array
+    {
+        $mainRow = static::$table->get((string)$id);
+        return $mainRow !== false ? $mainRow : null;
+    }
+
+    public static function SelectPlanet(int $userId, int $planetId)
+    {
+        $User = self::findById($userId);
+        if (!$User) return false;
+
+        $Planet = Planets::findById($planetId);
+        if (!$Planet) return false;
+
+        $User['current_planet'] = $Planet['id'];
+
+        self::update($User);
+        return true;
+    }
 
     public static function create(array $data): array
     {

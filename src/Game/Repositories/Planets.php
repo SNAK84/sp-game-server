@@ -14,7 +14,6 @@ class Planets extends BaseRepository
     /** @var Table Основная таблица */
     protected static Table $table;
 
-
     protected static string $className = 'Planets';
 
     protected static string $tableName = 'planets';
@@ -45,9 +44,29 @@ class Planets extends BaseRepository
         ],
     ];
 
-    /** @var array Список изменённых ID для синхронизации */
-    protected static array $dirtyIds = [];
-    
+    /** @var array Таблицы индексов Swoole */
+    protected static array $indexTables = [];
+
+    /** Индексы Swoole */
+    protected static array $indexes = [
+        'owner_id' => ['key' => ['owner_id'], 'Unique' => false]
+    ];
+
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsTable;
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsDelTable;
+
+
+    /**
+     * Получить запись по ID
+     */
+    public static function findById(int $id): ?array
+    {
+        $mainRow = static::$table->get((string)$id);
+        return $mainRow !== false ? $mainRow : null;
+    }
+
     public static function findByUserId(int $userId): array
     {
         $user = Users::findById($userId);
@@ -87,6 +106,93 @@ class Planets extends BaseRepository
         }
 
         return $planet;
+    }
+
+    public static function getMaxFields(int $planetId): int
+    {
+        $fields = self::findById($planetId)['fields'];
+        $Builds = Builds::findById($planetId);
+
+        $fields += ($Builds[Vars::$resource[33]] * Config::getValue("FieldsByTerraformer"));
+        $fields += ($Builds[Vars::$resource[41]] * Config::getValue("FieldsByMoonBasis"));
+
+        return $fields;
+    }
+
+    public static function getCurrentFields(int $planetId): int
+    {
+        //$fields = self::findById($planetId)['fields'];
+        $Builds = Builds::findById($planetId);
+
+        $CurrentFields = 0;
+        foreach (Vars::$reslist['build'] as $id)
+            $CurrentFields += $Builds[Vars::$resource[$id]];
+
+        return $CurrentFields;
+    }
+
+    public static function getAllPlanets(int $userId): array
+    {
+        $Planets = [];
+        foreach (self::$table as $row) {
+            if ($row['owner_id'] == $userId)
+                $Planets[$row['id']] = $row;
+        }
+        return $Planets;
+    }
+
+    public static function getPlanetsList(int $userId): array
+    {
+        $user = Users::findById($userId);
+        if (!$user) {
+            throw new \RuntimeException("User $userId not found");
+        }
+
+        $sortField = (int)($user['planet_sort'] ?? 0);
+        $sortOrder = (int)($user['planet_sort_order'] ?? 0);
+
+        $Planets = [];
+        foreach (self::$table as $row) {
+            if ($row['owner_id'] == $userId)
+                $Planets[] = [
+                    'id'            => $row['id'],
+                    'name'          => $row['name'],
+                    'planet_type'   => $row['planet_type'],
+                    'image'         => $row['image'],
+                    'galaxy'        => $row['galaxy'],
+                    'system'        => $row['system'],
+                    'create_time'   => $row['create_time'],
+                ];
+        }
+
+        usort($Planets, function ($a, $b) use ($sortField, $sortOrder) {
+            $result = 0;
+
+            switch ($sortField) {
+                case 0: // create_time
+                    $result = $a['create_time'] <=> $b['create_time'];
+                    break;
+
+                case 1: // name
+                    $result = strcasecmp($a['name'], $b['name']);
+                    break;
+
+                case 2: // galaxy + system + planet_type
+                    if ($a['galaxy'] !== $b['galaxy']) {
+                        $result = $a['galaxy'] <=> $b['galaxy'];
+                    } elseif ($a['system'] !== $b['system']) {
+                        $result = $a['system'] <=> $b['system'];
+                    } else {
+                        $result = $a['planet_type'] <=> $b['planet_type'];
+                    }
+                    break;
+            }
+
+            // если порядок убывающий — инвертируем
+            return $sortOrder === 1 ? -$result : $result;
+        });
+
+        return $Planets;
     }
 
     public static function CreatePlanet(int $userId, string $NamePlanet): array

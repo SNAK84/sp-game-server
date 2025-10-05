@@ -14,8 +14,17 @@ use SPGame\Game\Repositories\Accounts;
 use SPGame\Game\Repositories\Users;
 use SPGame\Game\Repositories\Planets;
 use SPGame\Game\Repositories\Resources;
+
+use SPGame\Game\Repositories\Techs;
+use SPGame\Game\Repositories\Builds;
+
+use SPGame\Game\Repositories\Queues;
+
+use SPGame\Game\Repositories\EntitySettings;
+
 use SPGame\Game\Repositories\Config;
 use SPGame\Game\Repositories\Vars;
+use SPGame\Game\Repositories\PlayerQueue;
 
 use SPGame\Game\Services\RepositorySaver;
 
@@ -44,6 +53,15 @@ try {
     Users::init($saver);
     Planets::init($saver);
     Resources::init($saver);
+    
+    Techs::init($saver);
+    Builds::init($saver);
+
+    
+    Queues::init($saver);
+
+    EntitySettings::init($saver);
+    PlayerQueue::init();
 
     $server = new WSocket(); // Создаём и запускаем сервер
 

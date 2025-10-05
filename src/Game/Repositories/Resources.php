@@ -3,7 +3,12 @@
 namespace SPGame\Game\Repositories;
 
 use SPGame\Core\Database;
+use SPGame\Core\Defaults;
 use SPGame\Core\Logger;
+
+use SPGame\Game\Services\Helpers;
+use SPGame\Game\Services\RepositorySaver;
+
 use Swoole\Table;
 
 
@@ -15,16 +20,18 @@ class PlanetResources extends BaseRepository
     protected static string $className = 'PlanetResources';
     protected static string $tableName = 'resources_planet';
 
-    /** @var array Список изменённых ID для синхронизации */
-    protected static array $dirtyIds = [];
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsTable;
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsDelTable;
 
     protected static array $tableSchema = [
         'columns' => [
             'id' => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) UNSIGNED NOT NULL', 'default' => 0],
-            'metal'     => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => 0],
-            'crystal'   => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => 0],
-            'deuterium' => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => 0],
-            'energy'    => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => 0],
+            'metal'     => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => [Defaults::CALLABLE, "SPGame\Game\Repositories\Config::getValue:StartRes901"]],
+            'crystal'   => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => [Defaults::CALLABLE, "SPGame\Game\Repositories\Config::getValue:StartRes902"]],
+            'deuterium' => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => [Defaults::CALLABLE, "SPGame\Game\Repositories\Config::getValue:StartRes903"]],
+            'energy'    => ['swoole' => [Table::TYPE_FLOAT], 'default' => 0.0],
         ],
         'indexes' => [
             ['name' => 'PRIMARY', 'type' => 'PRIMARY', 'fields' => ['id']],
@@ -41,8 +48,10 @@ class UserResources extends BaseRepository
     protected static string $className = 'UserResources';
     protected static string $tableName = 'resources_user';
 
-    /** @var array Список изменённых ID для синхронизации */
-    protected static array $dirtyIds = [];
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsTable;
+    /** @var Table Список изменённых ID для синхронизации */
+    protected static Table $dirtyIdsDelTable;
 
     protected static array $tableSchema = [
         'columns' => [
@@ -59,10 +68,16 @@ class UserResources extends BaseRepository
 
 class Resources
 {
-    public static function init(): void
+
+    //protected static array $Resources = [];
+    protected static Logger $logger;
+
+    public static function init(RepositorySaver $saver = null): void
     {
-        PlanetResources::init();
-        UserResources::init();
+        self::$logger = Logger::getInstance();
+
+        PlanetResources::init($saver);
+        UserResources::init($saver);
     }
 
     public static function getByUserId(int $userId): ?array
@@ -72,18 +87,249 @@ class Resources
 
         $planetId = $user['current_planet'] ?? 0;
 
-        $planetResources = PlanetResources::findById($planetId) ?? [
-            'metal' => 0,
-            'crystal' => 0,
-            'deuterium' => 0,
-            'energy' => 0,
+        $Resources = self::getByPlanetId($planetId);
+
+        return $Resources;
+    }
+
+    public static function getByPlanetId(int $planetId): ?array
+    {
+        $Planet = Planets::findById($planetId);
+        if (!$Planet) return null;
+
+        $userId = $Planet['owner_id'] ?? 0;
+        if (! $userId) {
+            return null;
+        }
+
+
+        $planetResources = PlanetResources::findById($planetId);
+        /*if (!$planetResources) {
+            $planetResources =
+                [
+                    'id' => $planetId,
+                    'metal' => 0,
+                    'crystal' => 0,
+                    'deuterium' => 0,
+                    'energy' => 0,
+                ];
+            PlanetResources::add($planetResources);
+        }*/
+
+        $userResources = UserResources::findById($userId);
+        /*if (!$userResources) {
+            $userResources =
+                [
+                    'id' => $userId,
+                    'credit' => 0,
+                    'doubloon' => 0,
+                ];
+            UserResources::add($userResources);
+        }*/
+
+        $Resources = [];
+
+        foreach (Vars::$reslist['resstype'][1] as $ResID) {
+            $Resources[$ResID] = [
+                'count' => $planetResources[Vars::$resource[$ResID]],
+                'max' => 0,
+                'perhour' => 0,
+                'time' => $Planet['update_time']
+            ];
+        }
+
+        foreach (Vars::$reslist['resstype'][2] as $ResID) {
+            $Resources[$ResID]  = array(
+                'count' => $planetResources[Vars::$resource[$ResID]],
+                'max' => 0,
+                'used' => 0
+            );
+        }
+        foreach (Vars::$reslist['resstype'][3] as $ResID) {
+            $Resources[$ResID]  = array(
+                'count' => $userResources[Vars::$resource[$ResID]]
+            );
+        }
+
+        self::ReBuildRes($Resources, $userId, $planetId);
+
+        return $Resources;
+    }
+
+    public static function ReBuildRes(array &$Resources, int $userId, int $planetId)
+    {
+
+        $Planet = Planets::findById($planetId);
+        $User = Users::findById($userId);
+        $Techs = Techs::findById($userId);
+        $Builds  = Builds::findById($planetId);
+
+        $BasicIncome = [
+            901 => $Planet['planet_type'] == 3 ? 0 : Config::getValue('metalBasicIncome'),
+            902 => $Planet['planet_type'] == 3 ? 0 : Config::getValue('crystalBasicIncome'),
+            903 => $Planet['planet_type'] == 3 ? 0 : Config::getValue('deuteriumBasicIncome'),
         ];
 
-        $userResources = UserResources::findById($userId) ?? [
-            'credit' => 0,
-            'doubloon' => 0,
-        ];
+        $temp    = array(
+            901    => array('max'    => 0, 'plus'    => 0, 'minus'    => 0,),
+            902    => array('max'    => 0, 'plus'    => 0, 'minus'    => 0,),
+            903    => array('max'    => 0, 'plus'    => 0, 'minus'    => 0,),
+            911    => array('plus'    => 0, 'minus'    => 0,)
+        );
 
-        return array_merge($planetResources, $userResources);
+        $BuildTemp      = $Planet['temp_max'];
+        $BuildEnergy    = $Techs[Vars::$resource[113]];
+
+        foreach (Vars::$reslist['storage'] as $ProdID) {
+            foreach (Vars::$reslist['resstype'][1] as $ID) {
+                if (!isset(Vars::$storage[$ProdID][$ID]))
+                    continue;
+
+                $BuildLevel         = $Builds[Vars::$resource[$ProdID]];
+                $temp[$ID]['max']  += round(eval(self::getProd(Vars::$storage[$ProdID][$ID])));
+            }
+        }
+
+        if ($planetId == 19)
+            self::$logger->info("Resources", $temp);
+
+        $ressIDs = array_merge(Vars::$reslist['resstype'][1], Vars::$reslist['resstype'][2]);
+
+        foreach (Vars::$reslist['prod'] as $ProdID) {
+
+            $BuildLevelFactor   = EntitySettings::get($planetId, $ProdID)['efficiency'];
+            $BuildLevel         = Helpers::getElementLevel($ProdID, $userId, $planetId);
+
+            foreach ($ressIDs as $ID) {
+                if (!isset(Vars::$production[$ProdID][$ID]))
+                    continue;
+
+                $eval = self::getProd(Vars::$production[$ProdID][$ID], $ProdID, $userId, $planetId);
+                $Production = eval($eval);
+
+
+
+                if ($Production > 0) {
+                    $temp[$ID]['plus']    += $Production;
+                } else {
+                    if (in_array($ID, Vars::$reslist['resstype'][1]) && $Builds[Vars::$resource[$ID]] == 0) {
+                        continue;
+                    }
+                    $temp[$ID]['minus']   += $Production;
+                }
+            }
+        }
+
+        $Resources[901]['max'] = $temp[901]['max'] * Config::getValue('StorageMultiplier') * (1 + Factors::getFactor('ResourceStorage', $userId, $planetId));
+        $Resources[902]['max'] = $temp[902]['max'] * Config::getValue('StorageMultiplier') * (1 + Factors::getFactor('ResourceStorage', $userId, $planetId));
+        $Resources[903]['max'] = $temp[903]['max'] * Config::getValue('StorageMultiplier') * (1 + Factors::getFactor('ResourceStorage', $userId, $planetId));
+
+        $Resources[911]['max'] = round($temp[911]['plus'] * Config::getValue('EnergySpeed')) * (1 + Factors::getFactor('Energy', $userId, $planetId));
+        $Resources[911]['used'] = $temp[911]['minus'] * Config::getValue('EnergySpeed');
+        $Resources[911]['count'] = $Resources[911]['max'] + $Resources[911]['used'];
+
+        $prodLevel = ($temp[911]['minus'] == 0) ? 0 : min(1, $temp[911]['plus'] / abs($temp[911]['minus']));
+
+        $Resources[901]['perhour'] = (
+            $temp[901]['plus'] *
+            (1 + Factors::getFactor('Resource', $userId, $planetId) + 0.02 * $Techs[Vars::$resource[131]]) * $prodLevel +
+            $temp[901]['minus'] + $BasicIncome[901]) * Config::getValue('ResourceMultiplier');
+
+
+        $Resources[902]['perhour'] = (
+            $temp[902]['plus'] *
+            (1 + Factors::getFactor('Resource', $userId, $planetId) + 0.02 * $Techs[Vars::$resource[132]]) * $prodLevel +
+            $temp[902]['minus'] + $BasicIncome[902]) * Config::getValue('ResourceMultiplier');
+
+
+        $Resources[903]['perhour'] = (
+            $temp[903]['plus'] *
+            (1 + Factors::getFactor('Resource', $userId, $planetId) + 0.02 * $Techs[Vars::$resource[133]]) * $prodLevel +
+            $temp[903]['minus'] + $BasicIncome[903]) * Config::getValue('ResourceMultiplier');
+        //}
+
+        return $Resources;
+    }
+
+    public static function getProd($Calculation, $Element = false, $userId = null, $planetId = null)
+    {
+
+        if ($Element) {
+
+            $Planet = Planets::findById($planetId);
+            $User = Users::findById($userId);
+            $Techs = Techs::findById($userId);
+            $Builds  = Builds::findById($planetId);
+            $Fleet = [];
+
+            /*$BuildEnergy        = $Techs[Vars::$resource[113]];
+            $BuildTemp          = $Planet['temp_max'];
+            $BuildLevelFactor   = EntitySettings::get($planetId, $Element)['efficiency'];*/
+
+            //$BuildLevel = ($BuildLevel) ? $BuildLevel : Helpers::getElementLevel($Element, $userId, $planetId);
+
+            // функция подстановки
+            $replaced = preg_replace_callback(
+                '/__([A-Z]+)__([0-9]+)__/',
+                function ($matches) use ($Builds, $Techs, $Fleet) {
+                    $type = strtoupper($matches[1]);
+                    $id   = (int)$matches[2];
+
+                    // сначала пробуем получить "имя" элемента через Vars::$resource, иначе используем id
+                    $key = Vars::$resource[$id] ?? $id;
+
+                    switch ($type) {
+                        case 'BUILD':
+                            // Builds может иметь ключи либо по имени либо по id
+                            return (string)($Builds[$key] ?? $Builds[$id] ?? 0);
+                        case 'TECH':
+                            return (string)($Techs[$key] ?? $Techs[$id] ?? 0);
+                        case 'FLEET':
+                            return (string)($Fleet[$key] ?? $Fleet[$id] ?? 0);
+                        default:
+                            return '0';
+                    }
+                },
+                $Calculation
+            );
+        }
+
+        return 'return ' . trim((empty($replaced)) ? $Calculation : $replaced) . ';';
+    }
+
+    public static function updateByPlanetId(int $planetId, array $resources): void
+    {
+        if (empty($resources)) {
+            return;
+        }
+
+        // Планета
+        if ($planetId) {
+            $planetRes = PlanetResources::findById($planetId);
+            if ($planetRes) {
+                foreach (Vars::$reslist['resstype'][1] as $resId) {
+                    $key = Vars::$resource[$resId];
+                    if (isset($resources[$resId]['count'])) {
+                        $planetRes[$key] = $resources[$resId]['count'];
+                    }
+                }
+                PlanetResources::update($planetRes);
+            }
+        }
+
+        // Пользовательские ресурсы (если есть)
+        $userId = Planets::findById($planetId)['owner_id'];
+        if ($userId) {
+            $userRes = UserResources::findById($userId);
+            if ($userRes) {
+                foreach (Vars::$reslist['resstype'][3] as $resId) {
+                    $key = Vars::$resource[$resId];
+                    if (isset($resources[$resId]['count'])) {
+                        $userRes[$key] = $resources[$resId]['count'];
+                    }
+                }
+                UserResources::update($userRes);
+            }
+        }
     }
 }
