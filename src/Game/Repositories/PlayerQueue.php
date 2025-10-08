@@ -72,6 +72,28 @@ class PlayerQueue extends BaseRepository
         return $id;
     }
 
+    public static function getByAccaunt(int $accountId): ?array
+    {
+        $Queues = self::findByIndex('account_id', $accountId);
+        if (!$Queues) {
+            //self::$logger->info("PlayerQueue not Queues findByIndex");
+            return null;
+        }
+        foreach ($Queues as $key => $Queue) {
+            $Queues[$key]['data'] = unserialize($Queue['data']);
+        }
+
+        // Сортировка по priority и added_at
+        usort($Queues, function ($a, $b) {
+            if ($a['priority'] === $b['priority']) {
+                return $a['added_at'] <=> $b['added_at'];
+            }
+            return $a['priority'] <=> $b['priority'];
+        });
+
+        return $Queues;
+    }
+
     public static function popByAccaunt(int $accountId): ?array
     {
         $Queues = self::findByIndex('account_id', $accountId);

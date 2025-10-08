@@ -7,6 +7,9 @@ use SPGame\Core\Message;
 use SPGame\Core\WSocket;
 
 use SPGame\Game\Repositories\Accounts;
+use SPGame\Game\Repositories\Builds;
+use SPGame\Game\Repositories\Techs;
+
 use SPGame\Game\Repositories\Planets;
 use SPGame\Game\Repositories\Users;
 use SPGame\Game\Repositories\Config;
@@ -51,10 +54,6 @@ class EventLoop
             $this->logger->info("Event loop started with interval {$task['interval']}ms");
             Timer::tick($task['interval'], $task['callback']);
         }
-
-        /*Timer::tick($interval, function () {
-            $this->process();
-        });*/
     }
 
     /**
@@ -68,46 +67,189 @@ class EventLoop
 
             $sendMsg = false;
 
-            $User = Users::findByAccount($Account['id']);
-            if (!$User) continue;
-            $Planets = Planets::getAllPlanets($User['id']);
+            $AccountData = [
+                'Account' => $Account,
+                'User' => Users::findByAccount($Account['id'])
+            ];
+            if (!$AccountData['User']) continue;
 
-            foreach ($Planets as $planetId => $Planet) {
-                // 1. Обновление ресурсов на планетах
-                $this->processResources($StatTimeTick, $User, $Planet);
+            // 🧩 Приводим состояние всех планет и технологий игрока к текущему времени
+            $sendMsg = $this->processPlayerStateAtTime($StatTimeTick, $AccountData);
 
-                // 2. Обновление очереди строек/технологий
-                $sendMsg = ($this->processQueues($User, $Planet)) ? true : $sendMsg;
-
-                Planets::update($Planet);
-                Users::update($User);
-            }
-
-
-            // 3. Обработка событий игроков из очереди
+            // ⚙️ Обработка действий из PlayerQueue (запросы на постройки, отмены и т.д.)
             $sendMsg = ($this->processPlayerEvents($Account['id'])) ? true : $sendMsg;
 
             if ($sendMsg) {
                 self::sendActualData($Account['id']);
             }
-            //Users::update($User);
         }
         // Можно логировать, если нужно
         $duration = round(microtime(true) - $StatTimeTick, 3);
         $this->logger->debug("Event process time: {$duration}s");
     }
 
-    protected function processResources(float $StatTimeTick, &$User, &$Planet): void
+
+
+    /**
+     * Приводит состояние всех планет игрока и его очередей к заданному моменту времени.
+     */
+    protected function processPlayerStateAtTime(float $targetTime, array &$AccountData): bool
     {
-        if ($Planet['update_time'] < $Planet['create_time']) {
-            $Planet['update_time'] = $Planet['create_time'];
+        $sendMsg = false;
+        $userId = $AccountData['User']['id'];
+
+
+        // Загружаем технологии один раз (нужны для расчёта ресурсов)
+        $AccountData['Techs'] = Techs::findById($userId);
+
+        // Загружаем все планеты игрока и готовим кеш PlanetsData
+        $Planets = Planets::getAllPlanets($userId);
+        $PlanetsData = [];
+        foreach ($Planets as $pid => $Planet) {
+            // Для корректного вызова Resources::get() нужен полный $tmpAccountData
+            $tmpAccountData = $AccountData;
+            $tmpAccountData['Planet'] = $Planet;
+            $tmpAccountData['Builds'] = Builds::findById($pid);
+
+            // Now resources are built using Planet + Builds + Techs + User + Account
+            $PlanetsData[$pid] = [
+                'Planet'    => $Planet,
+                'Builds'    => $tmpAccountData['Builds'],
+                'Resources' => Resources::get($tmpAccountData)
+            ];
         }
 
-        $ProductionTime = ($StatTimeTick - $Planet['update_time']);
+        // Обрабатываем все очереди аккаунта (в порядке end_time) до targetTime
+        $sendMsg = $this->processAccountQueues($targetTime, $AccountData, $PlanetsData) ? true : $sendMsg;
+
+        // После обработки очередей — доводим ресурсы всех планет до targetTime
+        foreach ($PlanetsData as $pid => $pd) {
+            $tmp = $AccountData;
+            $tmp['Planet'] = $pd['Planet'];
+            $tmp['Builds'] = $pd['Builds'];
+            $tmp['Resources'] = $pd['Resources'];
+
+            // processResources ожидает array &$AccountData (он обновит $tmp['Resources'] и $tmp['Planet']['update_time'])
+            $this->processResources($targetTime, $tmp);
+
+            // Сохраняем актуальные значения в БД
+            Resources::updateByPlanetId($pid, $tmp['Resources']);
+            Planets::update($tmp['Planet']);
+            Builds::update($tmp['Builds']);
+
+            // Обновляем кеш на случай, если ещё что-то будет использовать PlanetsData после этого
+            $PlanetsData[$pid]['Planet'] = $tmp['Planet'];
+            $PlanetsData[$pid]['Resources'] = $tmp['Resources'];
+        }
+
+        Techs::update($AccountData['Techs']);
+        Users::update($AccountData['User']);
+
+        return $sendMsg;
+    }
+
+    protected function processAccountQueues(float $StatTimeTick, array &$AccountData, array &$PlanetsData): bool
+    {
+        $sendMsg = false;
+        $maxIterations = 500; // safety
+
+        while ($maxIterations-- > 0) {
+            // НАДО: репозиторий должен вернуть самую раннюю активную очередь для данного user
+            $Queue = Queues::getActiveMinEndTimeByUser($AccountData['User']['id']);
+            if (!$Queue) break;
+            if ($Queue['end_time'] > $StatTimeTick) break;
+
+            $this->logger->info(
+                sprintf(
+                    "Queue complete: id=%d, type=%s, planet=%d, end=%.3f <= %.3f",
+                    $Queue['id'],
+                    $Queue['type'] ?? '?',
+                    $Queue['planet_id'],
+                    $Queue['end_time'],
+                    $StatTimeTick
+                )
+            );
+
+            $planetId = $Queue['planet_id'];
+
+            // Если для планеты ещё нет кеша — подготовим его (не забыв Techs)
+            if (!isset($PlanetsData[$planetId])) {
+                $Planet = Planets::findById($planetId);
+                $Builds = Builds::findById($planetId);
+
+                $tmpAccountData = $AccountData;
+                $tmpAccountData['Planet'] = $Planet;
+                $tmpAccountData['Builds'] = $Builds;
+                // Techs уже должно быть в $AccountData (см. вызов выше)
+                $ResourcesForPlanet = Resources::get($tmpAccountData);
+
+                $PlanetsData[$planetId] = [
+                    'Planet'    => $Planet,
+                    'Builds'    => $Builds,
+                    'Resources' => $ResourcesForPlanet
+                ];
+            }
+
+            // Собираем локальную копию AccountData для обработки этой очереди (ссылки на кеш)
+            $QueueAccountData = $AccountData;
+            $QueueAccountData['Planet'] = $PlanetsData[$planetId]['Planet'];
+            $QueueAccountData['Builds'] = $PlanetsData[$planetId]['Builds'];
+            $QueueAccountData['Resources'] = $PlanetsData[$planetId]['Resources'];
+
+            // 1) Пересчитать ресурсы планеты до конца этой очереди
+            $this->processResources($Queue['end_time'], $QueueAccountData);
+
+            // 2) Завершить очередь (важно: CompleteQueue должна корректно работать с переданными данными)
+            // Хорошая практика: внутри CompleteQueue выполнять DB-транзакцию,
+            // чтобы изменения очередей и пересчеты были атомарными.
+            QueuesServices::CompleteQueue($Queue['id'], $QueueAccountData, $Queue['end_time']);
+
+            // 3) Применяем изменения обратно в кеш
+            $AccountData['Techs'] = $QueueAccountData['Techs'];
+            $AccountData['User'] = $QueueAccountData['User'];
+
+            $PlanetsData[$planetId]['Planet'] = $QueueAccountData['Planet'];
+            $PlanetsData[$planetId]['Builds'] = $QueueAccountData['Builds'];
+            $PlanetsData[$planetId]['Resources'] = $QueueAccountData['Resources'];
+
+            // 4) Сохраняем изменения в БД (чтобы при следующем запросе всё было консистентно)
+            Resources::updateByPlanetId($planetId, $QueueAccountData['Resources']);
+            Planets::update($QueueAccountData['Planet']);
+            Builds::update($QueueAccountData['Builds']);
+            Techs::update($AccountData['Techs']);
+            Users::update($AccountData['User']);
+
+            // 5) Решаем, нужно ли отправлять данные игроку (если это текущая планета или техи)
+            if (
+                $planetId == $AccountData['User']['current_planet'] ||
+                ($Queue['type'] == QueuesServices::TECHS && $Queue['user_id'] == $AccountData['User']['id'])
+            ) {
+                $sendMsg = true;
+            }
+
+            // После CompleteQueue возможен ReCalc других очередей => повторно запрашиваем следующую earliest очередь
+        }
+
+        if ($maxIterations <= 0) {
+            $this->logger->warning("processAccountQueues: reached max iterations for user " . $AccountData['User']['id']);
+        }
+
+        return $sendMsg;
+    }
+
+
+
+    protected function processResources(float $StatTimeTick, array &$AccountData): void
+    {
+        if ($AccountData['Planet']['update_time'] < $AccountData['Planet']['create_time']) {
+            $AccountData['Planet']['update_time'] = $AccountData['Planet']['create_time'];
+        }
+
+        $ProductionTime = ($StatTimeTick - $AccountData['Planet']['update_time']);
 
         if ($ProductionTime > 0) {
-            $Planet['update_time'] = $StatTimeTick;
-            $Resources = Resources::getByPlanetId($Planet['id']);
+            $AccountData['Planet']['update_time'] = $StatTimeTick;
+            $Resources = &$AccountData['Resources'];
 
             //if ($Planets[$PID]['PlanetType'] == 3)
             //    return;
@@ -122,41 +264,10 @@ class EventLoop
                 $Resources[$ResID]['count'] = max($Resources[$ResID]['count'], 0);
             }
 
-            Resources::updateByPlanetId($Planet['id'], $Resources);
+            //Resources::updateByPlanetId($AccountData['Planet']['id'], $Resources);
         }
     }
 
-    protected function processQueues(&$User, &$Planet): bool
-    {
-
-        $now = microtime(true);
-        $sendMsg = false;
-
-        // 1️⃣ Обрабатываем постройки
-        while ($Queue = Queues::getActiveMinEndTime($User['id'])) {
-            if ($Queue['end_time'] > $now) {
-                // Активная очередь ещё не завершена
-                break;
-            }
-
-            // 2️⃣ Завершаем очередь
-            QueuesServices::CompleteQueue(
-                $Queue['id'],
-                $User['id'],
-                $Queue['planet_id'], // используем планету из записи
-                $Queue['end_time']
-            );
-
-            if ($Queue['planet_id'] == $User['current_planet'] || $Queue['type'] == QueuesServices::TECHS) {
-                $sendMsg = true;
-            }
-        }
-
-
-        return $sendMsg;
-        // Пример: обработка очередей строек или технологий
-        // QueueWorker::tick();
-    }
 
     /**
      * Обработка очереди событий игроков
@@ -165,55 +276,91 @@ class EventLoop
     {
 
         $sendMsg  = false;
+        $Queues = PlayerQueue::getByAccaunt($accountId) ?? [];
 
-        while ($Event = PlayerQueue::popByAccaunt($accountId)) {
+        foreach ($Queues as $Event) {
+
+            $AccountData = [
+                'Account'   => Accounts::findById($Event['account_id']),
+                'User'      => Users::findById($Event['user_id']),
+                'Planet'    => Planets::findById($Event['planet_id']),
+                'Builds'    => Builds::findById($Event['planet_id']),
+                'Techs'     => Techs::findById($Event['user_id'])
+            ];
+            $AccountData['Resources']   = Resources::get($AccountData);
+
+
             switch ($Event['action']) {
                 case PlayerQueue::ActionQueueUpgarde:
-                    QueuesServices::AddToQueue($Event['data']['Element'], $Event['user_id'], $Event['planet_id'], $Event['added_at'], true);
+                    QueuesServices::AddToQueue($Event['data']['Element'], $AccountData, $Event['added_at'], true);
                     $sendMsg  = true;
                     break;
 
                 case PlayerQueue::ActionQueueDismantle:
-                    QueuesServices::AddToQueue($Event['data']['Element'], $Event['user_id'], $Event['planet_id'], $Event['added_at'], false);
+                    QueuesServices::AddToQueue($Event['data']['Element'], $AccountData, $Event['added_at'], false);
                     $sendMsg  = true;
                     break;
 
                 case PlayerQueue::ActionQueueCancel:
-                    QueuesServices::CancelToQueue($Event['data']['QueueId'], $Event['user_id'], $Event['planet_id'], $Event['added_at']);
+                    QueuesServices::CancelToQueue($Event['data']['QueueId'], $AccountData, $Event['added_at']);
                     $sendMsg  = true;
                     break;
 
                 case PlayerQueue::ActionQueueReCalcTech:
                     Logger::getInstance()->info("PlayerQueue::ActionQueueReCalcTech");
-                    QueuesServices::ReCalcTimeQueue(QueuesServices::TECHS, $Event['user_id'], $Event['planet_id'], $Event['added_at']);
+                    QueuesServices::ReCalcTimeQueue(QueuesServices::TECHS, $AccountData, $Event['added_at']);
                     $sendMsg  = true;
                     break;
 
                     // можно добавить другие действия
             }
+
+            Resources::updateByPlanetId($AccountData['Planet']['id'], $AccountData['Resources']);
+            Planets::update($AccountData['Planet']);
+            Builds::update($AccountData['Builds']);
+            Techs::update($AccountData['Techs']);
+            Users::update($AccountData['User']);
+
+            Logger::getInstance()->info("ProcessPlayerEvents " . $Event['action']);
+
+            PlayerQueue::delete($Event);
         }
 
         return $sendMsg;
-        if ($sendMsg) {
+        /*if ($sendMsg) {
             self::sendActualData($accountId);
-        }
+        }*/
     }
 
     protected function sendActualData(int $accountId): void
     {
         $Account = Accounts::findById($accountId);
-        if (!$Account) return;
+        if (!$Account) {
+            $this->logger->warning("sendActualData: account not found", ['accountId' => $accountId]);
+            return;
+        }
+
+        $frame = (int)$Account['frame'];
+        if ($frame < 1) {
+            $this->logger->warning("sendActualData: invalid frame for account", ['accountId' => $accountId, 'frame' => $frame]);
+            return;
+        }
+
+        $ws = WSocket::getInstance();
+        if (!$ws) {
+            $this->logger->error("sendActualData: WebSocket instance not available", ['accountId' => $accountId]);
+            return;
+        }
 
         $response = new Message();
         $response->setMode($Account['mode']);
+        $response->setAction("ActualData");
 
+        $this->logger->info("sendActualData: sending to account", ['accountId' => $accountId, 'mode' => $Account['mode'], 'frame' => $frame]);
 
-        $pageBuilder = new \SPGame\Game\PageBuilder($response, $Account['frame']);
+        $pageBuilder = new \SPGame\Game\PageBuilder($response, $frame);
         $response = $pageBuilder->build($response);
 
-        $ws = WSocket::getInstance();
-        if ($ws !== null) {
-            $ws->Send($Account['frame'], $response); // $fd — числовой идентификатор соединения
-        }
+        $ws->Send($frame, $response);
     }
 }

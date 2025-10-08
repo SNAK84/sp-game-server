@@ -7,8 +7,9 @@
       "request": "launch",
       "port": 9003,
       "pathMappings": {
-        "/var/www/html": "${workspaceFolder}/src"
-      }
+        "/var/www/html": "${workspaceFolder}"
+      },
+      "log": true
     }
   ]
 }

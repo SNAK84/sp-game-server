@@ -53,7 +53,8 @@ class Queues extends BaseRepository
     protected static array $indexes = [
         'queue' => ['key' => ['planet_id', 'type'], 'Unique' => false],
         'queue_tech' => ['key' => ['user_id', 'type'], 'Unique' => false],
-        'queue_status' => ['key' => ['user_id', 'status'], 'Unique' => false]
+        'queue_p_status' => ['key' => ['planet_id', 'status'], 'Unique' => false],
+        'queue_u_status' => ['key' => ['user_id', 'status'], 'Unique' => false]
     ];
 
     /** @var Table Список изменённых ID для синхронизации */
@@ -78,14 +79,38 @@ class Queues extends BaseRepository
         return $ids;
     }
 
+    public static function getActiveMinEndTimeByUser(int $userId): ?array
+    {
+        // Получаем записи/ид'ы по индексу (user_id, status='active')
+        $items = self::findByIndex('queue_u_status', [$userId, 'active']) ?? [];
+
+        if (empty($items)) {
+            return null;
+        }
+
+        // Сортируем по end_time (asc). При равенстве таймстампов — tie-breaker по id.
+        usort($items, function (array $a, array $b) {
+            $ta = (int) ($a['end_time'] ?? 0);
+            $tb = (int) ($b['end_time'] ?? 0);
+            if ($ta === $tb) {
+                return ((int) ($a['id'] ?? 0)) <=> ((int) ($b['id'] ?? 0));
+            }
+            return $ta <=> $tb;
+        });
+
+        // Возвращаем первую (минимальную)
+        return $items[0];
+    }
+
+
     /**
      * Получить текущую активную запись очереди с минимальным end_time для игрока (user_id) и типа (building/tech)
      */
-    public static function getActiveMinEndTime(int $userId): ?array
+    public static function getActiveMinEndTime(int $planetid): ?array
     {
 
         // Получаем записи/ид'ы по индексу (user_id, status='active')
-        $items = self::findByIndex('queue_status', [$userId, 'active']) ?? [];
+        $items = self::findByIndex('queue_p_status', [$planetid, 'active']) ?? [];
 
         if (empty($items)) {
             return null;

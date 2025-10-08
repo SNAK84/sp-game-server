@@ -7,11 +7,7 @@ services:
     working_dir: /var/www/html/
     volumes:
       - ./:/var/www/html/
-#      - ./src:/var/www/html/src
-#      - ./vendor:/var/www/html/vendor
-#      - ./composer.json:/var/www/html/composer.json
-#      - ./composer.lock:/var/www/html/composer.lock
-#      - ./.env:/var/www/html/.env
+#      - ./xdebug.ini:/usr/local/etc/php/conf.d/xdebug.ini
     ports:
       - "9501:9501"
     command: ["php", "/var/www/html/src/main.php"]

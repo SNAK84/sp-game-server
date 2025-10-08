@@ -80,6 +80,7 @@ class Resources
         UserResources::init($saver);
     }
 
+    /*
     public static function getByUserId(int $userId): ?array
     {
         $user = Users::findById($userId);
@@ -91,41 +92,19 @@ class Resources
 
         return $Resources;
     }
-
-    public static function getByPlanetId(int $planetId): ?array
+    */
+    
+    public static function get(array $AccountData): ?array
     {
-        $Planet = Planets::findById($planetId);
+        $Planet = $AccountData['Planet'];
         if (!$Planet) return null;
 
-        $userId = $Planet['owner_id'] ?? 0;
-        if (! $userId) {
-            return null;
-        }
+        $User = $AccountData['User'] ?? 0;
+        if (!$User) return null;
+        
+        $planetResources = PlanetResources::findById($Planet['id']);
 
-
-        $planetResources = PlanetResources::findById($planetId);
-        /*if (!$planetResources) {
-            $planetResources =
-                [
-                    'id' => $planetId,
-                    'metal' => 0,
-                    'crystal' => 0,
-                    'deuterium' => 0,
-                    'energy' => 0,
-                ];
-            PlanetResources::add($planetResources);
-        }*/
-
-        $userResources = UserResources::findById($userId);
-        /*if (!$userResources) {
-            $userResources =
-                [
-                    'id' => $userId,
-                    'credit' => 0,
-                    'doubloon' => 0,
-                ];
-            UserResources::add($userResources);
-        }*/
+        $userResources = UserResources::findById($User['id']);
 
         $Resources = [];
 
@@ -151,18 +130,17 @@ class Resources
             );
         }
 
-        self::ReBuildRes($Resources, $userId, $planetId);
+        self::ReBuildRes($Resources, $AccountData);
 
         return $Resources;
     }
 
-    public static function ReBuildRes(array &$Resources, int $userId, int $planetId)
+    public static function ReBuildRes(array &$Resources, array $AccountData)
     {
 
-        $Planet = Planets::findById($planetId);
-        $User = Users::findById($userId);
-        $Techs = Techs::findById($userId);
-        $Builds  = Builds::findById($planetId);
+        $Planet     = $AccountData['Planet'];
+        $Techs      = $AccountData['Techs'];
+        $Builds     = $AccountData['Builds'];
 
         $BasicIncome = [
             901 => $Planet['planet_type'] == 3 ? 0 : Config::getValue('metalBasicIncome'),
@@ -190,21 +168,18 @@ class Resources
             }
         }
 
-        if ($planetId == 19)
-            self::$logger->info("Resources", $temp);
-
         $ressIDs = array_merge(Vars::$reslist['resstype'][1], Vars::$reslist['resstype'][2]);
 
         foreach (Vars::$reslist['prod'] as $ProdID) {
 
-            $BuildLevelFactor   = EntitySettings::get($planetId, $ProdID)['efficiency'];
-            $BuildLevel         = Helpers::getElementLevel($ProdID, $userId, $planetId);
+            $BuildLevelFactor   = EntitySettings::get($Planet['id'], $ProdID)['efficiency'];
+            $BuildLevel         = Helpers::getElementLevel($ProdID, $AccountData);
 
             foreach ($ressIDs as $ID) {
                 if (!isset(Vars::$production[$ProdID][$ID]))
                     continue;
 
-                $eval = self::getProd(Vars::$production[$ProdID][$ID], $ProdID, $userId, $planetId);
+                $eval = self::getProd(Vars::$production[$ProdID][$ID], $ProdID, $AccountData);
                 $Production = eval($eval);
 
 
@@ -220,11 +195,11 @@ class Resources
             }
         }
 
-        $Resources[901]['max'] = $temp[901]['max'] * Config::getValue('StorageMultiplier') * (1 + Factors::getFactor('ResourceStorage', $userId, $planetId));
-        $Resources[902]['max'] = $temp[902]['max'] * Config::getValue('StorageMultiplier') * (1 + Factors::getFactor('ResourceStorage', $userId, $planetId));
-        $Resources[903]['max'] = $temp[903]['max'] * Config::getValue('StorageMultiplier') * (1 + Factors::getFactor('ResourceStorage', $userId, $planetId));
+        $Resources[901]['max'] = $temp[901]['max'] * Config::getValue('StorageMultiplier') * (1 + Factors::getFactor('ResourceStorage', $AccountData));
+        $Resources[902]['max'] = $temp[902]['max'] * Config::getValue('StorageMultiplier') * (1 + Factors::getFactor('ResourceStorage', $AccountData));
+        $Resources[903]['max'] = $temp[903]['max'] * Config::getValue('StorageMultiplier') * (1 + Factors::getFactor('ResourceStorage', $AccountData));
 
-        $Resources[911]['max'] = round($temp[911]['plus'] * Config::getValue('EnergySpeed')) * (1 + Factors::getFactor('Energy', $userId, $planetId));
+        $Resources[911]['max'] = round($temp[911]['plus'] * Config::getValue('EnergySpeed')) * (1 + Factors::getFactor('Energy', $AccountData));
         $Resources[911]['used'] = $temp[911]['minus'] * Config::getValue('EnergySpeed');
         $Resources[911]['count'] = $Resources[911]['max'] + $Resources[911]['used'];
 
@@ -232,41 +207,34 @@ class Resources
 
         $Resources[901]['perhour'] = (
             $temp[901]['plus'] *
-            (1 + Factors::getFactor('Resource', $userId, $planetId) + 0.02 * $Techs[Vars::$resource[131]]) * $prodLevel +
+            (1 + Factors::getFactor('Resource', $AccountData) + 0.02 * $Techs[Vars::$resource[131]]) * $prodLevel +
             $temp[901]['minus'] + $BasicIncome[901]) * Config::getValue('ResourceMultiplier');
 
 
         $Resources[902]['perhour'] = (
             $temp[902]['plus'] *
-            (1 + Factors::getFactor('Resource', $userId, $planetId) + 0.02 * $Techs[Vars::$resource[132]]) * $prodLevel +
+            (1 + Factors::getFactor('Resource', $AccountData) + 0.02 * $Techs[Vars::$resource[132]]) * $prodLevel +
             $temp[902]['minus'] + $BasicIncome[902]) * Config::getValue('ResourceMultiplier');
 
 
         $Resources[903]['perhour'] = (
             $temp[903]['plus'] *
-            (1 + Factors::getFactor('Resource', $userId, $planetId) + 0.02 * $Techs[Vars::$resource[133]]) * $prodLevel +
+            (1 + Factors::getFactor('Resource', $AccountData) + 0.02 * $Techs[Vars::$resource[133]]) * $prodLevel +
             $temp[903]['minus'] + $BasicIncome[903]) * Config::getValue('ResourceMultiplier');
         //}
 
         return $Resources;
     }
 
-    public static function getProd($Calculation, $Element = false, $userId = null, $planetId = null)
+    public static function getProd($Calculation, $Element = false, $AccountData = [])
     {
 
         if ($Element) {
 
-            $Planet = Planets::findById($planetId);
-            $User = Users::findById($userId);
-            $Techs = Techs::findById($userId);
-            $Builds  = Builds::findById($planetId);
-            $Fleet = [];
 
-            /*$BuildEnergy        = $Techs[Vars::$resource[113]];
-            $BuildTemp          = $Planet['temp_max'];
-            $BuildLevelFactor   = EntitySettings::get($planetId, $Element)['efficiency'];*/
-
-            //$BuildLevel = ($BuildLevel) ? $BuildLevel : Helpers::getElementLevel($Element, $userId, $planetId);
+            $Techs      = $AccountData['Techs'];
+            $Builds     = $AccountData['Builds'];
+            $Fleet      = [];
 
             // функция подстановки
             $replaced = preg_replace_callback(

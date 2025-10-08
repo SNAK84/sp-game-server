@@ -108,29 +108,6 @@ class Planets extends BaseRepository
         return $planet;
     }
 
-    public static function getMaxFields(int $planetId): int
-    {
-        $fields = self::findById($planetId)['fields'];
-        $Builds = Builds::findById($planetId);
-
-        $fields += ($Builds[Vars::$resource[33]] * Config::getValue("FieldsByTerraformer"));
-        $fields += ($Builds[Vars::$resource[41]] * Config::getValue("FieldsByMoonBasis"));
-
-        return $fields;
-    }
-
-    public static function getCurrentFields(int $planetId): int
-    {
-        //$fields = self::findById($planetId)['fields'];
-        $Builds = Builds::findById($planetId);
-
-        $CurrentFields = 0;
-        foreach (Vars::$reslist['build'] as $id)
-            $CurrentFields += $Builds[Vars::$resource[$id]];
-
-        return $CurrentFields;
-    }
-
     public static function getAllPlanets(int $userId): array
     {
         $Planets = [];
@@ -141,19 +118,15 @@ class Planets extends BaseRepository
         return $Planets;
     }
 
-    public static function getPlanetsList(int $userId): array
+    public static function getPlanetsList(array $User ): array
     {
-        $user = Users::findById($userId);
-        if (!$user) {
-            throw new \RuntimeException("User $userId not found");
-        }
 
-        $sortField = (int)($user['planet_sort'] ?? 0);
-        $sortOrder = (int)($user['planet_sort_order'] ?? 0);
+        $sortField = (int)($User['planet_sort'] ?? 0);
+        $sortOrder = (int)($User['planet_sort_order'] ?? 0);
 
         $Planets = [];
         foreach (self::$table as $row) {
-            if ($row['owner_id'] == $userId)
+            if ($row['owner_id'] == $User['id'])
                 $Planets[] = [
                     'id'            => $row['id'],
                     'name'          => $row['name'],

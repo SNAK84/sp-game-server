@@ -533,4 +533,21 @@ class Accounts extends BaseRepository
 
         return $result;
     }
+
+
+    public static function getAccountData(int $accountId, int $planetId = null): array
+    {
+        $AccountData = [
+            'Account' => self::findById($accountId),
+            'User' => Users::findByAccount($accountId)
+        ];
+
+        if ($planetId) {
+            $AccountData['Planet'] = Planets::findById($planetId);
+            $AccountData['Builds'] = Builds::findById($planetId);
+            $AccountData['Techs'] = Techs::findById($AccountData['User']['id']);
+        }
+
+        return $AccountData;
+    }
 }

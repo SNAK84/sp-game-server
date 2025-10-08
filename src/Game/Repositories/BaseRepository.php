@@ -412,7 +412,7 @@ abstract class BaseRepository
             return;
         }
 
-        self::$logger->warning("Delete non-existent " . static::$className . ": " . json_encode($data));
+        //self::$logger->warning("Delete non-existent " . static::$className . ": " . json_encode($data));
             
 
         // Удаляем индексы
