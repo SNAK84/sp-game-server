@@ -20,10 +20,8 @@ class PlanetResources extends BaseRepository
     protected static string $className = 'PlanetResources';
     protected static string $tableName = 'resources_planet';
 
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    /** @var Table */
+    protected static Table $syncTable;
 
     protected static array $tableSchema = [
         'columns' => [
@@ -187,7 +185,9 @@ class Resources
                 if ($Production > 0) {
                     $temp[$ID]['plus']    += $Production;
                 } else {
-                    if (in_array($ID, Vars::$reslist['resstype'][1]) && $Builds[Vars::$resource[$ID]] == 0) {
+                    
+                    //if (in_array($ID, Vars::$reslist['resstype'][1]) && $Builds[Vars::$resource[$ID]] == 0) {
+                    if (in_array($ID, Vars::$reslist['resstype'][1]) && $Resources[$ID]['count'] == 0) {
                         continue;
                     }
                     $temp[$ID]['minus']   += $Production;

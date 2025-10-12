@@ -19,11 +19,11 @@ class Planets extends BaseRepository
     protected static string $tableName = 'planets';
     protected static array $tableSchema = [
         'columns' => [
-            'id'           => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) UNSIGNED NOT NULL AUTO_INCREMENT', 'default' => 0],
+            'id'           => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) UNSIGNED NOT NULL AUTO_INCREMENT', 'default' => Defaults::AUTOID],
             'owner_id'     => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) NOT NULL', 'default' => 0],
             'name'         => ['swoole' => [Table::TYPE_STRING, 32], 'sql' => 'VARCHAR(32) NOT NULL', 'default' => 'Planet'],
             'create_time'  => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) NOT NULL', 'default' => Defaults::TIME],
-            'update_time'  => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(17,6) DEFAULT 0.0', 'default' => 0.0],
+            'update_time'  => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(17,6) DEFAULT 0.0', 'default' => Defaults::TIME],
             'planet_type'  => ['swoole' => [Table::TYPE_INT, 1], 'sql' => 'TINYINT(1) NOT NULL DEFAULT 1', 'default' => 1],
             'size'         => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) NOT NULL', 'default' => 0],
             'fields'       => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'SMALLINT UNSIGNED NOT NULL', 'default' => 0],
@@ -52,10 +52,8 @@ class Planets extends BaseRepository
         'owner_id' => ['key' => ['owner_id'], 'Unique' => false]
     ];
 
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    /** @var Table */
+    protected static Table $syncTable;
 
 
     /**
@@ -67,42 +65,32 @@ class Planets extends BaseRepository
         return $mainRow !== false ? $mainRow : null;
     }
 
-    public static function findByUserId(int $userId): array
+    public static function findByUser(array &$user): array
     {
-        $user = Users::findById($userId);
-        if (!$user) {
-            throw new \RuntimeException("User $userId not found");
-        }
 
         $planet = null;
 
         // 1. ищем по current_planet
-        if (!empty($user['current_planet'])) {
+        if (!empty($user['current_planet']) && $user['current_planet'] > 0) {
             $planet = self::findById((int)$user['current_planet']);
         }
 
         // 2. если не нашли, ищем по main_planet
-        if (!$planet && !empty($user['main_planet'])) {
+        if (!$planet && !empty($user['main_planet']) && $user['main_planet'] > 0) {
             $planet = self::findById((int)$user['main_planet']);
             if ($planet) {
-                // обновляем current_planet у пользователя
-                Users::update([
-                    'id'             => (int) $userId,
-                    'current_planet' => (int) $planet['id'],
-                ]);
+                $user['current_planet'] = $planet['id'];
+                Users::update($user);
             }
         }
 
         // 3. если нет планеты — создаём
         if (!$planet) {
-            $planet = self::CreatePlanet($userId, 'Homeworld');
-
+            $planet = self::CreatePlanet($user['id'], 'Homeworld');
+            $user['main_planet'] = $planet['id'];
+            $user['current_planet'] = $planet['id'];
             // обновляем пользователя
-            Users::update([
-                'id'             => (int) $userId,
-                'main_planet'    => (int) $planet['id'],
-                'current_planet' => (int) $planet['id'],
-            ]);
+            Users::update($user);
         }
 
         return $planet;
@@ -118,7 +106,7 @@ class Planets extends BaseRepository
         return $Planets;
     }
 
-    public static function getPlanetsList(array $User ): array
+    public static function getPlanetsList(array $User): array
     {
 
         $sortField = (int)($User['planet_sort'] ?? 0);
@@ -180,6 +168,7 @@ class Planets extends BaseRepository
 
 
 
+        /*
         $db = Database::getInstance();
 
         // Берём все колонки, которые есть в MySQL
@@ -200,6 +189,9 @@ class Planets extends BaseRepository
         VALUES (" . implode(',', $placeholders) . ")";
 
         $PlanetRandom['id'] = $db->insert($sql, $dataToInsert);
+
+        */
+        $PlanetRandom = static::castRowToSchema($PlanetRandom, true);
 
         Logger::getInstance()->info("PlanetRandom", $PlanetRandom);
 

@@ -13,9 +13,6 @@ class Queues extends BaseRepository
     protected static string $tableName = 'queues';
     protected static int $tableSize = 1024 * 8;
 
-    // автоинкрементный ID для ключей
-    protected static int $lastId = 0;
-
     /** @var Table Основная таблица */
     protected static Table $table;
 
@@ -54,13 +51,12 @@ class Queues extends BaseRepository
         'queue' => ['key' => ['planet_id', 'type'], 'Unique' => false],
         'queue_tech' => ['key' => ['user_id', 'type'], 'Unique' => false],
         'queue_p_status' => ['key' => ['planet_id', 'status'], 'Unique' => false],
-        'queue_u_status' => ['key' => ['user_id', 'status'], 'Unique' => false]
+        'queue_u_status' => ['key' => ['user_id', 'status'], 'Unique' => false],
+        'queue_p_type_status' => ['key' => ['planet_id', 'type', 'status'], 'Unique' => false]
     ];
 
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    /** @var Table */
+    protected static Table $syncTable;
 
     public static function getCurrentQueue(string $QueueType, int $userId, int $planetId): ?array
     {
@@ -132,8 +128,20 @@ class Queues extends BaseRepository
 
     public static function getActive(int $userId): ?array
     {
-        $items = self::findByIndex('queue_status', [$userId, 'active']) ?? [];
+        $items = self::findByIndex('queue_u_status', [$userId, 'active']) ?? [];
 
+        if (empty($items)) {
+            return null;
+        }
+
+        return $items;
+    }
+
+    public static function getActivePlanet(string $QueueType, int $planetId): ?array
+    {
+
+        $items = self::findByIndex('queue_p_type_status', [$planetId, $QueueType, 'active']);
+        
         if (empty($items)) {
             return null;
         }

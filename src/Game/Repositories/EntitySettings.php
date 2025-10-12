@@ -27,10 +27,8 @@ class EntitySettings extends BaseRepository
         ],
     ];
 
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    /** @var Table */
+    protected static Table $syncTable;
 
     /**
      * Формируем ключ для Swoole\Table по planet + entity
@@ -56,25 +54,25 @@ class EntitySettings extends BaseRepository
     }
 
     // Добавление или обновление записи
-    public static function add(array $data): void
+    public static function add(array $data, bool $sync = true): void
     {
         if (!isset($data['planet_id']) || !isset($data['entity_id'])) {
             self::$logger->warning("Missing planet_id or entity_id in data", $data);
             return;
         }
 
-        $key = static::makeKey((int)$data['planet_id'], (int)$data['entity_id']);
-        $row = static::castRowToSchema($data, true);
+        $key = self::makeKey((int)$data['planet_id'], (int)$data['entity_id']);
+        $row = self::castRowToSchema($data, true);
         $row['id'] = $key; // если BaseRepository требует поле 'id'
 
-        static::$table->set($key, $row);
+        self::$table->set($key, $row);
 
         foreach (static::$indexes as $indexKey => $col) {
-            static::addIndex($indexKey, $row[$col['key']], $key);
+            self::addIndex($indexKey, $row[$col['key']], $key);
         }
 
         // помечаем dirty для синхронизации в MySQL
-        static::$dirtyIdsTable->set((string)$row['id'], ['id' => (int)$row['id']]);
+        if ($sync) self::markForUpdate((int)$row['id']);
     }
 
     // Обновление
@@ -92,16 +90,16 @@ class EntitySettings extends BaseRepository
             return;
         }
 
-        $updated = array_merge($current, static::castRowToSchema($data));
-        static::$table->set($key, $updated);
+        $updated = array_merge($current, self::castRowToSchema($data));
+        self::$table->set($key, $updated);
 
         // Обновляем индексы при необходимости
         // Обновляем индексы
         foreach (static::$indexes as $indexKey => $col) {
-            static::updateIndex($indexKey, $current[$col['key']], $updated[$col['key']], $key);
+            self::updateIndex($indexKey, $current[$col['key']], $updated[$col['key']], $key);
         }
 
         // помечаем для синхронизации
-        static::$dirtyIdsTable->set((string)$key, ['id' => (int)$key]);
+        self::markForUpdate((int)$key);
     }
 }

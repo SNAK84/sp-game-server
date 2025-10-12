@@ -205,17 +205,24 @@ class Connect
             $result  = [];
 
             // --- логин / регистрация (обработка до проверки токена) ---
+            if ($mode === 'logout') {
+                $result = Accounts::authByToken($token, $frame->fd, $wsocket);
+                $response->setToken($result['token'] ?? '')->setMode("login")->setAction("login");
+                return $response->source();
+
+            }
             if ($mode === 'login') {
                 switch ($action) {
                     case 'register':
                         // Accounts::register должен вернуть массив в формате ответа
-                        $result  = Accounts::register($Msg, $frame->fd, $wsocket);
+                        $result = Accounts::register($Msg, $frame->fd, $wsocket);
                         break;
                     case 'verify_email':
                         $result  = Accounts::verifyEmail($Msg, $frame->fd, $wsocket);
                         break;
                     case 'send_verify_email':
-                        $result  = Accounts::resendVerificationPin($Msg, $frame->fd, $wsocket);
+                        $result = Accounts::resendVerificationPin($Msg, $frame->fd, $wsocket);
+                        $result['verify_email'] = true;
                         Logger::getInstance()->info("Verification PIN Connect", $result);
                         break;
                     case 'login':
@@ -223,6 +230,8 @@ class Connect
                         $result  = Accounts::login($Msg, $frame->fd, $wsocket);
                         break;
                 }
+
+                Logger::getInstance()->info("Авторизация",$result);
 
                 if ($result['id']) {
                     $response->setlang(Accounts::findById($result['id'])['lang']);
@@ -238,8 +247,8 @@ class Connect
                     $response->setData('id', $result['id']);
                     $response->setData('login', $result['login']);
 
-                    $response->setMode("over");
-                    $response->setAction("");
+                    //$response->setMode("0overview");
+                    $response->setAction("loginok");
 
                     $token = $result['token'];
 
@@ -248,15 +257,17 @@ class Connect
 
                     if ($action == 'send_verify_email') {
                         $response->setData('message', $result['message']);
-                        //$response->setMode("overview");
+                        $response->setMode("0overview");
                         $response->setAction("");
                         return $response->source();
                     }
 
-                    $response->setMode("over");
+                    $response->setToken($result['token'] ?? '');
+
+                    $response->setMode("1overview");
                     $response->setAction("");
 
-                    $token = $result['token'];
+                    //$token = $result['token'];
 
                     return $response->source();
 
@@ -321,7 +332,7 @@ class Connect
 
             if ($mode === 'connect' || $mode === 'handshake') {
                 if ($action === 'handshake') {
-                    $response->setMode("over");
+                    //$response->setMode("2overview");
                     $response->setData('message', 'Connected');
                     return $response->source();
                 }
@@ -330,8 +341,19 @@ class Connect
             $pageBuilder = new \SPGame\Game\PageBuilder($Msg, $frame->fd);
 
             if ($action == "planetselect") {
+
                 $User = \SPGame\Game\Repositories\Users::findByAccount($authResult['id']);
-                \SPGame\Game\Repositories\Users::SelectPlanet($User['id'], $Msg->getData("planetId"));
+                \SPGame\Game\Repositories\PlayerQueue::addQueue(
+                    $authResult['id'],
+                    $User['id'],
+                    $Msg->getData("planetId"),
+                    \SPGame\Game\Repositories\PlayerQueue::ActionSelectPlanet,
+                    [
+                        'Element' => $Msg->getData('id'),
+                        'AddMode' => true
+                    ]
+                );
+                return;
             }
             // --- Роутинг по режимам (game logic) ---
             switch ($mode) {

@@ -307,11 +307,20 @@ class EventLoop
                     break;
 
                 case PlayerQueue::ActionQueueReCalcTech:
-                    Logger::getInstance()->info("PlayerQueue::ActionQueueReCalcTech");
                     QueuesServices::ReCalcTimeQueue(QueuesServices::TECHS, $AccountData, $Event['added_at']);
                     $sendMsg  = true;
                     break;
-
+                case PlayerQueue::ActionSelectPlanet:
+                    $AccountData['User']['current_planet'] = $Event['planet_id'];
+                    $sendMsg  = true;
+                    break;
+                case PlayerQueue::ActionMessagesRead:
+                    Notification::setReadMessages($Event['user_id'], $Event['data']['ReadId']);
+                    $sendMsg  = true;
+                    break;
+                case PlayerQueue::ActionMessagesNew:
+                    $sendMsg  = true;
+                    break;
                     // можно добавить другие действия
             }
 
@@ -356,7 +365,7 @@ class EventLoop
         $response->setMode($Account['mode']);
         $response->setAction("ActualData");
 
-        $this->logger->info("sendActualData: sending to account", ['accountId' => $accountId, 'mode' => $Account['mode'], 'frame' => $frame]);
+        //$this->logger->info("sendActualData: sending to account", ['accountId' => $accountId, 'mode' => $Account['mode'], 'frame' => $frame]);
 
         $pageBuilder = new \SPGame\Game\PageBuilder($response, $frame);
         $response = $pageBuilder->build($response);

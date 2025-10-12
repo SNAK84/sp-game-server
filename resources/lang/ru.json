@@ -368,5 +368,101 @@
     "903": "Дейтерий — редкий ресурс для энергии и некоторых технологий.",
     "911": "Энергия необходима для работы всех построек и производства.",
     "921": "Тёмная материя — ценный ресурс для найма опытных офицеров и уникальных построек."
+  },
+  "notifications": {
+    "TypePlanet": "планете",
+    "TypeMoon": "луне",
+    "queueAction": {
+      "build": "построить",
+      "destroy": "разрушить",
+      "tech": "исследовать"
+    },
+    "queueProcess": {
+      "build": "строительство",
+      "destroy": "разрушение",
+      "tech": "исследование"
+    },
+    "queueProcessGen": {
+      "build": "строительства",
+      "destroy": "разрушения",
+      "tech": "исследования"
+    },
+    "subject": {
+      "Build": {
+        "BuildBuilding": "Здание построено",
+        "BuildBuildingCant": "Строительство невозможно",
+        "BuildHangar": "Производство завершено",
+        "BuildHangarCant": "Производство невозможно",
+        "BuildTech": "Исследование завершено",
+        "BuildTechCant": "Исследование невозможно"
+      },
+      "System": {
+        "Account": "Системное уведомление",
+        "Server": "Сообщение от администрации",
+        "Error": "Ошибка системы"
+      },
+      "News": {
+        "Global": "Галактические новости",
+        "Event": "Событие Вселенной",
+        "Update": "Обновление игры"
+      },
+      "Spy": {
+        "Report": "Отчёт шпионажа",
+        "Detected": "Шпион обнаружен",
+        "Failed": "Шпионаж не удался"
+      },
+      "Fights": {
+        "BattleReport": "Боевой доклад",
+        "DebrisField": "Отчёт о поле обломков",
+        "Destroyed": "Планета уничтожена"
+      },
+      "Transport": {
+        "Arrival": "Груз доставлен",
+        "Return": "Флот вернулся",
+        "Loss": "Груз утерян"
+      },
+      "Expeditions": {
+        "Success": "Отчёт экспедиции",
+        "FoundFleet": "Обнаружен флот",
+        "FoundResources": "Найдены ресурсы",
+        "Lost": "Экспедиция потеряна"
+      },
+      "Alliance": {
+        "Invite": "Приглашение в альянс",
+        "Join": "Новый участник альянса",
+        "Leave": "Игрок покинул альянс",
+        "Message": "Сообщение альянса"
+      }
+    },
+    "types": {
+      "Build": "Постройки",
+      "System": "Системные",
+      "News": "Новости",
+      "Spy": "Шпионаж",
+      "Fights": "Битвы",
+      "Transport": "Транспорт",
+      "Expeditions": "Экспедиции",
+      "Players": "Игроки",
+      "Alliance": "Альянс",
+      "All": "Все"
+    },
+    "sample": {
+      "BuildBuyable": "На {PlanetType} {PlanetName} [{PlanetGalaxy}:{PlanetSystem}] недостаточно ресурсов для {queueProcessGen} {ElementId}.\n\nВ наличии:\n{Resources}.\nСтоимость строительства:\n{ResourcesCost}.",
+      "BuildBlocked": "На {PlanetType} {PlanetName} [{PlanetGalaxy}:{PlanetSystem}] невозможно {queueAction} {ElementId}, пока идет {queueProcess} {QueueElementId}."
+    },
+    "from": {
+      "Build": {
+        "BuildBuilding": "Строительный центр",
+        "BuildHangar": "Центр производства",
+        "BuildTech": "Научный отдел"
+      },
+      "System": "Система",
+      "News": "Галактические новости",
+      "Spy": "Разведцентр",
+      "Fights": "Командование флота",
+      "Transport": "Логистический центр",
+      "Expeditions": "Центр экспедиций",
+      "Alliance": "Совет альянса"
+    }
   }
 }

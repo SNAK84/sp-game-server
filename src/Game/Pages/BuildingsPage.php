@@ -2,6 +2,7 @@
 
 namespace SPGame\Game\Pages;
 
+use SPGame\Core\Logger;
 use SPGame\Game\Repositories\Queues;
 use SPGame\Game\Repositories\Resources;
 use SPGame\Game\Repositories\Vars;
@@ -24,12 +25,22 @@ class BuildingsPage extends AbstractPage
         $QueueList = $this->buildQueueList($CurrentQueue);
         $BuildList = $this->buildAvailableList($AccountData, $CurrentQueue);
 
+        $DemolishedQueue = 0;
+        foreach ($CurrentQueue as $Queue) {
+            $objId = $Queue['object_id'];
+            if ($Queue['action'] == 'destroy') 
+                $DemolishedQueue++;
+        }
+
+        $DemolishedQueue = max(0, $DemolishedQueue);
+
+
         return [
             'page' => 'buildings',
             'BuildList' => $BuildList,
             'QueueList' => $QueueList,
             'Types' => Vars::$reslist['nametype']['build'],
-            'field_used' => Helpers::getCurrentFields($AccountData) + count($QueueList),
+            'field_used' => Helpers::getCurrentFields($AccountData) + count($CurrentQueue) - $DemolishedQueue * 2,
             'field_current' => Helpers::getMaxFields($AccountData),
             'CountQueue' => count($CurrentQueue),
             'MaxQueue' => QueuesServices::MaxQueue(QueuesServices::BUILDS)
@@ -57,23 +68,32 @@ class BuildingsPage extends AbstractPage
 
     private function buildAvailableList(array &$AccountData, array $CurrentQueue): array
     {
+        $User = &$AccountData['User'];
         $Planet = &$AccountData['Planet'];
         $Builds = &$AccountData['Builds'];
+
+        $TempBuilds = $AccountData['Builds'];
 
         $QueueLevels = [];
         foreach ($CurrentQueue as $q) {
             $id = $q['object_id'];
             $QueueLevels[$id] = ($QueueLevels[$id] ?? 0) + ($q['action'] === 'destroy' ? -1 : 1);
+            $AccountData['Builds'][Vars::$resource[$id]] += ($QueueLevels[$id] ?? 0) + ($q['action'] === 'destroy' ? -1 : 1);
         }
 
         $BuildEnergy        = $AccountData['Techs'][Vars::$resource[113]];
-        //$BuildLevelFactor   = 10;
+        $BuildLevelFactor   = 100;
         $BuildTemp          = $Planet['temp_max'];
 
-        $BuildList = [];
+        $QueueActiveTech    = Queues::getActivePlanet(QueuesServices::TECHS, $Planet['id']);
+        $QueueActiveHangar  = Queues::getActivePlanet(QueuesServices::HANGARS, $Planet['id']);
+
+        $BuildList          = [];
         foreach (Vars::$reslist['allow'][$Planet['planet_type']] as $Element) {
-            $currentLevel = $Builds[Vars::$resource[$Element]] ?? 0;
+            $currentLevel = $TempBuilds[Vars::$resource[$Element]] ?? 0;
             $levelToBuild = $currentLevel + ($QueueLevels[$Element] ?? 0);
+
+
 
             $Prod = null;
 
@@ -131,25 +151,42 @@ class BuildingsPage extends AbstractPage
 
             $buyable = Vars::$attributes[$Element]['max'] > $levelToBuild;
 
+            $buyable = true;
+            $working = false;
+            if (Vars::$attributes[$Element]['max'] > $levelToBuild) {
+                $buyable = false;
+            }
+            if (
+                ($QueueActiveTech && ($Element == 6 || $Element == 31)) ||
+                ($QueueActiveHangar && ($Element == 15 || $Element == 21))
+            ) {
+                $buyable = false;
+                $working = true;
+            }
+
             $BuildList[$Element] = [
-                'id' => $Element,
-                'name' => Vars::$resource[$Element],
-                'type' => Vars::$attributes[$Element]['type'],
-                'level' => $currentLevel,
-                'maxLevel' => Vars::$attributes[$Element]['max'],
-                'accessible' => $Accessible,
-                'requirements' => $requirements,
+                'id'                => $Element,
+                'name'              => Vars::$resource[$Element],
+                'type'              => Vars::$attributes[$Element]['type'],
+                'level'             => $currentLevel,
+                'maxLevel'          => Vars::$attributes[$Element]['max'],
+                'accessible'        => $Accessible,
+                'requirements'      => $requirements,
                 'Prod'              => $Prod,
-                'costResources' => $cost,
-                'costOverflow' => $costOverflow,
-                'elementTime' => $time,
-                'destroyResources' => $destroyCost,
-                'destroyTime' => $destroyTime,
-                'destroyOverflow' => $destroyOverflow,
-                'levelToBuild' => $levelToBuild,
-                'buyable' => $buyable
+                'costResources'     => $cost,
+                'costOverflow'      => $costOverflow,
+                'elementTime'       => $time,
+                'destroyResources'  => $destroyCost,
+                'destroyTime'       => $destroyTime,
+                'destroyOverflow'   => $destroyOverflow,
+                'levelToBuild'      => $levelToBuild,
+                'buyable'           => $buyable,
+                'working'           => $working
             ];
         }
+
+
+        $AccountData['Builds'] = $TempBuilds;
 
         return $BuildList;
     }

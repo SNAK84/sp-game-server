@@ -3,7 +3,6 @@
 namespace SPGame\Game\Repositories;
 
 use SPGame\Core\Connect;
-use SPGame\Core\Database;
 use SPGame\Core\Errors;
 use SPGame\Core\Validator;
 use SPGame\Core\Logger;
@@ -31,7 +30,7 @@ class Accounts extends BaseRepository
 
     protected static array $tableSchema = [
         'columns' => [
-            'id' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(11) UNSIGNED NOT NULL AUTO_INCREMENT', 'default' => Defaults::NONE],
+            'id' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(11) UNSIGNED NOT NULL', 'default' => Defaults::AUTOID],
             'login' => ['swoole' => [Table::TYPE_STRING, 64], 'sql' => 'VARCHAR(64) NOT NULL', 'default' => ''],
             'email' => ['swoole' => [Table::TYPE_STRING, 128], 'sql' => 'VARCHAR(128) NOT NULL', 'default' => ''],
             'password' => ['swoole' => [Table::TYPE_STRING, 128], 'sql' => 'VARCHAR(128) NOT NULL', 'default' => ''],
@@ -57,10 +56,8 @@ class Accounts extends BaseRepository
         ]
     ];
 
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    /** @var Table */
+    protected static Table $syncTable;
 
     // Индексы Swoole Table
     protected static array $indexes = [
@@ -117,6 +114,27 @@ class Accounts extends BaseRepository
         $remaining = $cooldown - (time() - $lastSend);
         return max(0, $remaining);
     }
+
+    public static function logout(string $token, int $fd, WSocket $wsocket): array
+    {
+        if (!isset(self::$logger)) {
+            self::$logger = Logger::getInstance();
+        }
+
+        $account = Accounts::findByToken($token);
+        if (!$account) {
+            return ['error' => 'Invalid token'];
+        }
+
+        $account['token'] = "";
+
+        return [
+            'success' => true,
+            'id' => $account['id'],
+            'login' => $account['login'],
+            'token' => $account['token']
+        ];
+    }
     // ==============================
     // Авторизация
     // ==============================
@@ -167,7 +185,7 @@ class Accounts extends BaseRepository
 
         self::update($account);
 
-        $db = Database::getInstance();
+        /*$db = Database::getInstance();
         $db->query(
             "UPDATE accounts SET token = :token, last_time = :last_time, last_ip = :last_ip WHERE id = :id",
             [
@@ -176,7 +194,7 @@ class Accounts extends BaseRepository
                 ':last_ip' => $account['last_ip'],
                 ':id' => $account['id']
             ]
-        );
+        );*/
 
         Connect::setAccount($fd, $account['id']);
 
@@ -234,7 +252,7 @@ class Accounts extends BaseRepository
 
 
 
-        $db = Database::getInstance();
+        /*$db = Database::getInstance();
 
         // Обновление last_time при каждом запросе
         $db->query(
@@ -244,7 +262,7 @@ class Accounts extends BaseRepository
                 ':last_ip' => $account['last_ip'],
                 ':id' => $account['id']
             ]
-        );
+        );*/
 
         return [
             'success' => true,
@@ -292,7 +310,7 @@ class Accounts extends BaseRepository
         }
 
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-        $db = Database::getInstance();
+        /*$db = Database::getInstance();
         $id = $db->insert(
             "INSERT INTO accounts (login, email, password, reg_time, last_time, reg_ip, last_ip)
              VALUES (:login, :email, :password, :reg_time, :last_time, :reg_ip, :last_ip)",
@@ -305,16 +323,19 @@ class Accounts extends BaseRepository
                 ':reg_ip' => $ip,
                 ':last_ip' => $ip
             ]
-        );
+        );*/
 
         $account = [
-            'id' => $id,
             'login' => $login,
             'email' => $email,
             'password' => $hashedPassword,
             'last_send_verify_mail' => time(),
+            'reg_ip' => $ip,
+            'last_ip' => $ip,
             'frame' => $fd
         ];
+
+        $account = self::castRowToSchema($account, true);
 
         self::add($account);
 
@@ -324,21 +345,21 @@ class Accounts extends BaseRepository
 
         $account['token'] = self::generateToken($account['id']);
 
-        $db->query(
+        /*$db->query(
             "UPDATE accounts SET token = :token WHERE id = :id",
             [
                 ':token' => $account['token'],
                 ':id' => $id
             ]
-        );
+        );*/
 
         self::update($account);
 
-        self::sendEmailConfirmation($id);
+        self::sendEmailConfirmation($account['id']);
 
         return [
             'success' => true,
-            'id' => $id,
+            'id' => $account['id'],
             'login' => $login,
             'token' => $account['token']
         ];
@@ -368,7 +389,7 @@ class Accounts extends BaseRepository
         }
 
         // Верификация успешна
-        //$account['verify_email'] = 1;
+        $account['verify_email'] = 1;
         //$account['email_pin'] = 0; // или NULL
 
         // Обновляем время последней отправки
@@ -383,17 +404,18 @@ class Accounts extends BaseRepository
         }*/
 
         // Обновляем базу
-        $db = Database::getInstance();
+        /*$db = Database::getInstance();
         $db->query(
             "UPDATE accounts SET verify_email = 1 WHERE id = :id",
             [':id' => $accountId]
-        );
+        );*/
 
         self::$logger->info("Email verified for account ID {$accountId} | FD: $fd");
 
         return [
             'success' => true,
             'id' => $accountId,
+            'token' => $account['token'],
             'verify_email' => false
         ];
     }

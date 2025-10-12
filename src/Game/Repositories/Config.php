@@ -25,10 +25,8 @@ class Config extends BaseRepository
 
     protected static string $tableName = 'config';
 
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    /** @var Table */
+    protected static Table $syncTable;
 
     private static array $DefaultConfig = [
         'LastGalaxyPos'      => 1,

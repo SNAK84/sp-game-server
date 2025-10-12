@@ -19,7 +19,7 @@ abstract class BaseRepository
     protected static Logger $logger;
 
     // автоинкрементный ID для ключей
-    protected static int $lastId = 0;
+    // protected static int $lastId = 0;
 
     /** @var Table Основная таблица */
     protected static Table $table;
@@ -40,9 +40,12 @@ abstract class BaseRepository
 
 
     /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
+    //protected static Table $dirtyIdsTable;
     /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    //protected static Table $dirtyIdsDelTable;
+
+    /** @var Table */
+    protected static Table $syncTable;
 
     /**
      * Инициализация репозитория
@@ -56,20 +59,36 @@ abstract class BaseRepository
         self::$logger = Logger::getInstance();
 
         // Создаём Swoole Table для dirtyIds
-        static::$dirtyIdsTable = new Table(static::$tableSize);
+        /*static::$dirtyIdsTable = new Table(static::$tableSize);
         static::$dirtyIdsTable->column('id', Table::TYPE_INT);
-        static::$dirtyIdsTable->create();
+        static::$dirtyIdsTable->create();*/
         // Создаём Swoole Table для dirtyIdsDel
-        static::$dirtyIdsDelTable = new Table(static::$tableSize);
+        /*static::$dirtyIdsDelTable = new Table(static::$tableSize);
         static::$dirtyIdsDelTable->column('id', Table::TYPE_INT);
-        static::$dirtyIdsDelTable->create();
+        static::$dirtyIdsDelTable->create();*/
+
+        static::$syncTable = new Table(2048);
+        // Флаги действий
+        static::$syncTable->column('need_update', Table::TYPE_INT);
+        static::$syncTable->column('need_delete', Table::TYPE_INT);
+        // Храним последний ID (для автоинкремента)
+        static::$syncTable->column('last_id', Table::TYPE_INT);
+        static::$syncTable->create();
+        // Инициализация мета-строки
+        if (!static::$syncTable->exists('meta')) {
+            static::$syncTable->set('meta', [
+                'need_update' => 0,
+                'need_delete' => 0,
+                'last_id' => 0
+            ]);
+        }
 
         // Создаём основную таблицу Swoole
         static::$table = new Table(static::$tableSize);
 
-
+        $count = 0;
         foreach (static::$tableSchema['columns'] as $col => $def) {
-            static::$table->column($col, $def['swoole'][0], $def['swoole'][1] ?? null);
+            static::$table->column($col, $def['swoole'][0], $def['swoole'][1] ?? 0);
         }
         static::$table->create();
 
@@ -83,9 +102,9 @@ abstract class BaseRepository
             $count = static::loadAll(static::$tableName);
         }
 
-        foreach (static::$dirtyIdsTable as $row) {
+        /*foreach (static::$dirtyIdsTable as $row) {
             static::$dirtyIdsTable->del($row['id']);
-        }
+        }*/
 
         if ($saver) $saver->register(static::class);
 
@@ -172,10 +191,20 @@ abstract class BaseRepository
     {
         $db = Database::getInstance();
         $rows = $db->fetchAll("SELECT * FROM `" . $tableName . "`");
+        $maxId = 0;
         foreach ($rows as $row) {
-            static::add($row);
-            if ($row['id'] > static::$lastId) static::$lastId = $row['id'];
+            static::add($row, false);
+            if (isset($row['id']) && (int)$row['id'] > $maxId) {
+                $maxId = (int)$row['id'];
+            }
         }
+
+        // Обновляем last_id в syncTable
+        if (isset(static::$syncTable)) {
+            static::setLastId($maxId);
+        }
+
+
         return count($rows);
     }
 
@@ -188,7 +217,7 @@ abstract class BaseRepository
 
         //self::$logger->info(static::$className . " initIndex Unique" . $Unique, static::$indexes[$indexKey]);
 
-        $tbl = new Table(static::$tableSize);
+        $tbl = new Table(static::$tableSize,);
         $tbl->column('id', Table::TYPE_INT);
         if (!$Unique) {
             //self::$logger->info(static::$className . " initIndex unUnique", static::$indexes[$indexKey]);
@@ -210,6 +239,8 @@ abstract class BaseRepository
         } else {
             $key = (string)$value;
         }
+
+        $key = md5($key);
 
         return mb_strtolower(trim($key));
     }
@@ -278,7 +309,8 @@ abstract class BaseRepository
             if (!is_array($ids)) {
                 $ids = [];
             }
-            $ids = array_filter($ids, fn($i) => $i !== $id);
+            //$ids = array_filter($ids, fn($i) => $i !== $id);
+            $ids = array_values(array_filter($ids, fn($i) => (int)$i !== $id));
 
             if (empty($ids)) {
                 $tbl->del($key);
@@ -303,7 +335,7 @@ abstract class BaseRepository
     /**
      * Поиск по индексу
      */
-    protected static function findByIndex(string $indexKey, array|string $val): ?array
+    public static function findByIndex(string $indexKey, array|string $val): ?array
     {
         $key = static::buildIndexKey($val);
         if ($key === '') return null;
@@ -333,9 +365,104 @@ abstract class BaseRepository
     }
 
     /**
+     * Пометить запись как изменённую (для обновления MySQL)
+     */
+    protected static function markForUpdate(int $id): void
+    {
+        $row = static::$syncTable->get((string)$id) ?: [
+            'need_update' => 0,
+            'need_delete' => 0,
+            'last_id' => 0
+        ];
+
+        // Только если не была уже помечена
+        if ($row['need_update'] === 0) {
+            $row['need_update'] = 1;
+            static::$syncTable->set((string)$id, $row);
+        }
+    }
+
+    /**
+     * Пометить запись как удалённую (для удаления из MySQL)
+     */
+    protected static function markForDelete(int $id): void
+    {
+        $row = static::$syncTable->get((string)$id) ?: [
+            'need_update' => 0,
+            'need_delete' => 0,
+            'last_id' => 0
+        ];
+
+        $row['need_delete'] = 1;
+        $row['need_update'] = 0;
+        static::$syncTable->set((string)$id, $row);
+    }
+
+    /**
+     * Получить все ID, требующие синхронизации
+     */
+    public static function getPendingSync(): array
+    {
+        $result = [
+            'update' => [],
+            'delete' => [],
+            'last_id' => static::$syncTable->get('meta')['last_id'] ?? 0
+        ];
+
+        foreach (static::$syncTable as $id => $row) {
+            if ($id === 'meta') continue;
+            if ($row['need_update'] === 1) $result['update'][] = (int)$id;
+            if ($row['need_delete'] === 1) $result['delete'][] = (int)$id;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Установить новый last_id
+     */
+    public static function setLastId(int $id): void
+    {
+        $meta = static::$syncTable->get('meta') ?? ['need_update' => 0, 'need_delete' => 0, 'last_id' => 0];
+        $meta['last_id'] = $id;
+        static::$syncTable->set('meta', $meta);
+    }
+
+    /**
+     * Получить текущий last_id
+     */
+    public static function getLastId(): int
+    {
+        return static::$syncTable->get('meta')['last_id'] ?? 0;
+    }
+
+    /**
+     * Атомарно выделяет следующий ID и возвращает его.
+     * Аналог ++static::$lastId, но безопасно для нескольких воркеров.
+     */
+    public static function nextId(): int
+    {
+        // атомарный инкремент
+        $ok = static::$syncTable->incr('meta', 'last_id', 1);
+
+        if (!$ok) {
+            // на случай, если incr неожиданно не сработал:
+            // попробуем прочитать, увеличить и записать в отдельном шаге (редкий fallback)
+            $curr = static::getLastId();
+            $new = $curr + 1;
+            static::setLastId($new);
+            return $new;
+        }
+
+        // получаем новое значение и возвращаем
+        $meta = static::$syncTable->get('meta');
+        return (int)($meta['last_id'] ?? 1);
+    }
+
+    /**
      * Добавление или обновление записи
      */
-    public static function add(array $data): void
+    public static function add(array $data, bool $sync = true): void
     {
 
         $row = static::castRowToSchema($data, true);
@@ -364,7 +491,7 @@ abstract class BaseRepository
         }
 
         // Помечаем для синхронизации
-        static::$dirtyIdsTable->set((string)$row['id'], ['id' => (int)$row['id']]);
+        if ($sync) static::markForUpdate((int)$row['id']);
     }
 
     /**
@@ -382,24 +509,34 @@ abstract class BaseRepository
         }
 
         $updated = array_merge($current, static::castRowToSchema($data));
-        static::$table->set((string)$id, $updated);
-
-        // Обновляем индексы
-        foreach (static::$indexes as $indexKey => $col) {
-            // Приводим ключи к массиву
-            $keys = is_array($col['key']) ? $col['key'] : [$col['key']];
-            $oldValues = [];
-            $newValues = [];
-
-            foreach ($keys as $k) {
-                $oldValues[] = $current[$k] ?? null;
-                $newValues[] = $updated[$k] ?? null;
+        // Проверяем, есть ли реальные изменения
+        $hasChanges = false;
+        foreach ($updated as $key => $value) {
+            if (!array_key_exists($key, $current) || $current[$key] !== $value) {
+                $hasChanges = true;
+                break;
             }
-            static::updateIndex($indexKey, $oldValues, $newValues, $id);
         }
 
-        // Помечаем для синхронизации
-        static::$dirtyIdsTable->set((string)$id, ['id' => (int)$id]);
+        if ($hasChanges) {
+            static::$table->set((string)$id, $updated);
+
+            // Обновляем индексы
+            foreach (static::$indexes as $indexKey => $col) {
+                $keys = is_array($col['key']) ? $col['key'] : [$col['key']];
+                $oldValues = [];
+                $newValues = [];
+
+                foreach ($keys as $k) {
+                    $oldValues[] = $current[$k] ?? null;
+                    $newValues[] = $updated[$k] ?? null;
+                }
+                static::updateIndex($indexKey, $oldValues, $newValues, $id);
+            }
+
+            // Помечаем для синхронизации только если есть изменения
+            static::markForUpdate((int)$id);
+        }
     }
 
     public static function delete(array $data): void
@@ -411,9 +548,6 @@ abstract class BaseRepository
             self::$logger->warning("Attempted to delete non-existent " . static::$className . ": " . json_encode($data));
             return;
         }
-
-        //self::$logger->warning("Delete non-existent " . static::$className . ": " . json_encode($data));
-            
 
         // Удаляем индексы
         foreach (static::$indexes as $indexKey => $col) {
@@ -428,8 +562,7 @@ abstract class BaseRepository
         static::$table->del((string)$id);
 
         // Помечаем для удаления
-        static::$dirtyIdsDelTable->set((string)$id, ['id' => (int)$id]);
-        static::$dirtyIdsTable->del((string)$id);
+        static::markForDelete($id);
     }
 
     public static function count(): int
@@ -444,8 +577,6 @@ abstract class BaseRepository
     {
         $row = [];
 
-        //static::$logger->info(static::$className . " castRowToSchema", $data);
-
         foreach (static::$tableSchema['columns'] as $col => $def) {
             $hasValue = array_key_exists($col, $data);
             $resolvedDefault = null;
@@ -456,15 +587,10 @@ abstract class BaseRepository
 
 
                 if ($defaultValue == Defaults::AUTOID) {
-                    $resolvedDefault = ++static::$lastId;
+                    $resolvedDefault = static::nextId();
                 } else {
                     $resolvedDefault = Defaults::resolve($defaultValue);
                 }
-                /*
-                $resolved = Defaults::resolve($defaultValue);
-                if ($resolved !== null) {
-                    $row[$col] = $resolved;
-                }*/
             }
 
             // Если есть значение из входного массива — используем его,
@@ -478,8 +604,6 @@ abstract class BaseRepository
                 continue;
             }
             $type = $def['swoole'][0] ?? Table::TYPE_STRING;
-            //if ($hasValue) {
-            //$value = $data[$col];
             switch ($type) {
                 case Table::TYPE_INT:
                     if ($value === '' || $value === null) {
@@ -500,7 +624,6 @@ abstract class BaseRepository
                     $row[$col] = (string)$value;
                     break;
             }
-            //}
         }
 
         return $row;
@@ -541,29 +664,33 @@ abstract class BaseRepository
      */
     public static function syncToDatabase(int $batchSize = 100): void
     {
+        if (!isset(static::$syncTable)) {
+            self::$logger->warning(static::$className . " syncToDatabase: syncTable is not initialized");
+            return;
+        }
+
         $dirtyIds = [];
-        foreach (static::$dirtyIdsTable as $row) {
-            $dirtyIds[] = (int)$row['id'];
+        $deleteIds = [];
+
+        // Собираем ID, помеченные на обновление и удаление
+        foreach (static::$syncTable as $key => $row) {
+            $id = (int)$key;
+            if ($id <= 0) continue;
+
+            if (!empty($row['need_update'])) {
+                $dirtyIds[] = $id;
+            }
+            if (!empty($row['need_delete'])) {
+                $deleteIds[] = $id;
+            }
         }
 
-        $dirtyIdsDelTable = [];
-        foreach (static::$dirtyIdsDelTable as $row) {
-            $dirtyIdsDelTable[] = (int)$row['id'];
-        }
-
-        // Если нет ни обновлений, ни удалений — выходим
-        if (empty($dirtyIds) && empty($dirtyIdsDelTable)) {
-            //self::$logger->info(static::$className . " syncToDatabase: nothing to sync");
+        if (empty($dirtyIds) && empty($deleteIds)) {
             return;
         }
 
         if (empty(static::$tableName) || empty(static::$tableSchema['columns'])) {
-            self::$logger->warning(static::$className . " syncToDatabase: tableName or tableSchema['columns'] is empty");
-            return;
-        }
-
-        if (empty(static::$tableName)) {
-            self::$logger->warning(static::$className . " syncToDatabase: tableName is empty");
+            self::$logger->warning(static::$className . " syncToDatabase: tableName or schema empty");
             return;
         }
 
@@ -651,14 +778,23 @@ abstract class BaseRepository
                         'rows' => count($placeholders)
                     ]);
                 }
+
+                // Сбрасываем флаг обновления
+                foreach ($chunk as $id) {
+                    $row = static::$syncTable->get((string)$id);
+                    if ($row) {
+                        $row['need_update'] = 0;
+                        static::$syncTable->set((string)$id, $row);
+                    }
+                }
             }
         }
 
         // -----------------------
         // DELETE (если есть dirtyIdsDelTable)
         // -----------------------
-        if (!empty($dirtyIdsDelTable)) {
-            $chunksDel = array_chunk($dirtyIdsDelTable, $batchSize);
+        if (!empty($deleteIds)) {
+            $chunksDel = array_chunk($deleteIds, $batchSize);
 
             foreach ($chunksDel as $chunkIndex => $chunkDel) {
                 $startChunk = microtime(true);
@@ -680,18 +816,15 @@ abstract class BaseRepository
                         'ids' => $chunkDel
                     ]);
                 }
+
+                // Удаляем из таблицы после успешного удаления
+                foreach ($chunkDel as $id) {
+                    static::$syncTable->del((string)$id);
+                }
             }
         }
 
         $totalTime = round((microtime(true) - $startAll) * 1000, 2);
         self::$logger->info(static::$className . " syncToDatabase: total {$totalSynced} rows synced, {$totalDeleted} rows deleted in {$totalTime} ms");
-
-        // Очищаем список dirty ID после синхронизации (и вставок, и удалений)
-        foreach (static::$dirtyIdsTable as $row) {
-            static::$dirtyIdsTable->del($row['id']);
-        }
-        foreach (static::$dirtyIdsDelTable as $row) {
-            static::$dirtyIdsDelTable->del($row['id']);
-        }
     }
 }

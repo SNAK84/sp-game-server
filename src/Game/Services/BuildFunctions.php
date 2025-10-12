@@ -27,7 +27,7 @@ class BuildFunctions
         } else
             $elementLevel = Helpers::getElementLevel($Element, $AccountData);
 
-        $price    = array();
+        $price    = [];
         foreach (Vars::$reslist['ressources'] as $resType) {
             if (!isset(Vars::$pricelist[$Element][$resType])) {
                 continue;
@@ -44,7 +44,12 @@ class BuildFunctions
                 $price[$resType]    *= pow(Vars::$attributes[$Element]['factor'], $elementLevel - 1);
             }
 
-            if ($forLevel && (in_array($Element, Vars::$reslist['fleet']) || in_array($Element, Vars::$reslist['defense']) || in_array($Element, Vars::$reslist['missile']))) {
+            if (
+                $forLevel &&
+                (in_array($Element, Vars::$reslist['fleet']) ||
+                    in_array($Element, Vars::$reslist['defense']) ||
+                    in_array($Element, Vars::$reslist['missile']))
+            ) {
                 $price[$resType]    *= $elementLevel;
             }
 
@@ -92,65 +97,73 @@ class BuildFunctions
 
     public static function getBuildingTime(int $Element, array $AccountData, $elementPrice = NULL, $forDestroy = false, $forLevel = NULL): float
     {
-        $time   = 0;
+        $time = 0.0;
 
-        if (!isset($elementPrice)) {
+        // --- 1. Получаем цену, если не передана ---
+        if ($elementPrice === null) {
             $elementPrice = self::getElementPrice($Element, $AccountData, $forDestroy, $forLevel);
         }
 
-        $elementCost = 0;
+        // --- 2. Общая стоимость металла + кристалла ---
+        $elementCost = 0.0;
+        $elementCost += (float)($elementPrice[901] ?? 0);
+        $elementCost += (float)($elementPrice[902] ?? 0);
 
-        if (isset($elementPrice[901])) {
-            $elementCost    += $elementPrice[901];
+        // --- 3. Безопасное извлечение уровней через Helpers ---
+        $roboticLevel   = (int)Helpers::getElementLevel(14, $AccountData); // Робототехника
+        $naniteLevel    = (int)Helpers::getElementLevel(15, $AccountData); // Наниты
+        $shipyardLevel  = (int)Helpers::getElementLevel(21, $AccountData); // Верфь
+        $labLevel       = (int)Helpers::getElementLevel(6,  $AccountData); // Лаборатория
+
+        // --- 4. Общие параметры конфигурации ---
+        $gameSpeed = (float)Config::getValue('GameSpeed');
+        if ($gameSpeed <= 0) {
+            $gameSpeed = 2500.0; // безопасное значение
         }
 
-        if (isset($elementPrice[902])) {
-            $elementCost    += $elementPrice[902];
+        $factorUniversity = (float)Config::getValue('FactorsUniversity');
+        if ($factorUniversity >= 100) {
+            $factorUniversity = 99.9; // защита от pow(<=0)
         }
 
-
-        if (in_array($Element, Vars::$reslist['build'])) {
-            $time    = $elementCost / (Config::getValue('GameSpeed') *
-                (1 + $AccountData['Builds'][Vars::$resource[14]])) *
-                pow(0.5, $AccountData['Builds'][Vars::$resource[15]]) *
-                (1 + Factors::getFactor('BuildTime', $AccountData));
-        } elseif (in_array($Element, Vars::$reslist['fleet'])) {
-            $time    = $elementCost / (Config::getValue('GameSpeed') *
-                (1 + $AccountData['Builds'][Vars::$resource[21]])) *
-                pow(0.5, $AccountData['Builds'][Vars::$resource[15]]) *
-                (1 + Factors::getFactor('ShipTime', $AccountData));
-        } elseif (in_array($Element, Vars::$reslist['defense'])) {
-            $time    = $elementCost / (Config::getValue('GameSpeed') *
-                (1 + $AccountData['Builds'][Vars::$resource[21]])) *
-                pow(0.5, $AccountData['Builds'][Vars::$resource[15]]) *
-                (1 + Factors::getFactor('DefensiveTime', $AccountData));
-        } elseif (in_array($Element, Vars::$reslist['missile'])) {
-            $time    = $elementCost / (Config::getValue('GameSpeed') *
-                (1 + $AccountData['Builds'][Vars::$resource[21]])) *
-                pow(0.5, $AccountData['Builds'][Vars::$resource[15]]) *
-                (1 + Factors::getFactor('DefensiveTime', $AccountData));
-        } elseif (in_array($Element, Vars::$reslist['tech'])) {
+        // --- 5. Расчёт по типу элемента ---
+        if (in_array($Element, Vars::$reslist['build'], true)) {
+            $time = $elementCost /
+                ($gameSpeed * (1 + $roboticLevel)) *
+                pow(0.5, $naniteLevel) *
+                (1 + (float)Factors::getFactor('BuildTime', $AccountData));
+        } elseif (in_array($Element, Vars::$reslist['fleet'], true)) {
+            $time = $elementCost /
+                ($gameSpeed * (1 + $shipyardLevel)) *
+                pow(0.5, $naniteLevel) *
+                (1 + (float)Factors::getFactor('ShipTime', $AccountData));
+        } elseif (in_array($Element, Vars::$reslist['defense'], true) || in_array($Element, Vars::$reslist['missile'], true)) {
+            $time = $elementCost /
+                ($gameSpeed * (1 + $shipyardLevel)) *
+                pow(0.5, $naniteLevel) *
+                (1 + (float)Factors::getFactor('DefensiveTime', $AccountData));
+        } elseif (in_array($Element, Vars::$reslist['tech'], true)) {
+            // --- 6. Исследования ---
             $NetworkLevels = Helpers::getNetworkLevels($AccountData);
-
             $Level = 0;
             foreach ($NetworkLevels as $Levels) {
-                if (!isset(Vars::$requirement[$Element][31]) || $Levels >= Vars::$requirement[$Element][31])
+                if (!isset(Vars::$requirement[$Element][31]) || $Levels >= Vars::$requirement[$Element][31]) {
                     $Level += $Levels;
+                }
             }
 
-            $time    = $elementCost / (1000 * (1 + $Level)) /
-                (Config::getValue('GameSpeed') / 2500) *
-                pow(1 - Config::getValue('FactorsUniversity') / 100, $AccountData['Builds'][Vars::$resource[6]]) *
-                (1 + Factors::getFactor('ResearchTime', $AccountData));
+            $time = $elementCost /
+                (1000.0 * (1.0 + $Level)) /
+                ($gameSpeed / 2500.0) *
+                pow(1.0 - ($factorUniversity / 100.0), $labLevel) *
+                (1.0 + (float)Factors::getFactor('ResearchTime', $AccountData));
         }
 
-        if ($forDestroy) {
-            $time    = ($time * 1300);
-        } else {
-            $time    = ($time * 3600);
-        }
+        // --- 7. Коэффициент для разрушения / строительства ---
+        $time *= $forDestroy ? 1300.0 : 3600.0;
 
-        return max($time, Config::getValue('MinBuildTime'));
+        // --- 8. Минимальное время ---
+        return max($time, (float)Config::getValue('MinBuildTime'));
     }
 
     public static function isElementBuyable(int $Element, array $AccountData, $elementPrice = NULL, $forDestroy = false, $forLevel = NULL): bool

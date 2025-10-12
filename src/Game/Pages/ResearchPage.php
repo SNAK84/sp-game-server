@@ -21,12 +21,17 @@ class ResearchPage extends AbstractPage
         $QueueList = $this->buildQueueList($CurrentQueue);
         $ResearchList = $this->buildResearchList($AccountData, $CurrentQueue);
 
+        $QueueActiveBuild = Queues::getActivePlanet(QueuesServices::BUILDS, $AccountData['Planet']['id']);
+        $IsLabinBuild = !empty($QueueActiveBuild)
+            && isset($QueueActiveBuild[0]['object_id'])
+            && in_array((int)$QueueActiveBuild[0]['object_id'], [6, 31], true);
+
         return [
             'page' => 'researchs',
             'ResearchList' => $ResearchList,
             'QueueList' => $QueueList,
             'Types' => Vars::$reslist['nametype']['reseach'],
-            'IsLabinBuild' => false,
+            'IsLabinBuild' => $IsLabinBuild,
             'CountQueue' => count($CurrentQueue),
             'MaxQueue' => QueuesServices::MaxQueue(QueuesServices::TECHS)
         ];

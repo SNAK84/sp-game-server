@@ -19,8 +19,9 @@ use SPGame\Game\Pages\BuildingsPage;
 use SPGame\Game\Pages\ResearchPage;
 use SPGame\Game\Pages\ShipyardPage;
 use SPGame\Game\Pages\DefensePage;
-
+use SPGame\Game\Pages\MessagesPage;
 use SPGame\Game\Services\PageActionService;
+use SPGame\Game\Services\Notification;
 
 
 class PageBuilder
@@ -45,20 +46,27 @@ class PageBuilder
      */
     public function build(Message $response): Message
     {
+        Logger::getInstance()->info("this->aid: $this->aid");
         $AccountData = [
             'Account'   => Accounts::findById($this->aid),
             'User'      => Users::findByAccount($this->aid),
         ];
 
-        $AccountData['Planet']      = Planets::findByUserId($AccountData['User']['id']);
+        if (!$AccountData['User'])
+            Logger::getInstance()->warning(" Not User");
+
+        $AccountData['Planet']      = Planets::findByUser($AccountData['User']);
         $AccountData['Builds']      = Builds::findById($AccountData['Planet']['id']);
         $AccountData['Techs']       = Techs::findById($AccountData['User']['id']);
         $AccountData['Resources']   = Resources::get($AccountData);
 
         // обработка действий перед построением
-        PageActionService::handle($this->Msg, $AccountData, $this->aid);
-
+        if (PageActionService::handle($this->Msg, $AccountData, $this->aid)) {
+            $response->setMode("none");
+            return $response;
+        }
         $result = [];
+        $page = null;
         switch ($this->Msg->getMode()) {
             case 'buildings':
                 $page = new BuildingsPage();
@@ -72,6 +80,9 @@ class PageBuilder
             case 'defense':
                 $page = new DefensePage();
                 break;
+            case 'messages':
+                $page = new MessagesPage();
+                break;
             case 'overview':
             default:
                 $page = new OverviewPage();
@@ -79,9 +90,10 @@ class PageBuilder
                 break;
         }
 
-        $result = $page->render($AccountData);
-
-        $response->setData('Page', $result);
+        if ($page) {
+            $result = $page->render($AccountData);
+            $response->setData('Page', $result);
+        }
 
         $response->setMode($this->Msg->getMode());
         $response->setData('TopNav', $this->GetTopNav($AccountData));
@@ -95,7 +107,10 @@ class PageBuilder
 
         $Resources = Resources::get($AccountData);
 
+        $NewMessages = Notification::NewMessages($AccountData['User']['id']);
+
         return [
+            'NewMessages' => $NewMessages,
             'Resources' => $Resources
         ];
     }

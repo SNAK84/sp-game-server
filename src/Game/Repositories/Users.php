@@ -28,7 +28,7 @@ class Users extends BaseRepository
             'id' => [
                 'swoole' => [Table::TYPE_INT, 4],
                 'sql'    => 'INT(11) UNSIGNED NOT NULL AUTO_INCREMENT',
-                'default' => Defaults::NONE,
+                'default' => Defaults::AUTOID,
             ],
             'account_id' => [
                 'swoole' => [Table::TYPE_INT, 4],
@@ -87,10 +87,8 @@ class Users extends BaseRepository
         'account' => ['key' => 'account_id', 'Unique' => true]
     ];
 
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    /** @var Table */
+    protected static Table $syncTable;
 
     /**
      * Получить запись по ID
@@ -98,6 +96,7 @@ class Users extends BaseRepository
     public static function findById(int $id): ?array
     {
         $mainRow = static::$table->get((string)$id);
+
         return $mainRow !== false ? $mainRow : null;
     }
 
@@ -121,27 +120,23 @@ class Users extends BaseRepository
         $tableName = self::$tableSchema['name'];
         $insert = [
             'account_id'       => $data['account_id'] ?? 0,
-            'name'             => $data['name'] ?? 'Player' . ($data['account_id'] ?? 0),
-            'credit'           => $data['credit'] ?? 0,
-            'create_time'      => $data['create_time'] ?? time(),
-            'online_time'      => $data['online_time'] ?? 0,
-            'main_planet'      => $data['main_planet'] ?? 0,
-            'current_planet'   => $data['current_planet'] ?? 0,
-            'planet_sort'      => $data['planet_sort'] ?? 0,
-            'planet_sort_order' => $data['planet_sort_order'] ?? 0,
+            'name'             => $data['name'] ?? 'Player' . ($data['account_id'] ?? 0)
         ];
 
         $columns = array_keys($insert);
         $placeholders = array_fill(0, count($columns), '?');
         $values = array_values($insert);
 
-        $insert['id'] = $db->insert(
+        /*$insert['id'] = $db->insert(
             "INSERT INTO `" . self::$tableName . "` (" . implode(', ', $columns) . ")
              VALUES (" . implode(', ', $placeholders) . ")",
             $values
-        );
+        );*/
+
+        $insert = static::castRowToSchema($insert, true);
 
         self::add($insert);
+
         self::$logger->info("Created new user id={$insert['id']} account_id={$insert['account_id']}");
 
         return $insert;
@@ -149,6 +144,14 @@ class Users extends BaseRepository
 
     public static function findByAccount(int $accountId): ?array
     {
-        return self::findByIndex('account', $accountId);
+        if (!$accountId) return null;
+
+        $User = self::findByIndex('account', $accountId);
+        if (!$User) {
+
+            $User = self::create(['account_id' => $accountId]);
+        }
+
+        return $User;
     }
 }

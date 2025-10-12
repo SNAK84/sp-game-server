@@ -19,6 +19,7 @@ use SPGame\Game\Repositories\Techs;
 use SPGame\Game\Repositories\Builds;
 
 use SPGame\Game\Repositories\Queues;
+use SPGame\Game\Repositories\Messages;
 
 use SPGame\Game\Repositories\EntitySettings;
 
@@ -59,6 +60,7 @@ try {
 
     
     Queues::init($saver);
+    Messages::init($saver);
 
     EntitySettings::init($saver);
     PlayerQueue::init();

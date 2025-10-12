@@ -21,9 +21,9 @@ class Builds extends BaseRepository
     /** @var array Таблицы индексов Swoole */
     protected static array $indexTables = [];
 
-    protected static string $className = 'Bulds';
+    protected static string $className = 'Builds';
 
-    protected static string $tableName = 'bulds';
+    protected static string $tableName = 'builds';
 
     protected static array $tableSchema = [
         'columns' => [
@@ -38,10 +38,8 @@ class Builds extends BaseRepository
         ],
     ];
 
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    /** @var Table */
+    protected static Table $syncTable;
 
     public static function init(RepositorySaver $saver = null): void
     {

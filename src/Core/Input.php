@@ -15,21 +15,31 @@ class Input
      * @param bool $multibyte Разрешить ли multibyte символы для строк
      * @return mixed Значение в нужном типе или $default
      */
-    public static function get(array $data, string $key, mixed $default = null, string $type = 'string', bool $multibyte = true): mixed
+    public static function get(array $data, string $key, mixed $default = null, string $type = null, bool $multibyte = true): mixed
     {
-        if (!isset($data[$key])) {
+        if (!array_key_exists($key, $data)) {
             return $default;
+        }
+
+        // Определяем тип, если не указан
+        if (!$type) {
+            $type = $default !== null ? gettype($default) : 'string';
         }
 
         $value = $data[$key];
 
-        return match($type) {
+        return match ($type) {
             'int'   => is_numeric($value) ? (int)$value : $default,
             'float' => is_numeric($value) ? (float)$value : $default,
-            'bool'  => filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? $default,
+            'bool' => match (true) {
+                is_bool($value) => $value,
+                is_numeric($value) => (bool)$value,
+                is_string($value) => filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? $default,
+                default => $default
+            },
             'array' => is_array($value) ? $value : $default,
-            'json'  => is_string($value) ? json_decode($value, true) ?? $default : $default,
-            'string'=> is_scalar($value) ? self::sanitizeString((string)$value, $multibyte) : $default,
+            'json' => is_string($value) ? (json_decode($value, true) ?: $default) : $default,
+            'string' => is_scalar($value) ? self::sanitizeString((string)$value, $multibyte) : $default,
             default => $value
         };
     }

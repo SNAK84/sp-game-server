@@ -7,24 +7,26 @@ use Swoole\Table;
 
 class PlayerQueue extends BaseRepository
 {
+    public const ActionSelectPlanet     = "ActionSelectPlanet";
+
     public const ActionQueueUpgarde     = "ActionQueueUpgarde";
     public const ActionQueueDismantle   = "ActionQueueDismantle";
     public const ActionQueueCancel      = "ActionQueueCancel";
 
-
     public const ActionQueueReCalcTech  = "ActionQueueReCalcTech";
     public const SendActualeData        = "SendActualeData";
+
+    public const ActionMessagesRead     = "ActionMessagesRead";
+    public const ActionMessagesNew      = "ActionMessagesNew";
+
 
     protected static Table $table;
     protected static string $className = 'PlayerQueue';
     protected static string $tableName = "";
 
-    // автоинкрементный ID для ключей
-    protected static int $lastId = 0;
-
     protected static array $tableSchema = [
         'columns' => [
-            'id'         => ['swoole' => [Table::TYPE_INT, 4], 'default' => 0],
+            'id'         => ['swoole' => [Table::TYPE_INT, 4], 'default' => Defaults::AUTOID],
             'account_id' => ['swoole' => [Table::TYPE_INT, 4], 'default' => 0],
             'user_id'    => ['swoole' => [Table::TYPE_INT, 4], 'default' => 0],
             'planet_id'  => ['swoole' => [Table::TYPE_INT, 4], 'default' => 0],
@@ -52,7 +54,7 @@ class PlayerQueue extends BaseRepository
 
     public static function addQueue(int $accountId, int $userId, int $planetId, string $action, array $data = [], int $priority = 1): int
     {
-        $id = ++self::$lastId;
+        $id = self::nextId();
 
         $row = [
             'id'         => $id,

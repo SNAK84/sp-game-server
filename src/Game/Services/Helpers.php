@@ -18,6 +18,18 @@ class Helpers
     public static function getElementLevel(int $Element, array $AccountData): int
     {
 
+        if (!isset($AccountData['Builds']) || !is_array($AccountData['Builds'])) {
+            Logger::getInstance()->error("Helpers::getElementLevel: отсутствует 'Builds' в AccountData", [
+                'element' => $Element,
+                'account_id' => $AccountData['User']['id'] ?? null,
+                'planet_id' => $AccountData['Planet']['id'] ?? null
+            ]);
+            // В отладке можно бросать исключение
+            throw new \RuntimeException("Builds missing in AccountData");
+            // В продакшене можно просто вернуть 0:
+            // return 0;
+        }
+
         $BuildLevel = 0;
         if (in_array($Element, Vars::$reslist['build'])) {
             $BuildLevel = $AccountData['Builds'][Vars::$resource[$Element]] ?? 0;
@@ -40,58 +52,65 @@ class Helpers
         $buildKey = Vars::$resource[31];
         $techKey  = Vars::$resource[123];
 
-        $Builds = Builds::getAllBuilds($AccountData['User']['id']);
+        $userId   = $AccountData['User']['id'] ?? 0;
+        $planetId = $AccountData['Planet']['id'] ?? 0;
 
-        $Queues = Queues::getActive($AccountData['User']['id']) ?? [];
+        // Загружаем все постройки пользователя и активные очереди
+        $Builds = Builds::getAllBuilds($userId) ?? [];
+        $Queues = Queues::getActive($userId) ?? [];
 
+        // Уровень межпланетной сети (techKey) и лимит количества планет для сети
+        $techs = $AccountData['Techs'] ?? [];
+        $maxCount = ((int)($techs[$techKey] ?? 2)) + 1;
 
-        $maxCount = ($AccountData['Techs'][$techKey] ?? 2) + 1;
-
-        // Список планет, где идёт строительство 31
+        // Список планет, где идёт строительство лаборатории (object_id = 31)
         $excludePlanets = array_column(
             array_filter(
                 $Queues,
                 static fn($q) =>
-                $q['type'] === \SPGame\Game\Services\QueuesServices::BUILDS &&
-                    $q['object_id'] === 31
+                isset($q['type'], $q['object_id']) &&
+                    $q['type'] === \SPGame\Game\Services\QueuesServices::BUILDS &&
+                    (int)$q['object_id'] === 31
             ),
             'planet_id'
         );
 
         // Проверяем, можно ли добавить текущую планету
-        $addCurrentPlanet = !in_array($AccountData['Planet']['id'], $excludePlanets, true);
-        $excludePlanets[] = $AccountData['Planet']['id'];
+        $addCurrentPlanet = ($planetId > 0 && !in_array($planetId, $excludePlanets, true));
+        $excludePlanets[] = $planetId;
 
-        // Фильтрация билдов
+        // Фильтрация билдов (убираем планеты, где идёт постройка)
         $Builds = array_filter($Builds, static function ($b) use ($excludePlanets) {
             $id = is_object($b) ? ($b->id ?? null) : ($b['id'] ?? null);
-            return !in_array($id, $excludePlanets, true);
+            return $id !== null && !in_array($id, $excludePlanets, true);
         });
 
-        // Сброс ключей для безопасного array_unshift
+        // Сброс ключей и сортировка по уровню лаборатории (31)
         $Builds = array_values($Builds);
-
-        // Сортировка по убыванию уровня постройки
         uasort($Builds, static function ($a, $b) use ($buildKey) {
             $valA = is_object($a) ? ($a->$buildKey ?? 0) : ($a[$buildKey] ?? 0);
             $valB = is_object($b) ? ($b->$buildKey ?? 0) : ($b[$buildKey] ?? 0);
             return $valB <=> $valA;
         });
 
-        // Добавляем текущую планету первой (если можно)
-        if ($addCurrentPlanet) {
-            $planetBuild = $AccountData['Planet']['id'];
-            if ($planetBuild) {
-                array_unshift($Builds, $planetBuild);
+        // Добавляем текущую планету в начало, если можно
+        if ($addCurrentPlanet && $planetId > 0) {
+            $planetBuilds = Builds::findById($planetId);
+            if ($planetBuilds) {
+                array_unshift($Builds, $planetBuilds);
             }
         }
 
-        // Обрезаем до лимита
-        $Builds = array_slice($Builds, 0, $maxCount, true);
+        // Обрезаем по лимиту сети
+        $Builds = array_slice($Builds, 0, $maxCount);
 
-        // Формируем уровни
+        // Собираем уровни лабораторий
         $Levels = [];
         foreach ($Builds as $b) {
+            if (is_int($b)) {
+                // Если вдруг попало число (id), пропускаем
+                continue;
+            }
             $level = is_object($b) ? ($b->$buildKey ?? 0) : ($b[$buildKey] ?? 0);
             $Levels[] = (int)$level;
         }
