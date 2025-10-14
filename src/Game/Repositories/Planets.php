@@ -106,7 +106,7 @@ class Planets extends BaseRepository
         return $Planets;
     }
 
-    public static function getPlanetsList(array $User): array
+    public static function getPlanetsList($User): array
     {
 
         $sortField = (int)($User['planet_sort'] ?? 0);
@@ -114,7 +114,7 @@ class Planets extends BaseRepository
 
         $Planets = [];
         foreach (self::$table as $row) {
-            if ($row['owner_id'] == $User['id'])
+            if ((int)$row['owner_id'] === (int)$User['id'])
                 $Planets[] = [
                     'id'            => $row['id'],
                     'name'          => $row['name'],

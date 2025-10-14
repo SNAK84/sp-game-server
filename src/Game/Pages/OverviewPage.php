@@ -3,10 +3,11 @@
 namespace SPGame\Game\Pages;
 
 use SPGame\Game\Services\Helpers;
+use SPGame\Game\Services\AccountData;
 
 class OverviewPage extends AbstractPage
 {
-    public function render(array &$AccountData): array
+    public function render(AccountData &$AccountData): array
     {
         $User = &$AccountData['User'];
         $Planet = &$AccountData['Planet'];

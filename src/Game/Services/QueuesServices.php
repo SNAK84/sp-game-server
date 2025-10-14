@@ -68,7 +68,7 @@ class QueuesServices
     }
 
 
-    public static function AddToQueue(int $Element, array &$AccountData, float $Time, bool $AddMode = true)
+    public static function AddToQueue(int $Element, AccountData &$AccountData, float $Time, bool $AddMode = true)
     {
 
         $User       = &$AccountData['User'];
@@ -239,7 +239,7 @@ class QueuesServices
         }
     }
 
-    public static function CancelToQueue(int $QueueId, array &$AccountData, float $Time)
+    public static function CancelToQueue(int $QueueId, AccountData &$AccountData, float $Time)
     {
         $Queue = Queues::findById($QueueId);
         if (!$Queue) {
@@ -247,9 +247,34 @@ class QueuesServices
             return;
         }
 
+        $planetId = (int)$Queue['planet_id'];
         $Element     = $Queue['object_id'];
         $QueueType   = self::QueueType($Element);
 
+        /*
+        // --- Контекст правильной планеты ---
+        if (!isset($PlanetsData[$planetId])) {
+            $Planet = Planets::findById($planetId);
+            $Builds = Builds::findById($planetId);
+            $tmpAcc = $AccountData;
+            $tmpAcc['Planet'] = $Planet;
+            $tmpAcc['Builds'] = $Builds;
+            $tmpAcc['Resources'] = Resources::get($tmpAcc);
+            $PlanetsData[$planetId] = [
+                'Planet'    => $Planet,
+                'Builds'    => $Builds,
+                'Resources' => $tmpAcc['Resources']
+            ];
+        }
+        
+
+        $tmpAccount = $AccountData;
+        $tmpAccount['Planet']    = &$PlanetsData[$planetId]['Planet'];
+        $tmpAccount['Builds']    = &$PlanetsData[$planetId]['Builds'];
+        $tmpAccount['Resources'] = &$PlanetsData[$planetId]['Resources'];
+        */
+
+        $AccountData['WorkPlanet'] = $planetId;
         // Проверяем владельца
         if (
             (int)$Queue['user_id'] !== $AccountData['User']['id'] ||
@@ -265,27 +290,22 @@ class QueuesServices
             return;
         }
 
-        //$User = &$AccountData['User'];
-
-
-
-        // Получаем актуальную очередь (от сервера/репозитория)
-        $CurrentQueue = Queues::getCurrentQueue($QueueType, $AccountData['User']['id'], $AccountData['Planet']['id']) ?: [];
+        // --- Загружаем актуальную очередь ---
+        $CurrentQueue = Queues::getCurrentQueue($QueueType, $AccountData['User']['id'], $planetId) ?: [];
         if (empty($CurrentQueue)) {
             Logger::getInstance()->info("CancelToQueue: current queue empty", ['QueueId' => $QueueId]);
             return;
         }
 
-        // Находим индекс элемента в текущей очереди по id (может быть не 0)
+        // Находим индекс
         $indexToRemove = array_search($QueueId, array_column($CurrentQueue, 'id'));
         if ($indexToRemove === false) {
             Logger::getInstance()->warning("CancelToQueue: queue id not found", ['QueueId' => $QueueId]);
             return;
         }
 
-
-        // Определяем, является ли удаляемый элемент активным (первый в очереди и статус active)
-        $isActive = ($indexToRemove === 0 && isset($CurrentQueue[0]['status']) && $CurrentQueue[0]['status'] === 'active');
+        // Активная ли это очередь
+        $isActive = ($indexToRemove === 0 && $CurrentQueue[0]['status'] === 'active');
         $QueueEndTime = $isActive ? $Time : $CurrentQueue[0]['start_time'];
 
         try {
@@ -298,12 +318,6 @@ class QueuesServices
             // 2) Если удаляем активный — возвращаем ресурсы отменённого задания
             if ($isActive) {
                 self::refundActiveQueueResources($Queue, $AccountData, $Time);
-                PlayerQueue::addQueue(
-                    (int)$AccountData['User']['account_id'],
-                    (int)$AccountData['User']['id'],
-                    (int)$AccountData['Planet']['id'],
-                    PlayerQueue::ActionQueueReCalcTech
-                );
             }
 
             // Перерасчёт оставшейся очереди
@@ -311,14 +325,28 @@ class QueuesServices
 
 
             // 4) Попытка активировать новый первый элемент (если он существует и имеет статус queued)
-            // Активация следующего, если возможно
-            self::activateNextQueueItem($CurrentQueue, $AccountData);
+            // --- Активация следующего ---
+            self::activateNextQueueItem($CurrentQueue, $AccountData, $Time);
 
+
+            if ($QueueType === self::BUILDS) PlayerQueue::addQueue(
+                (int)$AccountData['User']['account_id'],
+                (int)$AccountData['User']['id'],
+                (int)$AccountData['Planet']['id'],
+                PlayerQueue::ActionQueueReCalcTech
+            );
             // 5) Сохраняем изменения очереди в БД (обновляем все оставшиеся элементы)
             foreach ($CurrentQueue as $q) {
                 // Обновляем запись через репозиторий (Queues::update должен принимать полную структуру)
                 Queues::update($q);
             }
+
+            /*
+            // --- Возврат обновлённого кеша ---
+            $PlanetsData[$planetId]['Planet']    = $tmpAccount['Planet'];
+            $PlanetsData[$planetId]['Builds']    = $tmpAccount['Builds'];
+            $PlanetsData[$planetId]['Resources'] = $tmpAccount['Resources'];
+            */
 
             Logger::getInstance()->info("CancelToQueue: finished", [
                 'QueueId' => $QueueId,
@@ -337,7 +365,7 @@ class QueuesServices
     /**
      * Завершение задачи — строительство/исследование и т.п.
      */
-    public static function CompleteQueue(int $QueueId, array &$AccountData, float $Time)
+    public static function CompleteQueue(int $QueueId, AccountData &$AccountData, float $Time)
     {
         $Queue = Queues::findById($QueueId);
         if (!$Queue) {
@@ -345,6 +373,16 @@ class QueuesServices
             return;
         }
 
+        $planetId = (int)$Queue['planet_id'];
+
+        $AccountData['WorkPlanet'] = $planetId;
+        /*
+        // --- Контекст планеты ---
+        $tmpAccount = $AccountData;
+        $tmpAccount['Planet']    = &$PlanetsData[$planetId]['Planet'];
+        $tmpAccount['Builds']    = &$PlanetsData[$planetId]['Builds'];
+        $tmpAccount['Resources'] = &$PlanetsData[$planetId]['Resources'];
+        */
         $Element   = $Queue['object_id'];
         $QueueType   = self::QueueType($Element);
 
@@ -365,34 +403,50 @@ class QueuesServices
 
         Logger::getInstance()->info("CompleteQueue start", ['Queue' => $Queue]);
 
+        // --- Пересчитать ресурсы до конца очереди ---
+        Resources::processResources($Time, $AccountData);
+
         try {
 
             // Завершаем постройку
             $Element = $Queue['object_id'];
             $action = $Queue['action'];
 
+            // --- Обновляем уровень ---
             $currentLevel = Helpers::getElementLevel($Element, $AccountData);
-            $newLevel = $action === 'build' ? $currentLevel + 1 : ($action === 'destroy' ? max(0, $currentLevel - 1) : $currentLevel);
-
+            $newLevel = match ($action) {
+                'build'   => $currentLevel + 1,
+                'destroy' => max(0, $currentLevel - 1),
+                default   => $currentLevel,
+            };
             BuildFunctions::setElementLevel($Element, $AccountData, $newLevel);
 
+            // --- Удаляем элемент ---
             Queues::delete($Queue);
 
-            $CurrentQueue = Queues::getCurrentQueue($QueueType, $AccountData['User']['id'], $AccountData['Planet']['id']) ?: [];
-            if (empty($CurrentQueue)) {
-                Logger::getInstance()->info("CompleteQueue: current queue empty", ['QueueId' => $QueueId]);
-                return;
+            // --- Получаем оставшуюся очередь ---
+            $CurrentQueue = Queues::getCurrentQueue($QueueType, $AccountData['User']['id'], $planetId) ?: [];
+
+            if (!empty($CurrentQueue)) {
+                // --- Активируем следующую задачу ---
+                self::activateNextQueueItem($CurrentQueue, $AccountData, $Time);
+
+                // --- Пересчёт таймингов ---
+                self::recalcQueueTimings($CurrentQueue, $tmpAccount, $Time);
             }
 
-            // Пытаемся активировать следующий
-            self::activateNextQueueItem($CurrentQueue, $AccountData, $Time);
+            /*
+            // --- Сохраняем обратно в кэш ---
+            $PlanetsData[$planetId]['Planet']    = $tmpAccount['Planet'];
+            $PlanetsData[$planetId]['Builds']    = $tmpAccount['Builds'];
+            $PlanetsData[$planetId]['Resources'] = $tmpAccount['Resources'];
+            */
 
-            // Пересчитываем оставшиеся времена
-            self::recalcQueueTimings($CurrentQueue, $AccountData, $Time);
-
-            Logger::getInstance()->info("CompleteQueue: finished successfully", [
-                'QueueId' => $QueueId,
-                'remaining' => count($CurrentQueue)
+            Logger::getInstance()->info("CompleteQueue: done", [
+                'queue_id' => $QueueId,
+                'planet' => $planetId,
+                'element' => $Element,
+                'new_level' => $newLevel
             ]);
         } catch (\Throwable $e) {
             Logger::getInstance()->error("CompleteQueue: transaction error: " . $e->getMessage(), [
@@ -403,7 +457,7 @@ class QueuesServices
         }
     }
 
-    public static function ReCalcTimeQueue(string $QueueType, array &$AccountData, float $Time)
+    public static function ReCalcTimeQueue(string $QueueType, AccountData &$AccountData, float $Time)
     {
 
         // Получаем актуальную очередь (от сервера/репозитория)
@@ -449,81 +503,108 @@ class QueuesServices
      * Обновляет start_time, end_time, time, count.
      * Используется после отмены, завершения и ручного пересчёта.
      */
-    private static function recalcQueueTimings(array &$CurrentQueue, array &$AccountData, float $StartTime, bool $RecalcActiveProgress = false, float $CurrentTime = 0): void
+    private static function recalcQueueTimings(array &$CurrentQueue, AccountData &$AccountData, float $StartTime, bool $RecalcActiveProgress = false, float $CurrentTime = 0): void
     {
         $QueueEndTime = $StartTime;
         $BuildsLevels = [];
-        $planetCache  = []; // кеш Planets::findById
-        $buildsCache  = []; // кеш Builds::findById
+
 
         foreach ($CurrentQueue as $k => $q) {
-            $objId = $q['object_id'];
+            $objId = (int)$q['object_id'];
             $planetId = (int)($q['planet_id'] ?? ($AccountData['Planet']['id'] ?? 0));
+            $action = $q['action'] ?? 'build';
 
+            $AccountData['WorkPlanet'] = $planetId;
+            /*
+            // Если в кэше нет планеты — подгружаем один раз (processAccountQueues обычно подготовит кэш)
+            if (!isset($PlanetsData[$planetId])) {
+                $Planet = Planets::findById($planetId) ?: ['id' => $planetId];
+                $Builds = Builds::findById($planetId) ?: [];
+                // Собираем ресурсы для планеты (чтобы Helpers/BuildFunctions работали корректно)
+                $tmpAcc = $AccountData;
+                $tmpAcc['Planet'] = $Planet;
+                $tmpAcc['Builds'] = $Builds;
+                $tmpAcc['Resources'] = Resources::get($tmpAcc);
+
+                $PlanetsData[$planetId] = [
+                    'Planet'    => $Planet,
+                    'Builds'    => $Builds,
+                    'Resources' => $tmpAcc['Resources']
+                ];
+            }
+            */
+            // Инициализируем массив уровней для планеты
             if (!isset($BuildsLevels[$planetId])) {
                 $BuildsLevels[$planetId] = [];
             }
 
-            // подготавливаем кеш планеты и билдов
-            if (!isset($planetCache[$planetId])) {
-                $planetCache[$planetId] = Planets::findById($planetId) ?: ['id' => $planetId];
-            }
-            if (!isset($buildsCache[$planetId])) {
-                $buildsCache[$planetId] = Builds::findById($planetId) ?: [];
-            }
-
-            // инициализируем уровень для данной планеты+элемента, если нужно
+            // Если для этого элемента ещё нет уровня — взять текущий уровень из кэша Builds
             if (!isset($BuildsLevels[$planetId][$objId])) {
-                // временный аккаунт с данными по целевой планете
-                $tmpAccount = $AccountData;
-                $tmpAccount['Planet'] = $planetCache[$planetId];
-                $tmpAccount['Builds'] = $buildsCache[$planetId];
-                // Techs/Resources оставляем из $AccountData (по пользователю), при необходимости можно тоже подгружать отдельно
-
-                $BuildsLevels[$planetId][$objId] = (int) Helpers::getElementLevel($objId, $tmpAccount);
+                // tmpAccount для получения актуального уровня (Helpers берёт из $AccountData['Builds'])
+                /*
+                $tmpAcc = $AccountData;
+                $tmpAcc['Planet'] = $PlanetsData[$planetId]['Planet'];
+                $tmpAcc['Builds'] = $PlanetsData[$planetId]['Builds'];
+                */
+                // Techs/Resources остаются из $AccountData, но можно подставить из PlanetsData
+                $BuildsLevels[$planetId][$objId] = (int) Helpers::getElementLevel($objId, $AccountData);
             }
 
-            if (!isset($BuildsLevels[$objId])) {
-                $BuildsLevels[$objId] = (int) Helpers::getElementLevel($objId, $AccountData);
-            }
-
-            // изменяем уровень в зависимости от действия
-            if ($q['action'] === 'build') {
+            // Применяем действие очереди к уровню (build/destroy)
+            if ($action === 'build') {
                 $BuildsLevels[$planetId][$objId] += 1;
-            } elseif ($q['action'] === 'destroy') {
+            } elseif ($action === 'destroy') {
                 $BuildsLevels[$planetId][$objId] -= 1;
             }
 
-            // записываем count и start_time
+            // Устанавливаем count (уровень после применения) и start_time
             $CurrentQueue[$k]['count'] = $BuildsLevels[$planetId][$objId];
             $CurrentQueue[$k]['start_time'] = $QueueEndTime;
 
-            // пересчитываем время для элемента, используя данные целевой планеты
-            $tmpAccount = $AccountData;
-            $tmpAccount['Planet'] = $planetCache[$planetId];
-            $tmpAccount['Builds'] = $buildsCache[$planetId];
+            /*
+            // Готовим tmpAccount с контекстом конкретной планеты (для расчёта времени)
+            $tmpAcc = $AccountData;
+            $tmpAcc['Planet'] = $PlanetsData[$planetId]['Planet'];
+            $tmpAcc['Builds'] = $PlanetsData[$planetId]['Builds'];
+            $tmpAcc['Resources'] = $PlanetsData[$planetId]['Resources'];
+            */
 
+            // Если требуется, сначала довести ресурсы этой планеты до current start_time
+            // (в большинстве сценариев resources уже будут соответствовать моменту, но безопасно вызывать)
+            if (isset($AccountData['Planet']['update_time'])) {
+                Resources::processResources($CurrentQueue[$k]['start_time'], $AccountData);
+            }
+
+            // Рассчитываем duration/time используя актуальный tmpAcc и count
             $elementTime = BuildFunctions::getBuildingTime(
                 $objId,
-                $tmpAccount,
+                $AccountData,
                 null,
-                $q['action'] === 'destroy',
+                ($action === 'destroy'),
                 $BuildsLevels[$planetId][$objId]
             );
 
-            // коррекция активного прогресса (если нужно)
-            if ($RecalcActiveProgress && $k === 0 && isset($CurrentQueue[$k]['status']) && $CurrentQueue[$k]['status'] === 'active' && $CurrentTime > 0) {
+            // Корректировка активного прогресса
+            if (
+                $RecalcActiveProgress &&
+                $k === 0 &&
+                isset($CurrentQueue[$k]['status']) &&
+                $CurrentQueue[$k]['status'] === 'active' &&
+                $CurrentTime > 0
+            ) {
                 $oldTime = $CurrentQueue[$k]['time'] ?? $elementTime;
                 $passed  = max(0, $CurrentTime - $CurrentQueue[$k]['start_time']);
-                $progress = ($oldTime > 0) ? min(1, $passed / $oldTime) : 0.0;
+                $progress = ($oldTime > 0) ? min(1.0, $passed / $oldTime) : 0.0;
 
-                // пересчитываем end_time с учётом прогресса
-                $QueueEndTime = $CurrentQueue[$k]['start_time'] +
-                    ($oldTime * $progress) + ($elementTime * (1 - $progress));
+                // Новый QueueEndTime = текущее время + остаток от перерасчитанного elementTime
+                // Но нужно учитывать изменение в elementTime: если элемент пересчитан (например, по уровню), то
+                // остаток = elementTime * (1 - progress)
+                $QueueEndTime = $CurrentQueue[$k]['start_time'] + ($oldTime * $progress) + ($elementTime * (1 - $progress));
             } else {
                 $QueueEndTime += $elementTime;
             }
 
+            // Присваиваем рассчитанные значения
             $CurrentQueue[$k]['time'] = $elementTime;
             $CurrentQueue[$k]['end_time'] = $QueueEndTime;
 
@@ -536,25 +617,36 @@ class QueuesServices
      * Активирует следующий элемент очереди, который можно оплатить.
      * Удаляет недоступные queued-элементы, чтобы очередь не блокировалась.
      */
-    private static function activateNextQueueItem(array &$CurrentQueue, array &$AccountData, float $CurrentTime = null): bool
+    public static function activateNextQueueItem(array &$CurrentQueue, AccountData &$AccountData, float $Time): bool
     {
         while (!empty($CurrentQueue)) {
             $next = $CurrentQueue[0];
-            if ($next['status'] !== 'queued') break;
+            if (($next['status'] ?? '') !== 'queued') break;
 
-            $nextElement = (int)$next['object_id'];
-            $nextCount   = (int)$next['count'];
-            $isDestroy   = ($next['action'] === 'destroy');
+            $planetId = (int)($next['planet_id'] ?? 0);
 
-            $cost = BuildFunctions::getElementPrice($nextElement, $AccountData, $isDestroy, $nextCount);
+            $AccountData['WorkPlanet'] = $planetId;
+            /*
+            // --- Создаем временный контекст планеты ---
+            $tmpAccount = $AccountData;
+            $tmpAccount['Planet']    = &$PlanetsData[$planetId]['Planet'];
+            $tmpAccount['Builds']    = &$PlanetsData[$planetId]['Builds'];
+            $tmpAccount['Resources'] = &$PlanetsData[$planetId]['Resources'];
+            */
+            // --- Пересчитываем ресурсы планеты до момента активации ---
+            Resources::processResources($Time, $AccountData);
 
-            // Проверяем, можем ли оплатить
-            if (!BuildFunctions::isElementBuyable($nextElement, $AccountData, $cost)) {
-                Logger::getInstance()->info("activateNextQueueItem: cannot pay, removing element", [
-                    'id' => $next['id'],
-                    'element' => $nextElement,
-                    'cost' => $cost
-                ]);
+            $element    = (int)$next['object_id'];
+            $isDestroy  = ($next['action'] === 'destroy');
+
+            // --- Пересчёт уровня ---
+            $currentLevel = Helpers::getElementLevel($element, $AccountData);
+            $nextLevel    = $isDestroy ? max(1, $currentLevel) : $currentLevel + 1;
+
+            // --- Расчёт стоимости ---
+            $cost = BuildFunctions::getElementPrice($element, $AccountData, $isDestroy, $nextLevel);
+            if (!BuildFunctions::isElementBuyable($element, $AccountData, $cost)) {
+                Logger::getInstance()->info("activateNextQueueItem: cannot pay", ['planet' => $planetId, 'element' => $element]);
 
                 if ($isDestroy) {
                     $QueueAction = 'destroy';
@@ -565,32 +657,31 @@ class QueuesServices
                         $QueueAction = 'build';
                 }
 
-                Notification::sendBuildBuyable($AccountData, $cost, $QueueAction, $nextElement, $CurrentTime);
+                Notification::sendBuildBuyable($AccountData, $cost, $QueueAction, $element, $Time);
 
-                // Удаляем элемент из очереди
+
                 Queues::delete($next);
                 array_shift($CurrentQueue);
                 continue;
             }
-
 
             // Проверяем на занятость
             if ($next['type'] === self::BUILDS) {
                 $QueueActiveTech    = Queues::getActivePlanet(QueuesServices::TECHS, $AccountData['Planet']['id']);
                 $QueueActiveHangar  = Queues::getActivePlanet(QueuesServices::HANGARS, $AccountData['Planet']['id']);
                 if (
-                    ($QueueActiveTech && ($nextElement == 6 || $nextElement == 31)) ||
-                    ($QueueActiveHangar && ($nextElement == 15 || $nextElement == 21))
+                    ($QueueActiveTech && ($element == 6 || $element == 31)) ||
+                    ($QueueActiveHangar && ($element == 15 || $element == 21))
                 ) {
                     Logger::getInstance()->info("activateNextQueueItem: element is busy, removing element", [
                         'id' => $next['id'],
-                        'element' => $nextElement
+                        'element' => $element
                     ]);
 
-                    if ($nextElement == 6 || $nextElement == 31) {
+                    if ($element == 6 || $element == 31) {
                         // Notification::sendBuildBusy
                     }
-                    if ($nextElement == 15 || $nextElement == 21) {
+                    if ($element == 15 || $element == 21) {
                         // Notification::sendBuildBusy
                     }
                     // Удаляем элемент из очереди
@@ -608,7 +699,7 @@ class QueuesServices
                 ) {
                     Logger::getInstance()->info("activateNextQueueItem: element is busy, removing element", [
                         'id' => $next['id'],
-                        'element' => $nextElement
+                        'element' => $element
                     ]);
 
                     // Notification::sendBuildBusy
@@ -631,7 +722,21 @@ class QueuesServices
                 $AccountData['Resources'][$k]['count'] -= $v;
             }
 
+            $buildTime = BuildFunctions::getBuildingTime(
+                $element,
+                $AccountData,
+                null,
+                $isDestroy,
+                $nextLevel
+            );
             // Активируем очередь
+            // --- Активация ---
+            $CurrentQueue[0]['count'] = $nextLevel;
+            $CurrentQueue[0]['status'] = 'active';
+            $CurrentQueue[0]['start_time'] = $Time;
+            $CurrentQueue[0]['time'] = $buildTime;
+            $CurrentQueue[0]['end_time'] = $Time + $buildTime;
+
             $CurrentQueue[0]['status'] = 'active';
             Queues::update($CurrentQueue[0]);
 
@@ -642,9 +747,12 @@ class QueuesServices
                 PlayerQueue::ActionQueueReCalcTech
             );
 
-            Logger::getInstance()->info("activateNextQueueItem: activated new queue", [
+            Logger::getInstance()->info("activateNextQueueItem: activated", [
                 'id' => $next['id'],
-                'element' => $nextElement
+                'planet' => $planetId,
+                'element' => $element,
+                'level' => $nextLevel,
+                'time' => $buildTime
             ]);
 
             return true; // активировали — выходим
@@ -657,7 +765,7 @@ class QueuesServices
      * Возврат ресурсов при отмене активной постройки.
      * Пропорционально прогрессу выполнения.
      */
-    private static function refundActiveQueueResources(array &$Queue, array &$AccountData, float $Time): void
+    private static function refundActiveQueueResources(array &$Queue, AccountData &$AccountData, float $Time): void
     {
         $Element = $Queue['object_id'];
         $isDestroy = ($Queue['action'] === 'destroy');

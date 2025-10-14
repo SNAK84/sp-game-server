@@ -22,6 +22,7 @@ use SPGame\Game\Pages\DefensePage;
 use SPGame\Game\Pages\MessagesPage;
 use SPGame\Game\Services\PageActionService;
 use SPGame\Game\Services\Notification;
+use SPGame\Game\Services\AccountData;
 
 
 class PageBuilder
@@ -47,6 +48,9 @@ class PageBuilder
     public function build(Message $response): Message
     {
         Logger::getInstance()->info("this->aid: $this->aid");
+        $AccountData = new AccountData($this->aid);
+
+        /*
         $AccountData = [
             'Account'   => Accounts::findById($this->aid),
             'User'      => Users::findByAccount($this->aid),
@@ -59,6 +63,7 @@ class PageBuilder
         $AccountData['Builds']      = Builds::findById($AccountData['Planet']['id']);
         $AccountData['Techs']       = Techs::findById($AccountData['User']['id']);
         $AccountData['Resources']   = Resources::get($AccountData);
+        */
 
         // обработка действий перед построением
         if (PageActionService::handle($this->Msg, $AccountData, $this->aid)) {
@@ -102,7 +107,7 @@ class PageBuilder
         return $response;
     }
 
-    public function GetTopNav(array $AccountData)
+    public function GetTopNav(AccountData $AccountData)
     {
 
         $Resources = Resources::get($AccountData);
@@ -115,7 +120,7 @@ class PageBuilder
         ];
     }
 
-    public function GetPlanetList(array $AccountData)
+    public function GetPlanetList(AccountData $AccountData)
     {
 
         $Planets = Planets::getPlanetsList($AccountData['User']);

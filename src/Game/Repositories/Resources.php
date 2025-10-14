@@ -8,6 +8,7 @@ use SPGame\Core\Logger;
 
 use SPGame\Game\Services\Helpers;
 use SPGame\Game\Services\RepositorySaver;
+use SPGame\Game\Services\AccountData;
 
 use Swoole\Table;
 
@@ -91,15 +92,15 @@ class Resources
         return $Resources;
     }
     */
-    
-    public static function get(array $AccountData): ?array
+
+    public static function get(AccountData $AccountData): ?array
     {
         $Planet = $AccountData['Planet'];
         if (!$Planet) return null;
 
         $User = $AccountData['User'] ?? 0;
         if (!$User) return null;
-        
+
         $planetResources = PlanetResources::findById($Planet['id']);
 
         $userResources = UserResources::findById($User['id']);
@@ -133,7 +134,7 @@ class Resources
         return $Resources;
     }
 
-    public static function ReBuildRes(array &$Resources, array $AccountData)
+    public static function ReBuildRes(array &$Resources, AccountData $AccountData)
     {
 
         $Planet     = $AccountData['Planet'];
@@ -185,7 +186,7 @@ class Resources
                 if ($Production > 0) {
                     $temp[$ID]['plus']    += $Production;
                 } else {
-                    
+
                     //if (in_array($ID, Vars::$reslist['resstype'][1]) && $Builds[Vars::$resource[$ID]] == 0) {
                     if (in_array($ID, Vars::$reslist['resstype'][1]) && $Resources[$ID]['count'] == 0) {
                         continue;
@@ -226,11 +227,10 @@ class Resources
         return $Resources;
     }
 
-    public static function getProd($Calculation, $Element = false, $AccountData = [])
+    public static function getProd($Calculation, $Element = false, ?AccountData $AccountData = null)
     {
 
         if ($Element) {
-
 
             $Techs      = $AccountData['Techs'];
             $Builds     = $AccountData['Builds'];
@@ -265,6 +265,35 @@ class Resources
         return 'return ' . trim((empty($replaced)) ? $Calculation : $replaced) . ';';
     }
 
+    public static function processResources(float $StatTimeTick, AccountData &$AccountData): void
+    {
+        if ($AccountData['Planet']['update_time'] < $AccountData['Planet']['create_time']) {
+            $AccountData['Planet']['update_time'] = $AccountData['Planet']['create_time'];
+        }
+
+        $ProductionTime = ($StatTimeTick - $AccountData['Planet']['update_time']);
+
+        if ($ProductionTime > 0) {
+            $AccountData['Planet']['update_time'] = $StatTimeTick;
+            $Resources = &$AccountData['Resources'];
+
+            //if ($Planets[$PID]['PlanetType'] == 3)
+            //    return;
+
+            foreach (Vars::$reslist['resstype'][1] as $ResID) {
+                $Theoretical = $ProductionTime * ($Resources[$ResID]['perhour']) / 3600;
+                if ($Theoretical < 0) {
+                    $Resources[$ResID]['count'] = max($Resources[$ResID]['count'] + $Theoretical, 0);
+                } elseif ($Resources[$ResID]['count'] <= $Resources[$ResID]['max']) {
+                    $Resources[$ResID]['count'] = min($Resources[$ResID]['count'] + $Theoretical, $Resources[$ResID]['max']);
+                }
+                $Resources[$ResID]['count'] = max($Resources[$ResID]['count'], 0);
+            }
+
+            //Resources::updateByPlanetId($AccountData['Planet']['id'], $Resources);
+        }
+    }
+    
     public static function updateByPlanetId(int $planetId, array $resources): void
     {
         if (empty($resources)) {

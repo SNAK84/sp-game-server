@@ -15,10 +15,10 @@ use SPGame\Core\Logger;
 class Helpers
 {
 
-    public static function getElementLevel(int $Element, array $AccountData): int
+    public static function getElementLevel(int $Element, AccountData $AccountData): int
     {
 
-        if (!isset($AccountData['Builds']) || !is_array($AccountData['Builds'])) {
+        if (!isset($AccountData['Builds'])) {
             Logger::getInstance()->error("Helpers::getElementLevel: отсутствует 'Builds' в AccountData", [
                 'element' => $Element,
                 'account_id' => $AccountData['User']['id'] ?? null,
@@ -46,7 +46,7 @@ class Helpers
         return $BuildLevel;
     }
 
-    public static function getNetworkLevels(array $AccountData): array
+    public static function getNetworkLevels(AccountData $AccountData): array
     {
 
         $buildKey = Vars::$resource[31];
@@ -56,7 +56,7 @@ class Helpers
         $planetId = $AccountData['Planet']['id'] ?? 0;
 
         // Загружаем все постройки пользователя и активные очереди
-        $Builds = Builds::getAllBuilds($userId) ?? [];
+        $Builds = $AccountData['Builds']->toArray();
         $Queues = Queues::getActive($userId) ?? [];
 
         // Уровень межпланетной сети (techKey) и лимит количества планет для сети
@@ -118,7 +118,7 @@ class Helpers
         return $Levels;
     }
 
-    public static function getMaxFields(array $AccountData): int
+    public static function getMaxFields(AccountData $AccountData): int
     {
         $fields = $AccountData['Planet']['fields'];
         $Builds = $AccountData['Builds'];
@@ -129,7 +129,7 @@ class Helpers
         return $fields;
     }
 
-    public static function getCurrentFields(array $AccountData): int
+    public static function getCurrentFields(AccountData $AccountData): int
     {
         //$fields = self::findById($planetId)['fields'];
         $Builds = $AccountData['Builds'];

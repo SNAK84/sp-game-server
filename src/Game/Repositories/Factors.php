@@ -4,11 +4,12 @@ namespace SPGame\Game\Repositories;
 
 
 use SPGame\Game\Services\Helpers;
+use SPGame\Game\Services\AccountData;
 
 class Factors
 {
 
-    public static function getFactor(string $bonusKey, array $AccountData)
+    public static function getFactor(string $bonusKey, AccountData $AccountData)
     {
         $factor = 0;
 

@@ -8,10 +8,11 @@ use SPGame\Game\Repositories\MessageType;
 
 use SPGame\Core\Logger;
 use SPGame\Game\Services\Notification;
+use SPGame\Game\Services\AccountData;
 
 class MessagesPage extends AbstractPage
 {
-    public function render(array &$AccountData): array
+    public function render(AccountData &$AccountData): array
     {
 
         $allMessages = Notification::getAllMessages($AccountData['User']['id']);

@@ -8,10 +8,11 @@ use SPGame\Game\Repositories\Config;
 use SPGame\Game\Services\BuildFunctions;
 use SPGame\Game\Services\Helpers;
 use SPGame\Game\Services\QueuesServices;
+use SPGame\Game\Services\AccountData;
 
 class DefensePage extends AbstractPage
 {
-    public function render(array &$AccountData): array
+    public function render(AccountData &$AccountData): array
     {
         $User = &$AccountData['User'];
         $Planet = &$AccountData['Planet'];
@@ -48,7 +49,7 @@ class DefensePage extends AbstractPage
         return $QueueList;
     }
 
-    private function buildDefenseList(array &$AccountData, array $CurrentQueue): array
+    private function buildDefenseList(AccountData &$AccountData, array $CurrentQueue): array
     {
         $Planet = &$AccountData['Planet'];
         $QueueCounts = [];

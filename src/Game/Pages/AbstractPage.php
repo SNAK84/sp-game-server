@@ -2,6 +2,7 @@
 
 namespace SPGame\Game\Pages;
 
+
 use SPGame\Core\Logger;
 
 abstract class AbstractPage implements PageInterface
@@ -12,4 +13,5 @@ abstract class AbstractPage implements PageInterface
     {
         $this->logger = Logger::getInstance();
     }
+
 }

@@ -8,7 +8,7 @@ use SPGame\Game\Repositories\PlayerQueue;
 
 class PageActionService
 {
-    public static function handle(Message $Msg, array &$AccountData, int $aid): bool
+    public static function handle(Message $Msg, AccountData &$AccountData, int $aid): bool
     {
         $User = &$AccountData['User'];
         $Planet = &$AccountData['Planet'];

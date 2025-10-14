@@ -67,14 +67,14 @@ class EventLoop
 
             $sendMsg = false;
 
-            $AccountData = [
-                'Account' => $Account,
-                'User' => Users::findByAccount($Account['id'])
-            ];
+            $AccountData = new AccountData($Account['id']);
+
             if (!$AccountData['User']) continue;
 
             // 🧩 Приводим состояние всех планет и технологий игрока к текущему времени
             $sendMsg = $this->processPlayerStateAtTime($StatTimeTick, $AccountData);
+
+            $AccountData->save();
 
             // ⚙️ Обработка действий из PlayerQueue (запросы на постройки, отмены и т.д.)
             $sendMsg = ($this->processPlayerEvents($Account['id'])) ? true : $sendMsg;
@@ -93,17 +93,17 @@ class EventLoop
     /**
      * Приводит состояние всех планет игрока и его очередей к заданному моменту времени.
      */
-    protected function processPlayerStateAtTime(float $targetTime, array &$AccountData): bool
+    protected function processPlayerStateAtTime(float $targetTime, AccountData &$AccountData): bool
     {
         $sendMsg = false;
         $userId = $AccountData['User']['id'];
 
 
         // Загружаем технологии один раз (нужны для расчёта ресурсов)
-        $AccountData['Techs'] = Techs::findById($userId);
+        //$AccountData['Techs'] = Techs::findById($userId);
 
         // Загружаем все планеты игрока и готовим кеш PlanetsData
-        $Planets = Planets::getAllPlanets($userId);
+        /*$Planets = Planets::getAllPlanets($userId);
         $PlanetsData = [];
         foreach ($Planets as $pid => $Planet) {
             // Для корректного вызова Resources::get() нужен полный $tmpAccountData
@@ -117,21 +117,27 @@ class EventLoop
                 'Builds'    => $tmpAccountData['Builds'],
                 'Resources' => Resources::get($tmpAccountData)
             ];
-        }
+        }*/
 
         // Обрабатываем все очереди аккаунта (в порядке end_time) до targetTime
-        $sendMsg = $this->processAccountQueues($targetTime, $AccountData, $PlanetsData) ? true : $sendMsg;
+        $sendMsg = $this->processAccountQueues($targetTime, $AccountData) ? true : $sendMsg;
+
 
         // После обработки очередей — доводим ресурсы всех планет до targetTime
-        foreach ($PlanetsData as $pid => $pd) {
+        $Planets = Planets::getAllPlanets($userId);
+        foreach ($Planets as $pid => $Planet) {
+            $AccountData['WorkPlanet'] = $Planet['id'];
+            Resources::processResources($targetTime, $AccountData);
+        }
+        /*foreach ($PlanetsData as $pid => $pd) {
             $tmp = $AccountData;
             $tmp['Planet'] = $pd['Planet'];
             $tmp['Builds'] = $pd['Builds'];
             $tmp['Resources'] = $pd['Resources'];
+        */
+        // processResources ожидает array &$AccountData (он обновит $tmp['Resources'] и $tmp['Planet']['update_time'])
 
-            // processResources ожидает array &$AccountData (он обновит $tmp['Resources'] и $tmp['Planet']['update_time'])
-            $this->processResources($targetTime, $tmp);
-
+        /*
             // Сохраняем актуальные значения в БД
             Resources::updateByPlanetId($pid, $tmp['Resources']);
             Planets::update($tmp['Planet']);
@@ -143,12 +149,12 @@ class EventLoop
         }
 
         Techs::update($AccountData['Techs']);
-        Users::update($AccountData['User']);
+        Users::update($AccountData['User']);*/
 
         return $sendMsg;
     }
 
-    protected function processAccountQueues(float $StatTimeTick, array &$AccountData, array &$PlanetsData): bool
+    protected function processAccountQueues(float $StatTimeTick, AccountData &$AccountData): bool
     {
         $sendMsg = false;
         $maxIterations = 500; // safety
@@ -171,7 +177,7 @@ class EventLoop
             );
 
             $planetId = $Queue['planet_id'];
-
+            /*
             // Если для планеты ещё нет кеша — подготовим его (не забыв Techs)
             if (!isset($PlanetsData[$planetId])) {
                 $Planet = Planets::findById($planetId);
@@ -195,15 +201,20 @@ class EventLoop
             $QueueAccountData['Planet'] = $PlanetsData[$planetId]['Planet'];
             $QueueAccountData['Builds'] = $PlanetsData[$planetId]['Builds'];
             $QueueAccountData['Resources'] = $PlanetsData[$planetId]['Resources'];
+            */
 
+            $AccountData['WorkPlanet'] = $planetId;
             // 1) Пересчитать ресурсы планеты до конца этой очереди
-            $this->processResources($Queue['end_time'], $QueueAccountData);
+            Resources::processResources($Queue['end_time'], $AccountData);
 
             // 2) Завершить очередь (важно: CompleteQueue должна корректно работать с переданными данными)
             // Хорошая практика: внутри CompleteQueue выполнять DB-транзакцию,
             // чтобы изменения очередей и пересчеты были атомарными.
-            QueuesServices::CompleteQueue($Queue['id'], $QueueAccountData, $Queue['end_time']);
+            QueuesServices::CompleteQueue($Queue['id'], $AccountData, $Queue['end_time']);
 
+            $AccountData->save();
+
+            /*
             // 3) Применяем изменения обратно в кеш
             $AccountData['Techs'] = $QueueAccountData['Techs'];
             $AccountData['User'] = $QueueAccountData['User'];
@@ -218,7 +229,7 @@ class EventLoop
             Builds::update($QueueAccountData['Builds']);
             Techs::update($AccountData['Techs']);
             Users::update($AccountData['User']);
-
+            */
             // 5) Решаем, нужно ли отправлять данные игроку (если это текущая планета или техи)
             if (
                 $planetId == $AccountData['User']['current_planet'] ||
@@ -237,38 +248,6 @@ class EventLoop
         return $sendMsg;
     }
 
-
-
-    protected function processResources(float $StatTimeTick, array &$AccountData): void
-    {
-        if ($AccountData['Planet']['update_time'] < $AccountData['Planet']['create_time']) {
-            $AccountData['Planet']['update_time'] = $AccountData['Planet']['create_time'];
-        }
-
-        $ProductionTime = ($StatTimeTick - $AccountData['Planet']['update_time']);
-
-        if ($ProductionTime > 0) {
-            $AccountData['Planet']['update_time'] = $StatTimeTick;
-            $Resources = &$AccountData['Resources'];
-
-            //if ($Planets[$PID]['PlanetType'] == 3)
-            //    return;
-
-            foreach (Vars::$reslist['resstype'][1] as $ResID) {
-                $Theoretical = $ProductionTime * ($Resources[$ResID]['perhour']) / 3600;
-                if ($Theoretical < 0) {
-                    $Resources[$ResID]['count'] = max($Resources[$ResID]['count'] + $Theoretical, 0);
-                } elseif ($Resources[$ResID]['count'] <= $Resources[$ResID]['max']) {
-                    $Resources[$ResID]['count'] = min($Resources[$ResID]['count'] + $Theoretical, $Resources[$ResID]['max']);
-                }
-                $Resources[$ResID]['count'] = max($Resources[$ResID]['count'], 0);
-            }
-
-            //Resources::updateByPlanetId($AccountData['Planet']['id'], $Resources);
-        }
-    }
-
-
     /**
      * Обработка очереди событий игроков
      */
@@ -280,6 +259,10 @@ class EventLoop
 
         foreach ($Queues as $Event) {
 
+            $AccountData = new AccountData($Event['account_id']);
+            $AccountData['WorkPlanet'] = $Event['planet_id'];
+
+            /*
             $AccountData = [
                 'Account'   => Accounts::findById($Event['account_id']),
                 'User'      => Users::findById($Event['user_id']),
@@ -288,8 +271,14 @@ class EventLoop
                 'Techs'     => Techs::findById($Event['user_id'])
             ];
             $AccountData['Resources']   = Resources::get($AccountData);
+            
 
+            $PlanetsData = [];
 
+            $PlanetsData[$Event['planet_id']]['Planet'] = &$AccountData['Planet'];
+            $PlanetsData[$Event['planet_id']]['Builds'] = &$AccountData['Builds'];
+            $PlanetsData[$Event['planet_id']]['Resources'] = &$AccountData['Resources'];
+            */
             switch ($Event['action']) {
                 case PlayerQueue::ActionQueueUpgarde:
                     QueuesServices::AddToQueue($Event['data']['Element'], $AccountData, $Event['added_at'], true);
@@ -324,11 +313,19 @@ class EventLoop
                     // можно добавить другие действия
             }
 
-            Resources::updateByPlanetId($AccountData['Planet']['id'], $AccountData['Resources']);
+            $AccountData->save();
+            /*
+            foreach ($PlanetsData as $pid => $pd) {
+                Resources::updateByPlanetId($pid, $pd['Resources']);
+                Planets::update($pd['Planet']);
+                Builds::update($pd['Builds']);
+            }*/
+
+            /*Resources::updateByPlanetId($AccountData['Planet']['id'], $AccountData['Resources']);
             Planets::update($AccountData['Planet']);
-            Builds::update($AccountData['Builds']);
-            Techs::update($AccountData['Techs']);
-            Users::update($AccountData['User']);
+            Builds::update($AccountData['Builds']);*/
+            //Techs::update($AccountData['Techs']);
+            //Users::update($AccountData['User']);
 
             Logger::getInstance()->info("ProcessPlayerEvents " . $Event['action']);
 

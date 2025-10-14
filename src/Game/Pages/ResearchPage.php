@@ -8,10 +8,11 @@ use SPGame\Game\Repositories\Planets;
 use SPGame\Game\Services\BuildFunctions;
 use SPGame\Game\Services\Helpers;
 use SPGame\Game\Services\QueuesServices;
+use SPGame\Game\Services\AccountData;
 
 class ResearchPage extends AbstractPage
 {
-    public function render(array &$AccountData): array
+    public function render(AccountData &$AccountData): array
     {
         $User = &$AccountData['User'];
         $Planet = &$AccountData['Planet'];
@@ -59,7 +60,7 @@ class ResearchPage extends AbstractPage
         return $QueueList;
     }
 
-    private function buildResearchList(array &$AccountData, array $CurrentQueue): array
+    private function buildResearchList(AccountData &$AccountData, array $CurrentQueue): array
     {
         $Techs = &$AccountData['Techs'];
 

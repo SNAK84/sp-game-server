@@ -19,7 +19,7 @@ use SPGame\Game\Services\Helpers;
 class BuildFunctions
 {
 
-    public static function getElementPrice(int $Element, array $AccountData, bool $forDestroy = false, $forLevel = NULL)
+    public static function getElementPrice(int $Element, AccountData $AccountData, bool $forDestroy = false, $forLevel = NULL)
     {
 
         if (isset($forLevel)) {
@@ -61,7 +61,7 @@ class BuildFunctions
         return $price;
     }
 
-    public static function getRestPrice(int $Element, array $AccountData, $elementPrice = NULL): array
+    public static function getRestPrice(int $Element, AccountData $AccountData, $elementPrice = NULL): array
     {
         $Resouce = $AccountData['Resources'];
 
@@ -78,7 +78,7 @@ class BuildFunctions
         return $overflow;
     }
 
-    public static function isTechnologieAccessible(int $Element, array $AccountData): bool
+    public static function isTechnologieAccessible(int $Element, AccountData $AccountData): bool
     {
         if (!isset(Vars::$requirement[$Element]))
             return true;
@@ -95,7 +95,7 @@ class BuildFunctions
     }
 
 
-    public static function getBuildingTime(int $Element, array $AccountData, $elementPrice = NULL, $forDestroy = false, $forLevel = NULL): float
+    public static function getBuildingTime(int $Element, AccountData $AccountData, $elementPrice = NULL, $forDestroy = false, $forLevel = NULL): float
     {
         $time = 0.0;
 
@@ -166,7 +166,7 @@ class BuildFunctions
         return max($time, (float)Config::getValue('MinBuildTime'));
     }
 
-    public static function isElementBuyable(int $Element, array $AccountData, $elementPrice = NULL, $forDestroy = false, $forLevel = NULL): bool
+    public static function isElementBuyable(int $Element, AccountData $AccountData, $elementPrice = NULL, $forDestroy = false, $forLevel = NULL): bool
     {
         $rest    = self::getRestPrice($Element, $AccountData, $elementPrice, $forDestroy, $forLevel);
         $result = count(array_filter($rest)) === 0;
@@ -174,7 +174,7 @@ class BuildFunctions
         return $result;
     }
 
-    public static function setElementLevel(int $Element, array &$AccountData, int $BuildLevel): void
+    public static function setElementLevel(int $Element, AccountData &$AccountData, int $BuildLevel): void
     {
 
         if (in_array($Element, Vars::$reslist['build'])) {

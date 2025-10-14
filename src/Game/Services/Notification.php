@@ -15,7 +15,7 @@ class Notification
     /**
      * Отправить системное сообщение
      */
-    public static function sendSystem(array $AccountData, int $Type, string $From, string $Subject, string $Sample, array $Data, float $Time = null): void
+    public static function sendSystem(AccountData $AccountData, int $Type, string $From, string $Subject, string $Sample, array $Data, float $Time = null): void
     {
         $Time = $Time ?? microtime(true);
 
@@ -43,7 +43,7 @@ class Notification
     /**
      * Уведомление от строительства
      */
-    public static function sendBuildBuyable(array $AccountData, array $cost, string $QueueAction, int $Element, float $Time = null): void
+    public static function sendBuildBuyable(AccountData $AccountData, array $cost, string $QueueAction, int $Element, float $Time = null): void
     {
         $Time = $Time ?? microtime(true);
 

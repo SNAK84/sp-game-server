@@ -11,10 +11,11 @@ use SPGame\Game\Repositories\Config;
 use SPGame\Game\Services\BuildFunctions;
 use SPGame\Game\Services\Helpers;
 use SPGame\Game\Services\QueuesServices;
+use SPGame\Game\Services\AccountData;
 
 class BuildingsPage extends AbstractPage
 {
-    public function render(array &$AccountData): array
+    public function render(AccountData &$AccountData): array
     {
         $User = &$AccountData['User'];
         $Planet = &$AccountData['Planet'];
@@ -66,13 +67,13 @@ class BuildingsPage extends AbstractPage
         return $QueueList;
     }
 
-    private function buildAvailableList(array &$AccountData, array $CurrentQueue): array
+    private function buildAvailableList(AccountData &$AccountData, array $CurrentQueue): array
     {
         $User = &$AccountData['User'];
         $Planet = &$AccountData['Planet'];
         $Builds = &$AccountData['Builds'];
 
-        $TempBuilds = $AccountData['Builds'];
+        $TempBuilds = $AccountData['Builds']->toArray();
 
         $QueueLevels = [];
         foreach ($CurrentQueue as $q) {
