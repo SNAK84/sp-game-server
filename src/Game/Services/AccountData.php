@@ -82,18 +82,20 @@ class AccountData implements ArrayAccess
     {
         if ($offset === 'WorkPlanet') {
             $this->WorkPlanet = (int)$value;
-            return;
+            if (!isset($this->PlanetsDirty[$this->WorkPlanet]))   $this->PlanetsDirty[$this->WorkPlanet]   = false;
+            if (!isset($this->BuildsDirty[$this->WorkPlanet]))    $this->BuildsDirty[$this->WorkPlanet]    = false;
+            if (!isset($this->ResourcesDirty[$this->WorkPlanet])) $this->ResourcesDirty[$this->WorkPlanet] = false;
+        } elseif ($offset === 'Account') {
+            $this->Account = new Data($value ?: [], $this->AccountDirty);
+        } elseif ($offset === 'User') {
+            $this->User = new Data($value ?: [], $this->UserDirty);
+        } elseif ($offset === 'Techs') {
+            $this->Techs = new Data($value ?: [], $this->TechsDirty);
+        } elseif ($offset === 'Planet') {
+            $this->Planets[$this->WorkPlanet]['Planet'] = new Data($value ?: [], $this->PlanetsDirty[$this->WorkPlanet]);
+        } elseif (in_array($offset, ['Builds', 'Resources'], true)) {
+            $this->Planets[$this->WorkPlanet][$offset] = new Data($value ?: [], $this->{$offset . 'Dirty'}[$this->WorkPlanet]);
         }
-
-        match ($offset) {
-            'Account'   => $this->Account = $value,
-            'User'      => $this->User = $value,
-            'Techs'     => $this->Techs = $value,
-            'Planet'    => $this->getData()['Planet'] = $value,
-            'Builds'    => $this->getData()['Builds'] = $value,
-            'Resources' => $this->getData()['Resources'] = $value,
-            default => null,
-        };
     }
 
     #[\ReturnTypeWillChange]
@@ -168,6 +170,42 @@ class AccountData implements ArrayAccess
             $this->AccountDirty = false;
         }
     }
+
+    public function deepCopy(): self
+    {
+        $copy = new self($this->accountId);
+
+        // Копируем Account, User, Techs как независимые Data
+        $copy['Account'] = $this->Account->toArray();
+        $copy['User']    = $this->User->toArray();
+        $copy['Techs']   = $this->Techs->toArray();
+
+        $copy->WorkPlanet = $this->WorkPlanet;
+
+        // Копируем планеты
+        foreach ($this->Planets as $pid => $planetData) {
+
+            $copy['WorkPlanet'] = $pid;
+
+            $copy['Planet'] = $planetData['Planet']->toArray();
+            $copy['Builds'] = $planetData['Builds']->toArray();
+            $copy['Resources'] = $planetData['Resources']->toArray();
+
+
+            // Флаги dirty
+            $copy->PlanetsDirty[$pid] = false;
+            $copy->BuildsDirty[$pid] = false;
+            $copy->ResourcesDirty[$pid] = false;
+        }
+
+        // Флаги dirty
+        $copy->AccountDirty = false;
+        $copy->UserDirty = false;
+        $copy->TechsDirty = false;
+
+        return $copy;
+    }
+
 
     // --- Для старого кода ---
     public function toArray(): array

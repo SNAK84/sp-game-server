@@ -126,8 +126,12 @@ class Accounts extends BaseRepository
             return ['error' => 'Invalid token'];
         }
 
+        Connect::setAccount($fd, null);
+
         $account['token'] = "";
 
+        Accounts::update($account);
+        
         return [
             'success' => true,
             'id' => $account['id'],

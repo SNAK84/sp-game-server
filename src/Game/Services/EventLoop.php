@@ -98,27 +98,6 @@ class EventLoop
         $sendMsg = false;
         $userId = $AccountData['User']['id'];
 
-
-        // Загружаем технологии один раз (нужны для расчёта ресурсов)
-        //$AccountData['Techs'] = Techs::findById($userId);
-
-        // Загружаем все планеты игрока и готовим кеш PlanetsData
-        /*$Planets = Planets::getAllPlanets($userId);
-        $PlanetsData = [];
-        foreach ($Planets as $pid => $Planet) {
-            // Для корректного вызова Resources::get() нужен полный $tmpAccountData
-            $tmpAccountData = $AccountData;
-            $tmpAccountData['Planet'] = $Planet;
-            $tmpAccountData['Builds'] = Builds::findById($pid);
-
-            // Now resources are built using Planet + Builds + Techs + User + Account
-            $PlanetsData[$pid] = [
-                'Planet'    => $Planet,
-                'Builds'    => $tmpAccountData['Builds'],
-                'Resources' => Resources::get($tmpAccountData)
-            ];
-        }*/
-
         // Обрабатываем все очереди аккаунта (в порядке end_time) до targetTime
         $sendMsg = $this->processAccountQueues($targetTime, $AccountData) ? true : $sendMsg;
 
@@ -129,28 +108,6 @@ class EventLoop
             $AccountData['WorkPlanet'] = $Planet['id'];
             Resources::processResources($targetTime, $AccountData);
         }
-        /*foreach ($PlanetsData as $pid => $pd) {
-            $tmp = $AccountData;
-            $tmp['Planet'] = $pd['Planet'];
-            $tmp['Builds'] = $pd['Builds'];
-            $tmp['Resources'] = $pd['Resources'];
-        */
-        // processResources ожидает array &$AccountData (он обновит $tmp['Resources'] и $tmp['Planet']['update_time'])
-
-        /*
-            // Сохраняем актуальные значения в БД
-            Resources::updateByPlanetId($pid, $tmp['Resources']);
-            Planets::update($tmp['Planet']);
-            Builds::update($tmp['Builds']);
-
-            // Обновляем кеш на случай, если ещё что-то будет использовать PlanetsData после этого
-            $PlanetsData[$pid]['Planet'] = $tmp['Planet'];
-            $PlanetsData[$pid]['Resources'] = $tmp['Resources'];
-        }
-
-        Techs::update($AccountData['Techs']);
-        Users::update($AccountData['User']);*/
-
         return $sendMsg;
     }
 
@@ -177,31 +134,6 @@ class EventLoop
             );
 
             $planetId = $Queue['planet_id'];
-            /*
-            // Если для планеты ещё нет кеша — подготовим его (не забыв Techs)
-            if (!isset($PlanetsData[$planetId])) {
-                $Planet = Planets::findById($planetId);
-                $Builds = Builds::findById($planetId);
-
-                $tmpAccountData = $AccountData;
-                $tmpAccountData['Planet'] = $Planet;
-                $tmpAccountData['Builds'] = $Builds;
-                // Techs уже должно быть в $AccountData (см. вызов выше)
-                $ResourcesForPlanet = Resources::get($tmpAccountData);
-
-                $PlanetsData[$planetId] = [
-                    'Planet'    => $Planet,
-                    'Builds'    => $Builds,
-                    'Resources' => $ResourcesForPlanet
-                ];
-            }
-
-            // Собираем локальную копию AccountData для обработки этой очереди (ссылки на кеш)
-            $QueueAccountData = $AccountData;
-            $QueueAccountData['Planet'] = $PlanetsData[$planetId]['Planet'];
-            $QueueAccountData['Builds'] = $PlanetsData[$planetId]['Builds'];
-            $QueueAccountData['Resources'] = $PlanetsData[$planetId]['Resources'];
-            */
 
             $AccountData['WorkPlanet'] = $planetId;
             // 1) Пересчитать ресурсы планеты до конца этой очереди
@@ -212,24 +144,8 @@ class EventLoop
             // чтобы изменения очередей и пересчеты были атомарными.
             QueuesServices::CompleteQueue($Queue['id'], $AccountData, $Queue['end_time']);
 
-            $AccountData->save();
+//            $AccountData->save();
 
-            /*
-            // 3) Применяем изменения обратно в кеш
-            $AccountData['Techs'] = $QueueAccountData['Techs'];
-            $AccountData['User'] = $QueueAccountData['User'];
-
-            $PlanetsData[$planetId]['Planet'] = $QueueAccountData['Planet'];
-            $PlanetsData[$planetId]['Builds'] = $QueueAccountData['Builds'];
-            $PlanetsData[$planetId]['Resources'] = $QueueAccountData['Resources'];
-
-            // 4) Сохраняем изменения в БД (чтобы при следующем запросе всё было консистентно)
-            Resources::updateByPlanetId($planetId, $QueueAccountData['Resources']);
-            Planets::update($QueueAccountData['Planet']);
-            Builds::update($QueueAccountData['Builds']);
-            Techs::update($AccountData['Techs']);
-            Users::update($AccountData['User']);
-            */
             // 5) Решаем, нужно ли отправлять данные игроку (если это текущая планета или техи)
             if (
                 $planetId == $AccountData['User']['current_planet'] ||
@@ -262,23 +178,6 @@ class EventLoop
             $AccountData = new AccountData($Event['account_id']);
             $AccountData['WorkPlanet'] = $Event['planet_id'];
 
-            /*
-            $AccountData = [
-                'Account'   => Accounts::findById($Event['account_id']),
-                'User'      => Users::findById($Event['user_id']),
-                'Planet'    => Planets::findById($Event['planet_id']),
-                'Builds'    => Builds::findById($Event['planet_id']),
-                'Techs'     => Techs::findById($Event['user_id'])
-            ];
-            $AccountData['Resources']   = Resources::get($AccountData);
-            
-
-            $PlanetsData = [];
-
-            $PlanetsData[$Event['planet_id']]['Planet'] = &$AccountData['Planet'];
-            $PlanetsData[$Event['planet_id']]['Builds'] = &$AccountData['Builds'];
-            $PlanetsData[$Event['planet_id']]['Resources'] = &$AccountData['Resources'];
-            */
             switch ($Event['action']) {
                 case PlayerQueue::ActionQueueUpgarde:
                     QueuesServices::AddToQueue($Event['data']['Element'], $AccountData, $Event['added_at'], true);
@@ -314,18 +213,6 @@ class EventLoop
             }
 
             $AccountData->save();
-            /*
-            foreach ($PlanetsData as $pid => $pd) {
-                Resources::updateByPlanetId($pid, $pd['Resources']);
-                Planets::update($pd['Planet']);
-                Builds::update($pd['Builds']);
-            }*/
-
-            /*Resources::updateByPlanetId($AccountData['Planet']['id'], $AccountData['Resources']);
-            Planets::update($AccountData['Planet']);
-            Builds::update($AccountData['Builds']);*/
-            //Techs::update($AccountData['Techs']);
-            //Users::update($AccountData['User']);
 
             Logger::getInstance()->info("ProcessPlayerEvents " . $Event['action']);
 
@@ -333,9 +220,6 @@ class EventLoop
         }
 
         return $sendMsg;
-        /*if ($sendMsg) {
-            self::sendActualData($accountId);
-        }*/
     }
 
     protected function sendActualData(int $accountId): void

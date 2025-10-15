@@ -71,6 +71,8 @@ class QueuesServices
     public static function AddToQueue(int $Element, AccountData &$AccountData, float $Time, bool $AddMode = true)
     {
 
+        $QueueAccountData = $AccountData->deepCopy();
+
         $User       = &$AccountData['User'];
         $Planet     = &$AccountData['Planet'];
         $Builds     = &$AccountData['Builds'];
@@ -78,8 +80,6 @@ class QueuesServices
         $Resources  = &$AccountData['Resources'];
 
         $QueueType = self::QueueType($Element);
-
-
 
         if ($QueueType === self::BUILDS) {
             $planetType = $Planet['planet_type'] ?? null;
@@ -112,12 +112,21 @@ class QueuesServices
 
         $ActualCount        = count($CurrentQueue);
         $DemolishedQueue    = 0;
-        $BuildsLevels       = [];
+        //$BuildsLevels       = [];
         $QueueEndTime       = $Time;
 
         foreach ($CurrentQueue as $Queue) {
             $objId = $Queue['object_id'];
-            if (!isset($BuildsLevels[$objId])) {
+            $planetId = (int)($q['planet_id'] ?? ($QueueAccountData['Planet']['id'] ?? 0));
+            $QueueAccountData['WorkPlanet'] = $planetId;
+            $Level = Helpers::getElementLevel($objId, $QueueAccountData);
+            $Level  += ($Queue['action'] === 'destroy' ? -1 : 1);
+
+            BuildFunctions::setElementLevel($objId, $QueueAccountData, $Level);
+
+
+
+            /*if (!isset($BuildsLevels[$objId])) {
                 $BuildsLevels[$objId] = 0;
             }
 
@@ -126,16 +135,16 @@ class QueuesServices
                 // если демонтаж — освобождается 1 поле
                 $DemolishedQueue++;
             } else
-                $BuildsLevels[$objId] += 1;
+                $BuildsLevels[$objId] += 1;*/
 
             if (isset($Queue['end_time']) && $Queue['end_time'] > $QueueEndTime) {
                 $QueueEndTime = $Queue['end_time'];
             }
         }
 
-        $DemolishedQueue = max(0, $DemolishedQueue);
+        //$DemolishedQueue = max(0, $DemolishedQueue);
 
-        $MaxFields = Helpers::getMaxFields($AccountData);
+        $MaxFields = Helpers::getMaxFields($QueueAccountData);
         $MaxQueue = self::MaxQueue($QueueType);
 
         if ($ActualCount >= $MaxQueue) {
@@ -143,16 +152,16 @@ class QueuesServices
             return;
         }
 
-        $CurrentFields = Helpers::getCurrentFields($AccountData) + $ActualCount - $DemolishedQueue * 2;
+        $CurrentFields = Helpers::getCurrentFields($QueueAccountData);
 
         if ($AddMode && ($CurrentFields) >= $MaxFields) {
             Logger::getInstance()->info("QueuesServices::AddToQueue: not enough fields", ['currentFields' => $CurrentFields, 'demolished' => $DemolishedQueue, 'maxFields' => $MaxFields]);
             return;
         }
 
-        $BuildLevel = (int) Helpers::getElementLevel($Element, $AccountData);
+        $BuildLevel = (int) Helpers::getElementLevel($Element, $QueueAccountData);
         $BuildLevel += $AddMode ? 1 : 0;
-        $BuildLevel += $BuildsLevels[$Element] ?? 0;
+        //$BuildLevel += $BuildsLevels[$Element] ?? 0;
 
         if ($BuildLevel < 1) {
             Logger::getInstance()->warning("QueuesServices::AddToQueue: BuildLevel < 0", ['element' => $Element, 'level' => $BuildLevel]);
@@ -164,7 +173,7 @@ class QueuesServices
             return;
         }
 
-        $elementTime    = BuildFunctions::getBuildingTime($Element, $AccountData, null, !$AddMode, $BuildLevel);
+        $elementTime    = BuildFunctions::getBuildingTime($Element, $QueueAccountData, null, !$AddMode, $BuildLevel);
         $BuildEndTime   = $QueueEndTime + $elementTime;
 
         $addQueue = [
@@ -251,29 +260,6 @@ class QueuesServices
         $Element     = $Queue['object_id'];
         $QueueType   = self::QueueType($Element);
 
-        /*
-        // --- Контекст правильной планеты ---
-        if (!isset($PlanetsData[$planetId])) {
-            $Planet = Planets::findById($planetId);
-            $Builds = Builds::findById($planetId);
-            $tmpAcc = $AccountData;
-            $tmpAcc['Planet'] = $Planet;
-            $tmpAcc['Builds'] = $Builds;
-            $tmpAcc['Resources'] = Resources::get($tmpAcc);
-            $PlanetsData[$planetId] = [
-                'Planet'    => $Planet,
-                'Builds'    => $Builds,
-                'Resources' => $tmpAcc['Resources']
-            ];
-        }
-        
-
-        $tmpAccount = $AccountData;
-        $tmpAccount['Planet']    = &$PlanetsData[$planetId]['Planet'];
-        $tmpAccount['Builds']    = &$PlanetsData[$planetId]['Builds'];
-        $tmpAccount['Resources'] = &$PlanetsData[$planetId]['Resources'];
-        */
-
         $AccountData['WorkPlanet'] = $planetId;
         // Проверяем владельца
         if (
@@ -341,13 +327,6 @@ class QueuesServices
                 Queues::update($q);
             }
 
-            /*
-            // --- Возврат обновлённого кеша ---
-            $PlanetsData[$planetId]['Planet']    = $tmpAccount['Planet'];
-            $PlanetsData[$planetId]['Builds']    = $tmpAccount['Builds'];
-            $PlanetsData[$planetId]['Resources'] = $tmpAccount['Resources'];
-            */
-
             Logger::getInstance()->info("CancelToQueue: finished", [
                 'QueueId' => $QueueId,
                 'remaining' => count($CurrentQueue)
@@ -376,13 +355,7 @@ class QueuesServices
         $planetId = (int)$Queue['planet_id'];
 
         $AccountData['WorkPlanet'] = $planetId;
-        /*
-        // --- Контекст планеты ---
-        $tmpAccount = $AccountData;
-        $tmpAccount['Planet']    = &$PlanetsData[$planetId]['Planet'];
-        $tmpAccount['Builds']    = &$PlanetsData[$planetId]['Builds'];
-        $tmpAccount['Resources'] = &$PlanetsData[$planetId]['Resources'];
-        */
+
         $Element   = $Queue['object_id'];
         $QueueType   = self::QueueType($Element);
 
@@ -506,82 +479,56 @@ class QueuesServices
     private static function recalcQueueTimings(array &$CurrentQueue, AccountData &$AccountData, float $StartTime, bool $RecalcActiveProgress = false, float $CurrentTime = 0): void
     {
         $QueueEndTime = $StartTime;
-        $BuildsLevels = [];
 
+        $QueueAccountData = $AccountData->deepCopy();
+
+        Logger::getInstance()->info("recalcQueueTimings Start");
 
         foreach ($CurrentQueue as $k => $q) {
             $objId = (int)$q['object_id'];
-            $planetId = (int)($q['planet_id'] ?? ($AccountData['Planet']['id'] ?? 0));
+            $planetId = (int)($q['planet_id'] ?? ($QueueAccountData['Planet']['id'] ?? 0));
             $action = $q['action'] ?? 'build';
 
-            $AccountData['WorkPlanet'] = $planetId;
-            /*
-            // Если в кэше нет планеты — подгружаем один раз (processAccountQueues обычно подготовит кэш)
-            if (!isset($PlanetsData[$planetId])) {
-                $Planet = Planets::findById($planetId) ?: ['id' => $planetId];
-                $Builds = Builds::findById($planetId) ?: [];
-                // Собираем ресурсы для планеты (чтобы Helpers/BuildFunctions работали корректно)
-                $tmpAcc = $AccountData;
-                $tmpAcc['Planet'] = $Planet;
-                $tmpAcc['Builds'] = $Builds;
-                $tmpAcc['Resources'] = Resources::get($tmpAcc);
+            $QueueAccountData['WorkPlanet'] = $planetId;
 
-                $PlanetsData[$planetId] = [
-                    'Planet'    => $Planet,
-                    'Builds'    => $Builds,
-                    'Resources' => $tmpAcc['Resources']
-                ];
-            }
-            */
+
             // Инициализируем массив уровней для планеты
-            if (!isset($BuildsLevels[$planetId])) {
-                $BuildsLevels[$planetId] = [];
-            }
+            //if (!isset($BuildsLevels[$planetId])) {
+            //    $BuildsLevels[$planetId] = [];
+            //}
 
             // Если для этого элемента ещё нет уровня — взять текущий уровень из кэша Builds
-            if (!isset($BuildsLevels[$planetId][$objId])) {
-                // tmpAccount для получения актуального уровня (Helpers берёт из $AccountData['Builds'])
-                /*
-                $tmpAcc = $AccountData;
-                $tmpAcc['Planet'] = $PlanetsData[$planetId]['Planet'];
-                $tmpAcc['Builds'] = $PlanetsData[$planetId]['Builds'];
-                */
-                // Techs/Resources остаются из $AccountData, но можно подставить из PlanetsData
-                $BuildsLevels[$planetId][$objId] = (int) Helpers::getElementLevel($objId, $AccountData);
-            }
+            //if (!isset($BuildsLevels[$planetId][$objId])) {               
+            //    $BuildsLevels[$planetId][$objId] = (int) Helpers::getElementLevel($objId, $QueueAccountData);
+            //}
 
             // Применяем действие очереди к уровню (build/destroy)
+            $Level = Helpers::getElementLevel($objId, $QueueAccountData);
             if ($action === 'build') {
-                $BuildsLevels[$planetId][$objId] += 1;
+                $Level += 1;
             } elseif ($action === 'destroy') {
-                $BuildsLevels[$planetId][$objId] -= 1;
+                $Level -= 1;
             }
 
-            // Устанавливаем count (уровень после применения) и start_time
-            $CurrentQueue[$k]['count'] = $BuildsLevels[$planetId][$objId];
-            $CurrentQueue[$k]['start_time'] = $QueueEndTime;
+            BuildFunctions::setElementLevel($objId, $QueueAccountData, $Level);
 
-            /*
-            // Готовим tmpAccount с контекстом конкретной планеты (для расчёта времени)
-            $tmpAcc = $AccountData;
-            $tmpAcc['Planet'] = $PlanetsData[$planetId]['Planet'];
-            $tmpAcc['Builds'] = $PlanetsData[$planetId]['Builds'];
-            $tmpAcc['Resources'] = $PlanetsData[$planetId]['Resources'];
-            */
+            // Устанавливаем count (уровень после применения) и start_time
+            $CurrentQueue[$k]['count'] = $Level;
+            $CurrentQueue[$k]['start_time'] = $QueueEndTime;
 
             // Если требуется, сначала довести ресурсы этой планеты до current start_time
             // (в большинстве сценариев resources уже будут соответствовать моменту, но безопасно вызывать)
-            if (isset($AccountData['Planet']['update_time'])) {
-                Resources::processResources($CurrentQueue[$k]['start_time'], $AccountData);
-            }
+            /*if (isset($QueueAccountData['Planet']['update_time'])) {
+                Resources::processResources($CurrentQueue[$k]['start_time'], $QueueAccountData);
+            }*/
 
             // Рассчитываем duration/time используя актуальный tmpAcc и count
             $elementTime = BuildFunctions::getBuildingTime(
                 $objId,
-                $AccountData,
+                $QueueAccountData,
                 null,
                 ($action === 'destroy'),
-                $BuildsLevels[$planetId][$objId]
+                $Level
             );
 
             // Корректировка активного прогресса
@@ -611,6 +558,8 @@ class QueuesServices
             // сохраняем изменения в БД (как было раньше)
             Queues::update($CurrentQueue[$k]);
         }
+
+        Logger::getInstance()->info("recalcQueueTimings Stop");
     }
 
     /**
@@ -626,13 +575,7 @@ class QueuesServices
             $planetId = (int)($next['planet_id'] ?? 0);
 
             $AccountData['WorkPlanet'] = $planetId;
-            /*
-            // --- Создаем временный контекст планеты ---
-            $tmpAccount = $AccountData;
-            $tmpAccount['Planet']    = &$PlanetsData[$planetId]['Planet'];
-            $tmpAccount['Builds']    = &$PlanetsData[$planetId]['Builds'];
-            $tmpAccount['Resources'] = &$PlanetsData[$planetId]['Resources'];
-            */
+
             // --- Пересчитываем ресурсы планеты до момента активации ---
             Resources::processResources($Time, $AccountData);
 
@@ -782,7 +725,7 @@ class QueuesServices
             $Resources[$k]['count'] += $v * $progress;
         }
 
-        Resources::updateByPlanetId($AccountData['Planet']['id'], $Resources);
+        //Resources::updateByPlanetId($AccountData['Planet']['id'], $Resources);
         Logger::getInstance()->info("refundActiveQueueResources: refunded", ['element' => $Element, 'progress' => $progress]);
     }
 }

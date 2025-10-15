@@ -29,7 +29,7 @@ class BuildingsPage extends AbstractPage
         $DemolishedQueue = 0;
         foreach ($CurrentQueue as $Queue) {
             $objId = $Queue['object_id'];
-            if ($Queue['action'] == 'destroy') 
+            if ($Queue['action'] == 'destroy')
                 $DemolishedQueue++;
         }
 
@@ -75,11 +75,8 @@ class BuildingsPage extends AbstractPage
 
         $TempBuilds = $AccountData['Builds']->toArray();
 
-        $QueueLevels = [];
         foreach ($CurrentQueue as $q) {
-            $id = $q['object_id'];
-            $QueueLevels[$id] = ($QueueLevels[$id] ?? 0) + ($q['action'] === 'destroy' ? -1 : 1);
-            $AccountData['Builds'][Vars::$resource[$id]] += ($QueueLevels[$id] ?? 0) + ($q['action'] === 'destroy' ? -1 : 1);
+            $AccountData['Builds'][Vars::$resource[$q['object_id']]] += ($q['action'] === 'destroy' ? -1 : 1);
         }
 
         $BuildEnergy        = $AccountData['Techs'][Vars::$resource[113]];
@@ -92,7 +89,8 @@ class BuildingsPage extends AbstractPage
         $BuildList          = [];
         foreach (Vars::$reslist['allow'][$Planet['planet_type']] as $Element) {
             $currentLevel = $TempBuilds[Vars::$resource[$Element]] ?? 0;
-            $levelToBuild = $currentLevel + ($QueueLevels[$Element] ?? 0);
+            $levelToBuild = $AccountData['Builds'][Vars::$resource[$Element]];
+
 
 
 

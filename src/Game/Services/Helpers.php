@@ -70,7 +70,7 @@ class Helpers
                 static fn($q) =>
                 isset($q['type'], $q['object_id']) &&
                     $q['type'] === \SPGame\Game\Services\QueuesServices::BUILDS &&
-                    (int)$q['object_id'] === 31
+                    ((int)$q['object_id'] === 6 || (int)$q['object_id'] === 31)
             ),
             'planet_id'
         );

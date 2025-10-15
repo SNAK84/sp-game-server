@@ -113,10 +113,10 @@ class Connect
         return $fds;
     }
 
-    public static function setAccount(int $fd, int $account): void
+    public static function setAccount(int $fd, ?int $account): void
     {
         if ($row = self::$connections->get($fd)) {
-            $row['account'] = $account ?? null;
+            $row['account'] = $account ?? 0;
             self::$connections->set($fd, $row);
         }
     }
@@ -206,7 +206,10 @@ class Connect
 
             // --- логин / регистрация (обработка до проверки токена) ---
             if ($mode === 'logout') {
-                $result = Accounts::authByToken($token, $frame->fd, $wsocket);
+
+                $result = Accounts::logout($token, $frame->fd, $wsocket);
+                //$result = Accounts::authByToken($token, $frame->fd, $wsocket);
+
                 $response->setToken($result['token'] ?? '')->setMode("login")->setAction("login");
                 return $response->source();
 
