@@ -98,7 +98,16 @@ class Vars
                 'fleet' => [
                     1 => 'civil',
                     2 => 'military'
-                ]
+                ],
+                'fleet' => [
+                    1 => 'civil',
+                    2 => 'military'
+                ],
+                'defense' => [
+                    1 => 'installations',
+                    2 => 'shields',
+                    3 => 'missiles'
+                ],
             ],
             'ressources' => [901, 902, 903, 911, 921, 922],
             'resstype' => [

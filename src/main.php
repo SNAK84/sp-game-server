@@ -17,6 +17,8 @@ use SPGame\Game\Repositories\Resources;
 
 use SPGame\Game\Repositories\Techs;
 use SPGame\Game\Repositories\Builds;
+use SPGame\Game\Repositories\Ships;
+use SPGame\Game\Repositories\Defenses;
 
 use SPGame\Game\Repositories\Queues;
 use SPGame\Game\Repositories\Messages;
@@ -57,6 +59,8 @@ try {
     
     Techs::init($saver);
     Builds::init($saver);
+    Ships::init($saver);
+    Defenses::init($saver);
 
     
     Queues::init($saver);

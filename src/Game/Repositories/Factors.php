@@ -3,7 +3,7 @@
 namespace SPGame\Game\Repositories;
 
 
-use SPGame\Game\Services\Helpers;
+use SPGame\Game\Services\BuildFunctions;
 use SPGame\Game\Services\AccountData;
 
 class Factors
@@ -16,7 +16,7 @@ class Factors
         foreach (Vars::$reslist['bonus'] as $elementID) {
             $bonus = Vars::$bonus[$elementID];
 
-            $elementLevel = Helpers::getElementLevel($elementID, $AccountData);
+            $elementLevel = BuildFunctions::getElementLevel($elementID, $AccountData);
 
             if (!$elementLevel) continue;
 

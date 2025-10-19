@@ -28,9 +28,9 @@ class Queues extends BaseRepository
             'count'       => ['swoole' => [Table::TYPE_INT, 4],  'sql' => 'INT UNSIGNED DEFAULT 1', 'default' => 1],
             'action'      => ['swoole' => [Table::TYPE_STRING, 16], 'sql' => "ENUM('build','destroy') DEFAULT 'build'", 'default' => 'build'],
             'type'        => ['swoole' => [Table::TYPE_STRING, 32], 'sql' => "VARCHAR(32) NOT NULL", 'default' => 'building'],
-            'time'        => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE NOT NULL', 'default' => 0],
-            'start_time'  => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE NOT NULL', 'default' => 0],
-            'end_time'    => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE NOT NULL', 'default' => 0],
+            'time'        => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE NOT NULL', 'default' => 0.0],
+            'start_time'  => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE NOT NULL', 'default' => 0.0],
+            'end_time'    => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE NOT NULL', 'default' => 0.0],
             'status'      => ['swoole' => [Table::TYPE_STRING, 16], 'sql' => "ENUM('queued','active','done','cancelled') DEFAULT 'queued'", 'default' => 'queued'],
         ],
         'indexes' => [
@@ -61,18 +61,30 @@ class Queues extends BaseRepository
     public static function getCurrentQueue(string $QueueType, int $userId, int $planetId): ?array
     {
 
-        $ids = [];
+        $Queue = [];
         if ($QueueType === QueuesServices::TECHS) {
-            $ids = self::findByIndex('queue_tech', [$userId, $QueueType]);
+            $Queue = self::findByIndex('queue_tech', [$userId, $QueueType]);
         } else
-            $ids = self::findByIndex('queue', [$planetId, $QueueType]);
+            $Queue = self::findByIndex('queue', [$planetId, $QueueType]);
+
+        if (!$Queue)  return null;
+        
+        // Сортируем по end_time (asc). При равенстве таймстампов — tie-breaker по id.
+        usort($Queue, function (array $a, array $b) {
+            $ta = (int) ($a['end_time'] ?? 0);
+            $tb = (int) ($b['end_time'] ?? 0);
+            if ($ta === $tb) {
+                return ((int) ($a['id'] ?? 0)) <=> ((int) ($b['id'] ?? 0));
+            }
+            return $ta <=> $tb;
+        });
 
         /*$Queue = [];
         foreach ($ids as $id) {
             $Queue[] = self::findById($id);
         }*/
 
-        return $ids;
+        return $Queue;
     }
 
     public static function getActiveMinEndTimeByUser(int $userId): ?array
@@ -141,7 +153,7 @@ class Queues extends BaseRepository
     {
 
         $items = self::findByIndex('queue_p_type_status', [$planetId, $QueueType, 'active']);
-        
+
         if (empty($items)) {
             return null;
         }

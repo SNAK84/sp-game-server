@@ -8,6 +8,8 @@ use SPGame\Game\Repositories\Techs;
 use SPGame\Game\Repositories\Planets;
 use SPGame\Game\Repositories\Users;
 
+use SPGame\Game\Repositories\Queues;
+
 use SPGame\Game\Repositories\Factors;
 use SPGame\Game\Repositories\Config;
 use SPGame\Game\Repositories\Vars;
@@ -25,7 +27,7 @@ class BuildFunctions
         if (isset($forLevel)) {
             $elementLevel = $forLevel;
         } else
-            $elementLevel = Helpers::getElementLevel($Element, $AccountData);
+            $elementLevel = self::getElementLevel($Element, $AccountData);
 
         $price    = [];
         foreach (Vars::$reslist['ressources'] as $resType) {
@@ -94,7 +96,6 @@ class BuildFunctions
         return true;
     }
 
-
     public static function getBuildingTime(int $Element, AccountData $AccountData, $elementPrice = NULL, $forDestroy = false, $forLevel = NULL): float
     {
         $time = 0.0;
@@ -110,10 +111,10 @@ class BuildFunctions
         $elementCost += (float)($elementPrice[902] ?? 0);
 
         // --- 3. Безопасное извлечение уровней через Helpers ---
-        $roboticLevel   = (int)Helpers::getElementLevel(14, $AccountData); // Робототехника
-        $naniteLevel    = (int)Helpers::getElementLevel(15, $AccountData); // Наниты
-        $shipyardLevel  = (int)Helpers::getElementLevel(21, $AccountData); // Верфь
-        $labLevel       = (int)Helpers::getElementLevel(6,  $AccountData); // Лаборатория
+        $roboticLevel   = (int)self::getElementLevel(14, $AccountData); // Робототехника
+        $naniteLevel    = (int)self::getElementLevel(15, $AccountData); // Наниты
+        $shipyardLevel  = (int)self::getElementLevel(21, $AccountData); // Верфь
+        $labLevel       = (int)self::getElementLevel(6,  $AccountData); // Лаборатория
 
         // --- 4. Общие параметры конфигурации ---
         $gameSpeed = (float)Config::getValue('GameSpeed');
@@ -174,19 +175,115 @@ class BuildFunctions
         return $result;
     }
 
+    public static function getElementLevel(int $Element, AccountData $AccountData): int
+    {
+
+        if (!isset($AccountData['Builds'])) {
+            Logger::getInstance()->error("BuildFunctions::getElementLevel: отсутствует 'Builds' в AccountData", [
+                'element' => $Element,
+                'account_id' => $AccountData['User']['id'] ?? null,
+                'planet_id' => $AccountData['Planet']['id'] ?? null
+            ]);
+            // В отладке можно бросать исключение
+            throw new \RuntimeException("Builds missing in AccountData");
+            // В продакшене можно просто вернуть 0:
+            // return 0;
+        }
+
+        $BuildLevel = 0;
+        if (in_array($Element, Vars::$reslist['build'])) {
+            $BuildLevel = $AccountData['Builds'][Vars::$resource[$Element]] ?? 0;
+        } elseif (in_array($Element, Vars::$reslist['fleet'])) {
+            $BuildLevel = $AccountData['Ships'][Vars::$resource[$Element]] ?? 0;
+        } elseif (in_array($Element, Vars::$reslist['defense']) || in_array($Element, Vars::$reslist['missile'])) {
+            $BuildLevel = $AccountData['Defenses'][Vars::$resource[$Element]] ?? 0;
+        } elseif (in_array($Element, Vars::$reslist['tech'])) {
+            $BuildLevel = $AccountData['Techs'][Vars::$resource[$Element]] ?? 0;
+        } elseif (in_array($Element, Vars::$reslist['officier'])) {
+            $BuildLevel = 0;
+        }
+
+        return $BuildLevel;
+    }
+
     public static function setElementLevel(int $Element, AccountData &$AccountData, int $BuildLevel): void
     {
 
         if (in_array($Element, Vars::$reslist['build'])) {
             $AccountData['Builds'][Vars::$resource[$Element]] = $BuildLevel;
         } elseif (in_array($Element, Vars::$reslist['fleet'])) {
-            $BuildLevel = 0;
-        } elseif (in_array($Element, Vars::$reslist['defense'])) {
-            $BuildLevel = 0;
+            $AccountData['Ships'][Vars::$resource[$Element]] = $BuildLevel;
+        } elseif (in_array($Element, Vars::$reslist['defense']) || in_array($Element, Vars::$reslist['missile'])) {
+            $AccountData['Defenses'][Vars::$resource[$Element]] = $BuildLevel;
         } elseif (in_array($Element, Vars::$reslist['tech'])) {
             $AccountData['Techs'][Vars::$resource[$Element]] = $BuildLevel;
         } elseif (in_array($Element, Vars::$reslist['officier'])) {
             $BuildLevel = 0;
         }
+    }
+
+    public static function addElementLevel(int $Element, AccountData &$AccountData, int $BuildLevel): void
+    {
+
+        if (in_array($Element, Vars::$reslist['build'])) {
+            $AccountData['Builds'][Vars::$resource[$Element]] += $BuildLevel;
+        } elseif (in_array($Element, Vars::$reslist['fleet'])) {
+            $AccountData['Ships'][Vars::$resource[$Element]] += $BuildLevel;
+        } elseif (in_array($Element, Vars::$reslist['defense']) || in_array($Element, Vars::$reslist['missile'])) {
+            $AccountData['Defenses'][Vars::$resource[$Element]] += $BuildLevel;
+        } elseif (in_array($Element, Vars::$reslist['tech'])) {
+            $AccountData['Techs'][Vars::$resource[$Element]] = $BuildLevel;
+        } elseif (in_array($Element, Vars::$reslist['officier'])) {
+            $BuildLevel = 0;
+        }
+    }
+
+    public static function getMaxConstructibleElements(int $Element, AccountData &$AccountData): int
+    {
+
+        $elementPrice    = self::getElementPrice($Element, $AccountData);
+
+        $maxElement     = [];
+
+        foreach ($elementPrice as $resourceID => $price) {
+            //if (!isset($AccountData['Resources'][$resourceID]['count'])) {
+            $maxElement[] = floor($AccountData['Resources'][$resourceID]['count'] / $price);
+            //} else {
+            //    Logger::getInstance()->error("Unknown Ressource " . $resourceID . " at element " . $Element . ".");
+            //}
+        }
+
+        if (in_array($Element, Vars::$reslist['one'])) {
+            $maxElement[] = 1;
+        }
+
+        return min($maxElement);
+    }
+
+    public static function getMaxConstructibleRockets(AccountData &$AccountData, ?array $Missiles = NULL): array
+    {
+
+        if (!isset($Missiles)) {
+            $Missiles = [];
+            foreach (Vars::$reslist['missile'] as $elementID) {
+                $Missiles[$elementID] = self::getElementLevel($elementID, $AccountData);
+            }
+        }
+
+        $MaxMissiles  = self::getElementLevel(44, $AccountData) * 10 * max(Config::getValue("SiloFactor"), 1);
+        $CurrentQueue = Queues::getCurrentQueue(QueuesServices::HANGARS, $AccountData['User']['id'], $AccountData['Planet']['id']) ?: [];
+
+        foreach ($CurrentQueue as $Queue) {
+            if (isset($Missiles[$Queue['object_id']]))
+                $Missiles[$Queue['object_id']] += $Queue['count'];
+        }
+
+        $ActuMissiles  = $Missiles[502] + (2 * $Missiles[503]);
+        $MissilesSpace = max(0, $MaxMissiles - $ActuMissiles);
+
+        return array(
+            502 => $MissilesSpace,
+            503 => floor($MissilesSpace / 2),
+        );
     }
 }

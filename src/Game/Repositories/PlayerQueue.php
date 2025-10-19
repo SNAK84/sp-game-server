@@ -12,6 +12,8 @@ class PlayerQueue extends BaseRepository
     public const ActionQueueUpgarde     = "ActionQueueUpgarde";
     public const ActionQueueDismantle   = "ActionQueueDismantle";
     public const ActionQueueCancel      = "ActionQueueCancel";
+    public const ActionQueueHangarAdd   = "ActionQueueHangarAdd";
+    public const ActionQueueHangarCancel= "ActionQueueHangarCancel";
 
     public const ActionQueueReCalcTech  = "ActionQueueReCalcTech";
     public const SendActualeData        = "SendActualeData";
@@ -74,7 +76,7 @@ class PlayerQueue extends BaseRepository
         return $id;
     }
 
-    public static function getByAccaunt(int $accountId): ?array
+    public static function getByAccount(int $accountId): ?array
     {
         $Queues = self::findByIndex('account_id', $accountId);
         if (!$Queues) {
@@ -96,7 +98,7 @@ class PlayerQueue extends BaseRepository
         return $Queues;
     }
 
-    public static function popByAccaunt(int $accountId): ?array
+    public static function popByAccount(int $accountId): ?array
     {
         $Queues = self::findByIndex('account_id', $accountId);
         if (!$Queues) {

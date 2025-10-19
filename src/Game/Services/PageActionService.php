@@ -54,10 +54,25 @@ class PageActionService
                 }
                 break;
 
+            case 'shipyard':
+            case 'defense':
+                if ($action === 'build') {
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionQueueHangarAdd, [
+                        'items' => $Msg->getData('items', [])
+                    ]);
+                } elseif ($action === 'cancel') {
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionQueueHangarCancel, [
+                        'QueueId' => $Msg->getData('id')
+                    ]);
+                    $handle = true;
+                }
+                //Logger::getInstance()->info("messages Data", $Msg->source());
+                break;
+
             case 'messages':
                 if ($action === 'read') {
                     PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionMessagesRead, [
-                        'ReadId' => $Msg->getData('ReadId',[])
+                        'ReadId' => $Msg->getData('ReadId', [])
                     ]);
                 }
                 //Logger::getInstance()->info("messages Data", $Msg->getData("ReadId",[]));

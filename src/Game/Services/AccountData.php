@@ -7,6 +7,8 @@ use SPGame\Game\Repositories\Users;
 use SPGame\Game\Repositories\Techs;
 use SPGame\Game\Repositories\Planets;
 use SPGame\Game\Repositories\Builds;
+use SPGame\Game\Repositories\Ships;
+use SPGame\Game\Repositories\Defenses;
 use SPGame\Game\Repositories\Resources;
 
 use SPGame\Core\Logger;
@@ -31,6 +33,8 @@ class AccountData implements ArrayAccess
 
     private array $PlanetsDirty = [];
     private array $BuildsDirty = [];
+    private array $ShipsDirty = [];
+    private array $DefensesDirty = [];
     private array $ResourcesDirty = [];
 
     public function __construct(int $accountId)
@@ -49,7 +53,7 @@ class AccountData implements ArrayAccess
     {
         return match ($offset) {
             'Account', 'User', 'Techs' => true,
-            'Planet', 'Builds', 'Resources' => !empty($this->WorkPlanet),
+            'Planet', 'Builds', 'Ships', 'Defenses', 'Resources' => !empty($this->WorkPlanet),
             'WorkPlanet' => true,
             default => false,
         };
@@ -67,7 +71,7 @@ class AccountData implements ArrayAccess
             return $this->Techs;
         } elseif ($offset === 'WorkPlanet') {
             return $this->WorkPlanet;
-        } elseif (in_array($offset, ['Planet', 'Builds', 'Resources'], true)) {
+        } elseif (in_array($offset, ['Planet', 'Builds', 'Ships', 'Defenses', 'Resources'], true)) {
             $planetData = &$this->getData();
             return $planetData[$offset];
             return $ref;
@@ -84,6 +88,8 @@ class AccountData implements ArrayAccess
             $this->WorkPlanet = (int)$value;
             if (!isset($this->PlanetsDirty[$this->WorkPlanet]))   $this->PlanetsDirty[$this->WorkPlanet]   = false;
             if (!isset($this->BuildsDirty[$this->WorkPlanet]))    $this->BuildsDirty[$this->WorkPlanet]    = false;
+            if (!isset($this->ShipsDirty[$this->WorkPlanet]))     $this->ShipsDirty[$this->WorkPlanet]     = false;
+            if (!isset($this->DefensesDirty[$this->WorkPlanet]))  $this->DefensesDirty[$this->WorkPlanet]  = false;
             if (!isset($this->ResourcesDirty[$this->WorkPlanet])) $this->ResourcesDirty[$this->WorkPlanet] = false;
         } elseif ($offset === 'Account') {
             $this->Account = new Data($value ?: [], $this->AccountDirty);
@@ -93,7 +99,7 @@ class AccountData implements ArrayAccess
             $this->Techs = new Data($value ?: [], $this->TechsDirty);
         } elseif ($offset === 'Planet') {
             $this->Planets[$this->WorkPlanet]['Planet'] = new Data($value ?: [], $this->PlanetsDirty[$this->WorkPlanet]);
-        } elseif (in_array($offset, ['Builds', 'Resources'], true)) {
+        } elseif (in_array($offset, ['Builds', 'Ships', 'Defenses', 'Resources'], true)) {
             $this->Planets[$this->WorkPlanet][$offset] = new Data($value ?: [], $this->{$offset . 'Dirty'}[$this->WorkPlanet]);
         }
     }
@@ -103,7 +109,7 @@ class AccountData implements ArrayAccess
     {
         match ($offset) {
             'Account', 'User', 'Techs' => $this->$offset = new Data([], $this->{$offset . 'Dirty'}),
-            'Planet', 'Builds', 'Resources' => $this->Planets = [],
+            'Planet', 'Builds', 'Ships', 'Defenses', 'Resources' => $this->Planets = [],
             default => null,
         };
     }
@@ -117,13 +123,17 @@ class AccountData implements ArrayAccess
         }
 
         if (!isset($this->Planets[$planetId])) {
-            $this->PlanetsDirty[$planetId] = false;
-            $this->BuildsDirty[$planetId] = false;
+            $this->PlanetsDirty[$planetId]   = false;
+            $this->BuildsDirty[$planetId]    = false;
+            $this->ShipsDirty[$planetId]     = false;
+            $this->DefensesDirty[$planetId]  = false;
             $this->ResourcesDirty[$planetId] = false;
 
             $this->Planets[$planetId] = [
                 'Planet'    => new Data(Planets::findById($planetId) ?: [], $this->PlanetsDirty[$planetId]),
                 'Builds'    => new Data(Builds::findById($planetId) ?: [], $this->BuildsDirty[$planetId]),
+                'Ships'     => new Data(Ships::findById($planetId) ?: [], $this->ShipsDirty[$planetId]),
+                'Defenses'  => new Data(Defenses::findById($planetId) ?: [], $this->DefensesDirty[$planetId]),
             ];
 
             $this->Planets[$planetId]['Resources'] = new Data(Resources::get($this) ?: [], $this->ResourcesDirty[$planetId]);
@@ -150,6 +160,14 @@ class AccountData implements ArrayAccess
             if ($this->BuildsDirty[$pid]) {
                 Builds::update($arr['Builds'] ?? []);
                 $this->BuildsDirty[$pid] = false;
+            }
+            if ($this->ShipsDirty[$pid]) {
+                Ships::update($arr['Ships'] ?? []);
+                $this->ShipsDirty[$pid] = false;
+            }
+            if ($this->DefensesDirty[$pid]) {
+                Defenses::update($arr['Defenses'] ?? []);
+                $this->DefensesDirty[$pid] = false;
             }
             if ($this->ResourcesDirty[$pid]) {
                 Resources::updateByPlanetId($pid, $arr['Resources'] ?? []);
@@ -187,14 +205,18 @@ class AccountData implements ArrayAccess
 
             $copy['WorkPlanet'] = $pid;
 
-            $copy['Planet'] = $planetData['Planet']->toArray();
-            $copy['Builds'] = $planetData['Builds']->toArray();
+            $copy['Planet']    = $planetData['Planet']->toArray();
+            $copy['Builds']    = $planetData['Builds']->toArray();
+            $copy['Ships']     = $planetData['Ships']->toArray();
+            $copy['Defenses']  = $planetData['Defenses']->toArray();
             $copy['Resources'] = $planetData['Resources']->toArray();
 
 
             // Флаги dirty
-            $copy->PlanetsDirty[$pid] = false;
-            $copy->BuildsDirty[$pid] = false;
+            $copy->PlanetsDirty[$pid]   = false;
+            $copy->BuildsDirty[$pid]    = false;
+            $copy->ShipsDirty[$pid]     = false;
+            $copy->DefensesDirty[$pid]     = false;
             $copy->ResourcesDirty[$pid] = false;
         }
 
@@ -219,6 +241,8 @@ class AccountData implements ArrayAccess
             'Techs'     => $this->Techs->toArray(),
             'Planet'    => $data['Planet']->toArray(),
             'Builds'    => $data['Builds']->toArray(),
+            'Ships'     => $data['Ships']->toArray(),
+            'Defenses'  => $data['Defenses']->toArray(),
             'Resources' => $data['Resources']->toArray(),
         ];
     }

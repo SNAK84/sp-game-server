@@ -81,7 +81,7 @@ class ResearchPage extends AbstractPage
                     $requirements[$reqId] = [
                         'count' => $reqLevel,
                         'name' => Vars::$resource[$reqId],
-                        'own' => Helpers::getElementLevel($reqId, $AccountData)
+                        'own' => BuildFunctions::getElementLevel($reqId, $AccountData)
                     ];
                 }
             }

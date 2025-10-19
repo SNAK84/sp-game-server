@@ -9,7 +9,7 @@ use SPGame\Core\Logger;
 use SPGame\Game\Services\Helpers;
 use SPGame\Game\Services\RepositorySaver;
 use SPGame\Game\Services\AccountData;
-
+use SPGame\Game\Services\BuildFunctions;
 use Swoole\Table;
 
 
@@ -172,7 +172,7 @@ class Resources
         foreach (Vars::$reslist['prod'] as $ProdID) {
 
             $BuildLevelFactor   = EntitySettings::get($Planet['id'], $ProdID)['efficiency'];
-            $BuildLevel         = Helpers::getElementLevel($ProdID, $AccountData);
+            $BuildLevel         = BuildFunctions::getElementLevel($ProdID, $AccountData);
 
             foreach ($ressIDs as $ID) {
                 if (!isset(Vars::$production[$ProdID][$ID]))

@@ -8,6 +8,7 @@ use SPGame\Core\Logger;
 abstract class AbstractPage implements PageInterface
 {
     protected Logger $logger;
+    public string $hangarMode = "Ships";
 
     public function __construct()
     {

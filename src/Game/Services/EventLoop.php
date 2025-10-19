@@ -106,7 +106,7 @@ class EventLoop
         $Planets = Planets::getAllPlanets($userId);
         foreach ($Planets as $pid => $Planet) {
             $AccountData['WorkPlanet'] = $Planet['id'];
-            Resources::processResources($targetTime, $AccountData);
+            $sendMsg = Helpers::processPlanet($targetTime, $AccountData) ? true : $sendMsg;
         }
         return $sendMsg;
     }
@@ -115,12 +115,18 @@ class EventLoop
     {
         $sendMsg = false;
         $maxIterations = 500; // safety
-
+        $lastProcessedId = 0;
         while ($maxIterations-- > 0) {
             // НАДО: репозиторий должен вернуть самую раннюю активную очередь для данного user
             $Queue = Queues::getActiveMinEndTimeByUser($AccountData['User']['id']);
             if (!$Queue) break;
             if ($Queue['end_time'] > $StatTimeTick) break;
+
+            if ($Queue && $Queue['id'] === $lastProcessedId) {
+                $this->logger->error("Queue service returned same queue id {$lastProcessedId} after CompleteQueue. Breaking to avoid loop.");
+                break;
+            }
+            $lastProcessedId = $Queue['id'];
 
             $this->logger->info(
                 sprintf(
@@ -137,14 +143,14 @@ class EventLoop
 
             $AccountData['WorkPlanet'] = $planetId;
             // 1) Пересчитать ресурсы планеты до конца этой очереди
-            Resources::processResources($Queue['end_time'], $AccountData);
+            Helpers::processPlanet($Queue['end_time'], $AccountData);
 
             // 2) Завершить очередь (важно: CompleteQueue должна корректно работать с переданными данными)
             // Хорошая практика: внутри CompleteQueue выполнять DB-транзакцию,
             // чтобы изменения очередей и пересчеты были атомарными.
             QueuesServices::CompleteQueue($Queue['id'], $AccountData, $Queue['end_time']);
 
-//            $AccountData->save();
+            //            $AccountData->save();
 
             // 5) Решаем, нужно ли отправлять данные игроку (если это текущая планета или техи)
             if (
@@ -171,7 +177,7 @@ class EventLoop
     {
 
         $sendMsg  = false;
-        $Queues = PlayerQueue::getByAccaunt($accountId) ?? [];
+        $Queues = PlayerQueue::getByAccount($accountId) ?? [];
 
         foreach ($Queues as $Event) {
 
@@ -186,6 +192,16 @@ class EventLoop
 
                 case PlayerQueue::ActionQueueDismantle:
                     QueuesServices::AddToQueue($Event['data']['Element'], $AccountData, $Event['added_at'], false);
+                    $sendMsg  = true;
+                    break;
+
+                case PlayerQueue::ActionQueueHangarAdd:
+                    QueuesServices::AddToQueueHangar($Event['data']['items'], $AccountData, $Event['added_at']);
+                    $sendMsg  = true;
+                    break;
+
+                case PlayerQueue::ActionQueueHangarCancel:
+                    QueuesServices::CancelToQueueHangar($Event['data']['QueueId'], $AccountData, $Event['added_at']);
                     $sendMsg  = true;
                     break;
 
@@ -204,7 +220,7 @@ class EventLoop
                     break;
                 case PlayerQueue::ActionMessagesRead:
                     Notification::setReadMessages($Event['user_id'], $Event['data']['ReadId']);
-                    $sendMsg  = true;
+                    $sendMsg  = false;
                     break;
                 case PlayerQueue::ActionMessagesNew:
                     $sendMsg  = true;

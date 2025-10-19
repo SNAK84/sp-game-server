@@ -48,8 +48,10 @@ class Config extends BaseRepository
         'MaxQueueBuild'      => 10,
         'MaxQueueTech'       => 5,
         'MaxQueueHangar'     => 10,
+        'MaxFleetPerBuild'   => 1000000,
         'FieldsByTerraformer'=> 5,
         'FieldsByMoonBasis'  => 3,
+        'SiloFactor'         => 3,
     ];
 
     protected static array $tableSchema = [

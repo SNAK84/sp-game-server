@@ -5,6 +5,7 @@ namespace SPGame\Game\Services;
 use SPGame\Game\Repositories\Builds;
 
 use SPGame\Game\Repositories\Queues;
+use SPGame\Game\Repositories\Resources;
 
 use SPGame\Game\Repositories\Config;
 
@@ -14,37 +15,6 @@ use SPGame\Core\Logger;
 
 class Helpers
 {
-
-    public static function getElementLevel(int $Element, AccountData $AccountData): int
-    {
-
-        if (!isset($AccountData['Builds'])) {
-            Logger::getInstance()->error("Helpers::getElementLevel: отсутствует 'Builds' в AccountData", [
-                'element' => $Element,
-                'account_id' => $AccountData['User']['id'] ?? null,
-                'planet_id' => $AccountData['Planet']['id'] ?? null
-            ]);
-            // В отладке можно бросать исключение
-            throw new \RuntimeException("Builds missing in AccountData");
-            // В продакшене можно просто вернуть 0:
-            // return 0;
-        }
-
-        $BuildLevel = 0;
-        if (in_array($Element, Vars::$reslist['build'])) {
-            $BuildLevel = $AccountData['Builds'][Vars::$resource[$Element]] ?? 0;
-        } elseif (in_array($Element, Vars::$reslist['fleet'])) {
-            $BuildLevel = 0;
-        } elseif (in_array($Element, Vars::$reslist['defense'])) {
-            $BuildLevel = 0;
-        } elseif (in_array($Element, Vars::$reslist['tech'])) {
-            $BuildLevel = $AccountData['Techs'][Vars::$resource[$Element]] ?? 0;
-        } elseif (in_array($Element, Vars::$reslist['officier'])) {
-            $BuildLevel = 0;
-        }
-
-        return $BuildLevel;
-    }
 
     public static function getNetworkLevels(AccountData $AccountData): array
     {
@@ -123,8 +93,25 @@ class Helpers
         $fields = $AccountData['Planet']['fields'];
         $Builds = $AccountData['Builds'];
 
-        $fields += ($Builds[Vars::$resource[33]] * Config::getValue("FieldsByTerraformer"));
-        $fields += ($Builds[Vars::$resource[41]] * Config::getValue("FieldsByMoonBasis"));
+        $Terraformer = $Builds[Vars::$resource[33]];
+        $Mondbasis = $Builds[Vars::$resource[33]];
+
+        $CurrentQueue = Queues::getCurrentQueue(QueuesServices::BUILDS, $AccountData['User']['id'], $AccountData['Planet']['id']) ?: [];
+        foreach ($CurrentQueue as $Queue) {
+            $objId = $Queue['object_id'];
+            if ($objId !== 33 || $objId !== 41) continue;
+
+            if ($Queue['action'] == 'destroy') {
+                $Terraformer--;
+                $Mondbasis--;
+            } else {
+                $Terraformer++;
+                $Mondbasis++;
+            }
+        }
+
+        $fields += ($Terraformer * Config::getValue("FieldsByTerraformer"));
+        $fields += ($Mondbasis * Config::getValue("FieldsByMoonBasis"));
 
         return $fields;
     }
@@ -139,5 +126,81 @@ class Helpers
             $CurrentFields += $Builds[Vars::$resource[$id]];
 
         return $CurrentFields;
+    }
+
+    public static function processPlanet(float $targetTime, AccountData $AccountData): bool
+    {
+        $sendMsg = false;
+        $sendMsg = self::processHangar($targetTime, $AccountData) ? true : $sendMsg;
+        Resources::processResources($targetTime, $AccountData);
+
+        return $sendMsg;
+    }
+
+    protected static function processHangar(float $targetTime, AccountData $AccountData): bool
+    {
+        $sendMsg = false;
+        $CurrentQueue = Queues::getCurrentQueue(QueuesServices::HANGARS, $AccountData['User']['id'], $AccountData['Planet']['id']) ?: [];
+        if (!$CurrentQueue) return false;
+
+        // Время, прошедшее с начала первой постройки
+        $BuildTime = $targetTime - $CurrentQueue[0]['start_time'];
+        if ($BuildTime <= 0) return false;
+
+        //Logger::getInstance()->info("processHangar CurrentQueue", $CurrentQueue ?? []);
+
+        foreach ($CurrentQueue as $k => $Queue) {
+
+            $Element     = $Queue['object_id'];
+            $Count       = (int)$Queue['count'];
+            $timePerUnit = BuildFunctions::getBuildingTime($Element, $AccountData);
+
+            if ($Count <= 0) {
+                unset($CurrentQueue[$k]);
+                Queues::delete($Queue);
+                continue;
+            }
+
+            // Сколько единиц можно достроить за доступное время
+            $CountMaxBuild = floor($BuildTime / $timePerUnit);
+            if ($CountMaxBuild <= 0) break;
+
+            $BuildCount = min($Count, $CountMaxBuild);
+            $spentTime  = $BuildCount * $timePerUnit;
+
+            if ($BuildCount < 1) break;
+
+            BuildFunctions::addElementLevel($Element, $AccountData, $BuildCount);
+
+            // Обновляем данные
+            $Count -= $BuildCount;
+            $BuildTime -= $spentTime;
+
+            if ($Count < 0) {
+                Logger::getInstance()->error("processHangar Count меньше 0 " . $Count);
+            }
+
+            if ($Count < 1) {
+                $sendMsg = true;
+                unset($CurrentQueue[$k]);
+                Queues::delete($Queue);
+            } else {
+
+                $Queue['count'] = $Count;
+                $Queue['start_time'] = $targetTime - $BuildTime;
+                $Queue['end_time']   = $Queue['start_time'] + $Count * $timePerUnit;
+
+                Queues::update($Queue);
+                $CurrentQueue[$k] = $Queue;
+            }
+
+            if ($BuildTime < 0) {
+                Logger::getInstance()->error("processHangar BuildTime меньше 0 " . $BuildTime);
+            }
+
+            if ($BuildTime < 1) break;
+        }
+
+        return $sendMsg;
     }
 }

@@ -8,7 +8,10 @@
     "combat": "Боевые",
     "engines": "Двигатели",
     "civil": "Гражданские",
-    "military": "Боевые"
+    "military": "Боевые",
+    "installations": "Оборонительные установки",
+    "shields": "Щиты",
+    "missiles": "Ракеты"
   },
   "shortNames": {
     "202": "М. трансп.",

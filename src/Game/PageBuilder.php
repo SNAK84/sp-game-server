@@ -17,9 +17,9 @@ use SPGame\Game\Repositories\Resources;
 use SPGame\Game\Pages\OverviewPage;
 use SPGame\Game\Pages\BuildingsPage;
 use SPGame\Game\Pages\ResearchPage;
-use SPGame\Game\Pages\ShipyardPage;
-use SPGame\Game\Pages\DefensePage;
+use SPGame\Game\Pages\HangarPage;
 use SPGame\Game\Pages\MessagesPage;
+
 use SPGame\Game\Services\PageActionService;
 use SPGame\Game\Services\Notification;
 use SPGame\Game\Services\AccountData;
@@ -50,21 +50,6 @@ class PageBuilder
         Logger::getInstance()->info("this->aid: $this->aid");
         $AccountData = new AccountData($this->aid);
 
-        /*
-        $AccountData = [
-            'Account'   => Accounts::findById($this->aid),
-            'User'      => Users::findByAccount($this->aid),
-        ];
-
-        if (!$AccountData['User'])
-            Logger::getInstance()->warning(" Not User");
-
-        $AccountData['Planet']      = Planets::findByUser($AccountData['User']);
-        $AccountData['Builds']      = Builds::findById($AccountData['Planet']['id']);
-        $AccountData['Techs']       = Techs::findById($AccountData['User']['id']);
-        $AccountData['Resources']   = Resources::get($AccountData);
-        */
-
         // обработка действий перед построением
         if (PageActionService::handle($this->Msg, $AccountData, $this->aid)) {
             $response->setMode("none");
@@ -80,10 +65,12 @@ class PageBuilder
                 $page = new ResearchPage();
                 break;
             case 'shipyard':
-                $page = new ShipyardPage();
+                $page = new HangarPage();
+                $page->hangarMode = "Ships";
                 break;
             case 'defense':
-                $page = new DefensePage();
+                $page = new HangarPage();
+                $page->hangarMode = "Defenses";
                 break;
             case 'messages':
                 $page = new MessagesPage();
