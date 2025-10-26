@@ -82,6 +82,7 @@ class OverviewPage extends AbstractPage
             'TempMax'       => $Planet['temp_max'],
             'galaxy'        => $Planet['galaxy'],
             'system'        => $Planet['system'],
+            'planet'        => $Planet['planet'],
             'Queues'        => [
                 'Build'  => $this->formatQueue($BuildsQueue, 'build'),
                 'Tech'   => $this->formatQueue($TechsQueue, 'tech'),

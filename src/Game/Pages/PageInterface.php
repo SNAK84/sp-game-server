@@ -2,6 +2,7 @@
 
 namespace SPGame\Game\Pages;
 
+
 use SPGame\Game\Services\AccountData;
 
 interface PageInterface

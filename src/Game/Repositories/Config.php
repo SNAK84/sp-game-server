@@ -31,8 +31,9 @@ class Config extends BaseRepository
     private static array $DefaultConfig = [
         'LastGalaxyPos'      => 1,
         'LastSystemPos'      => 1,
-        'MaxGalaxy'          => 1,
+        'MaxGalaxy'          => 3,
         'MaxSystem'          => 128,
+        'SpeedPlanets'       => 24,      // Оборотов за час
         'StartRes901'        => 60000,
         'StartRes902'        => 40000,
         'StartRes903'        => 20000,

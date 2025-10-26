@@ -26,12 +26,12 @@ class Helpers
         $planetId = $AccountData['Planet']['id'] ?? 0;
 
         // Загружаем все постройки пользователя и активные очереди
-        $Builds = $AccountData['Builds']->toArray();
+        $Builds = $AccountData['All_Builds']->toArray();
         $Queues = Queues::getActive($userId) ?? [];
 
         // Уровень межпланетной сети (techKey) и лимит количества планет для сети
         $techs = $AccountData['Techs'] ?? [];
-        $maxCount = ((int)($techs[$techKey] ?? 2)) + 1;
+        $maxCount = ((int)($techs[$techKey] ?? 0)) + 1;
 
         // Список планет, где идёт строительство лаборатории (object_id = 31)
         $excludePlanets = array_column(
@@ -131,6 +131,27 @@ class Helpers
     public static function processPlanet(float $targetTime, AccountData $AccountData): bool
     {
         $sendMsg = false;
+
+        $ProductionTime = $targetTime - $AccountData['Planet']['update_time']; // в микросекундах
+        $hoursPassed = $ProductionTime / 3600; // в часах
+
+        // Множитель количества оборотов в сутки (по умолчанию 24)
+        $SpeedPlanets = Config::getValue('SpeedPlanets', 24);
+
+        // Сколько градусов прошла планета за прошедшее время
+        $degShift = $hoursPassed * $AccountData['Planet']['speed'] * ($SpeedPlanets / 24);
+
+        // Учёт направления вращения
+        if ($AccountData['Planet']['rotation'] == 0) {
+            $degShift = -$degShift; // обратное вращение
+        }
+
+        // Новый угол и нормализация
+        $deg = fmod($AccountData['Planet']['deg'] + $degShift, 360);
+        if ($deg < 0) $deg += 360;
+
+        $AccountData['Planet']['deg'] = $deg;
+
         $sendMsg = self::processHangar($targetTime, $AccountData) ? true : $sendMsg;
         Resources::processResources($targetTime, $AccountData);
 

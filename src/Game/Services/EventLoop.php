@@ -185,6 +185,14 @@ class EventLoop
             $AccountData['WorkPlanet'] = $Event['planet_id'];
 
             switch ($Event['action']) {
+                case PlayerQueue::ActionSelectPlanet:
+                    $AccountData['User']['current_planet'] = $Event['planet_id'];
+                    $sendMsg  = true;
+                    break;
+                case PlayerQueue::ActionRenamePlanet:
+                    $AccountData['Planet']['name'] = $Event['data']['Name'];
+                    $sendMsg  = true;
+                    break;
                 case PlayerQueue::ActionQueueUpgarde:
                     QueuesServices::AddToQueue($Event['data']['Element'], $AccountData, $Event['added_at'], true);
                     $sendMsg  = true;
@@ -212,10 +220,6 @@ class EventLoop
 
                 case PlayerQueue::ActionQueueReCalcTech:
                     QueuesServices::ReCalcTimeQueue(QueuesServices::TECHS, $AccountData, $Event['added_at']);
-                    $sendMsg  = true;
-                    break;
-                case PlayerQueue::ActionSelectPlanet:
-                    $AccountData['User']['current_planet'] = $Event['planet_id'];
                     $sendMsg  = true;
                     break;
                 case PlayerQueue::ActionMessagesRead:

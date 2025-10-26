@@ -1,4 +1,5 @@
 {
+  "HomeworldName": "Главная планета",
   "nametypes": {
     "resources": "Ресурсы",
     "factories": "Фабрики",
@@ -450,8 +451,8 @@
       "All": "Все"
     },
     "sample": {
-      "BuildBuyable": "На {PlanetType} {PlanetName} [{PlanetGalaxy}:{PlanetSystem}] недостаточно ресурсов для {queueProcessGen} {ElementId}.\n\nВ наличии:\n{Resources}.\nСтоимость строительства:\n{ResourcesCost}.",
-      "BuildBlocked": "На {PlanetType} {PlanetName} [{PlanetGalaxy}:{PlanetSystem}] невозможно {queueAction} {ElementId}, пока идет {queueProcess} {QueueElementId}."
+      "BuildBuyable": "На {PlanetType} {PlanetName} [{PlanetGalaxy}:{PlanetSystem}:{PlanetPlanet}] недостаточно ресурсов для {queueProcessGen} {ElementId}.\n\nВ наличии:\n{Resources}.\nСтоимость строительства:\n{ResourcesCost}.",
+      "BuildBlocked": "На {PlanetType} {PlanetName} [{PlanetGalaxy}:{PlanetSystem}:{PlanetPlanet}] невозможно {queueAction} {ElementId}, пока идет {queueProcess} {QueueElementId}."
     },
     "from": {
       "Build": {

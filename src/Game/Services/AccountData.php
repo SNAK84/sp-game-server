@@ -45,6 +45,25 @@ class AccountData implements ArrayAccess
         $this->User = new Data(Users::findByAccount($accountId), $this->UserDirty);
         $this->WorkPlanet = $this->User['current_planet'] ?? 0;
         $this->Techs = new Data(Techs::findById($this->User['id'] ?? 0), $this->TechsDirty);
+
+        if ($this->User['current_planet'] === 0) {
+            if ($this->User['main_planet'] === 0) {
+                $lang = $this->Account['lang'];
+
+                Logger::getInstance()->info("CreatePlanet", [
+                    $lang,
+                    $this->Account['lang'],
+                    $this->Account->toArray()
+                ]);
+
+                $planet = Planets::CreatePlanet($this->User['id'], Lang::get($lang, "HomeworldName"), true);
+                $this->User['main_planet'] = $planet['id'];
+                $this->User['current_planet'] = $planet['id'];
+                Users::update($this->User->toArray());
+            }
+            $this->User['current_planet'] = $this->User['main_planet'];
+            $this->WorkPlanet = $this->User['current_planet'] ?? 0;
+        }
     }
 
     // --- ArrayAccess ---
@@ -54,7 +73,7 @@ class AccountData implements ArrayAccess
         return match ($offset) {
             'Account', 'User', 'Techs' => true,
             'Planet', 'Builds', 'Ships', 'Defenses', 'Resources' => !empty($this->WorkPlanet),
-            'WorkPlanet' => true,
+            'WorkPlanet', 'All_Builds' => true,
             default => false,
         };
     }
@@ -63,18 +82,38 @@ class AccountData implements ArrayAccess
     public function &offsetGet($offset): mixed
     {
         // Используем ручной switch, а не match — match не поддерживает ссылки
-        if ($offset === 'Account') {
-            return $this->Account;
-        } elseif ($offset === 'User') {
-            return $this->User;
-        } elseif ($offset === 'Techs') {
-            return $this->Techs;
-        } elseif ($offset === 'WorkPlanet') {
-            return $this->WorkPlanet;
-        } elseif (in_array($offset, ['Planet', 'Builds', 'Ships', 'Defenses', 'Resources'], true)) {
+        if ($offset === 'Account') return $this->Account;
+        if ($offset === 'User') return $this->User;
+        if ($offset === 'Techs') return $this->Techs;
+        if ($offset === 'WorkPlanet') return $this->WorkPlanet;
+
+        // --- Поддержка All_XXX ---
+        if (str_starts_with($offset, 'All_')) {
+            $type = substr($offset, 4); // 'Builds', 'Ships', 'Defenses', 'Resources', 'Planet'
+            if (!in_array($type, ['Planet', 'Builds', 'Ships', 'Defenses', 'Resources'], true)) {
+                $null = null;
+                return $null;
+            }
+
+            $allData = [];
+            $Planets = Planets::findByIndex('owner_id', $this->User['id'] ?? 0);
+
+            foreach ($Planets as $Planet) {
+                $planetData = $this->getData($Planet['id']); // создаёт запись, если нет
+                $allData[$Planet['id']] = $planetData[$type];
+            }
+
+            $dirtyFlag = false;
+            $allDataObj = new Data($allData, $dirtyFlag);
+
+            return $allDataObj;
+
+            return $allData;
+        }
+
+        if (in_array($offset, ['Planet', 'Builds', 'Ships', 'Defenses', 'Resources'], true)) {
             $planetData = &$this->getData();
             return $planetData[$offset];
-            return $ref;
         }
 
         $null = null;
@@ -119,6 +158,7 @@ class AccountData implements ArrayAccess
     {
         $planetId ??= $this->WorkPlanet;
         if (!$planetId) {
+
             throw new \RuntimeException('Нет текущей планеты');
         }
 
@@ -142,7 +182,6 @@ class AccountData implements ArrayAccess
         // ✅ фикс: создаём ссылку на элемент массива
         $planetRef = &$this->Planets[$planetId];
         return $planetRef;
-        return $this->Planets[$planetId];
     }
 
     // --- Сохранение ---
@@ -275,8 +314,10 @@ class Data implements ArrayAccess
             $this->data[$offset] = new Data($this->data[$offset], $this->dirty);
         }
         $data = &$this->data[$offset];
+
+
+
         return $data;
-        return $this->data[$offset];
     }
 
     #[\ReturnTypeWillChange]
@@ -311,5 +352,14 @@ class Data implements ArrayAccess
             $result[$key] = $value instanceof Data ? $value->toArray() : $value;
         }
         return $result;
+    }
+
+    public function toString(): string
+    {
+        if (count($this->data) === 1 && is_scalar(reset($this->data))) {
+            return (string) reset($this->data);
+        }
+
+        return json_encode($this->toArray(), JSON_UNESCAPED_UNICODE);
     }
 }

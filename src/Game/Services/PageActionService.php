@@ -16,6 +16,43 @@ class PageActionService
 
         $handle = false;
         switch ($Msg->getMode()) {
+
+            case 'overview':
+                if ($action === 'RenamePlanet') {
+                    $name = trim($Msg->getData("Name"));
+                    $length = mb_strlen($name);
+                    // 1. Проверка длины
+                    if ($length < 2 || $length > 20) {
+                        break;
+                    }
+                    // 2. Проверка разрешенных символов (буквы всех языков, цифры, пробел, дефис, подчёркивание)
+                    if (!preg_match('/^[\p{L}\p{N} _-]+$/u', $name)) {
+                        break;
+                    }
+                    // 3. Проверка начала/конца на спецсимволы
+                    if (preg_match('/^[-_ ]|[-_ ]$/u', $name)) {
+                        break;
+                    }
+
+                    // 4. Проверка на подряд идущие спецсимволы
+                    if (preg_match('/[-_ ]{2,}/u', $name)) {
+                        break;
+                    }
+
+                    // 5. Проверка количества спецсимволов (не более 3)
+                    preg_match_all('/[-_ ]/u', $name, $matches);
+                    if (count($matches[0]) > 3) {
+                        break;
+                    }
+
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionRenamePlanet, [
+                        'Name' => $Msg->getData('Name')
+                    ]);
+                    $handle = true;
+                }
+                //Logger::getInstance()->info("RenamePlanet Name:" . $Msg->getData("Name"));
+                break;
+
             case 'buildings':
                 if ($action === 'build') {
                     PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionQueueUpgarde, [

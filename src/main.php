@@ -20,6 +20,9 @@ use SPGame\Game\Repositories\Builds;
 use SPGame\Game\Repositories\Ships;
 use SPGame\Game\Repositories\Defenses;
 
+use SPGame\Game\Repositories\Galaxy;
+use SPGame\Game\Repositories\GalaxyOrbits;
+
 use SPGame\Game\Repositories\Queues;
 use SPGame\Game\Repositories\Messages;
 
@@ -56,13 +59,15 @@ try {
     Users::init($saver);
     Planets::init($saver);
     Resources::init($saver);
-    
+
     Techs::init($saver);
     Builds::init($saver);
     Ships::init($saver);
     Defenses::init($saver);
 
-    
+    Galaxy::init($saver);
+    GalaxyOrbits::init($saver);
+
     Queues::init($saver);
     Messages::init($saver);
 

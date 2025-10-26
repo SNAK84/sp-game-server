@@ -18,6 +18,9 @@ use SPGame\Game\Pages\OverviewPage;
 use SPGame\Game\Pages\BuildingsPage;
 use SPGame\Game\Pages\ResearchPage;
 use SPGame\Game\Pages\HangarPage;
+
+use SPGame\Game\Pages\GalaxyPage;
+
 use SPGame\Game\Pages\MessagesPage;
 
 use SPGame\Game\Services\PageActionService;
@@ -59,25 +62,29 @@ class PageBuilder
         $page = null;
         switch ($this->Msg->getMode()) {
             case 'buildings':
-                $page = new BuildingsPage();
+                $page = new BuildingsPage($this->Msg);
                 break;
             case 'researchs':
-                $page = new ResearchPage();
+                $page = new ResearchPage($this->Msg);
                 break;
             case 'shipyard':
-                $page = new HangarPage();
+                $page = new HangarPage($this->Msg);
                 $page->hangarMode = "Ships";
                 break;
             case 'defense':
-                $page = new HangarPage();
+                $page = new HangarPage($this->Msg);
                 $page->hangarMode = "Defenses";
                 break;
+            case 'galaxy':
+                $page = new GalaxyPage($this->Msg);
+                break;
+
             case 'messages':
-                $page = new MessagesPage();
+                $page = new MessagesPage($this->Msg);
                 break;
             case 'overview':
             default:
-                $page = new OverviewPage();
+                $page = new OverviewPage($this->Msg);
                 $this->Msg->setMode('overview');
                 break;
         }

@@ -154,7 +154,7 @@ class QueuesServices
 
         $CurrentFields = Helpers::getCurrentFields($QueueAccountData);
 
-        if ($AddMode && ($CurrentFields) >= $MaxFields) {
+        if ($AddMode && ($CurrentFields) >= $MaxFields && $QueueType === self::BUILDS) {
             Logger::getInstance()->info("QueuesServices::AddToQueue: not enough fields", ['currentFields' => $CurrentFields, 'demolished' => $DemolishedQueue, 'maxFields' => $MaxFields]);
             return;
         }

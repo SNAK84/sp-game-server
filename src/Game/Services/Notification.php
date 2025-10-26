@@ -61,6 +61,7 @@ class Notification
             'PlanetName' => $AccountData['Planet']['name'],
             'PlanetGalaxy' => $AccountData['Planet']['galaxy'],
             'PlanetSystem' => $AccountData['Planet']['system'],
+            'PlanetPlanet' => $AccountData['Planet']['planet'],
             'Resources' => $Resources,
             'ResourcesCost' => $cost,
         ];

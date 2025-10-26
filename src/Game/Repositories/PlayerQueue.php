@@ -8,6 +8,7 @@ use Swoole\Table;
 class PlayerQueue extends BaseRepository
 {
     public const ActionSelectPlanet     = "ActionSelectPlanet";
+    public const ActionRenamePlanet     = "ActionRenamePlanet";
 
     public const ActionQueueUpgarde     = "ActionQueueUpgarde";
     public const ActionQueueDismantle   = "ActionQueueDismantle";

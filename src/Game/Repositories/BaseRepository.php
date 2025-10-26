@@ -217,12 +217,12 @@ abstract class BaseRepository
 
         //self::$logger->info(static::$className . " initIndex Unique" . $Unique, static::$indexes[$indexKey]);
 
-        $tbl = new Table(static::$tableSize,);
+        $tbl = new Table(static::$tableSize);
         $tbl->column('id', Table::TYPE_INT);
         if (!$Unique) {
             //self::$logger->info(static::$className . " initIndex unUnique", static::$indexes[$indexKey]);
 
-            $tbl->column('ids', Table::TYPE_STRING, 1024); // JSON-массив id
+            $tbl->column('ids', Table::TYPE_STRING, 2048); // JSON-массив id
         }
         $tbl->create();
         static::$indexTables[$indexKey] = $tbl;
@@ -573,7 +573,7 @@ abstract class BaseRepository
     /**
      * Приведение строки к схеме (с Defaults)
      */
-    protected static function castRowToSchema(array $data, bool $fillDefaults = false): array
+    public static function castRowToSchema(array $data, bool $fillDefaults = false): array
     {
         $row = [];
 

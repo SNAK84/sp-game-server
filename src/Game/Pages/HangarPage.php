@@ -4,6 +4,8 @@ namespace SPGame\Game\Pages;
 
 use SPGame\Game\Repositories\Queues;
 use SPGame\Game\Repositories\Vars;
+use SPGame\Game\Repositories\EntitySettings;
+use SPGame\Game\Repositories\Resources;
 use SPGame\Game\Repositories\Config;
 use SPGame\Game\Services\BuildFunctions;
 use SPGame\Game\Services\Helpers;
@@ -84,6 +86,27 @@ class HangarPage extends AbstractPage
             $queued = $QueueCounts[$Element] ?? 0;
             $totalFuture = $currentCount + $queued;
 
+            $Prod = null;
+
+            if (in_array($Element, Vars::$reslist['prod'])) {
+                $BuildLevel = 1;
+                $ressIDs    = array_merge(array(), Vars::$reslist['resstype'][1], Vars::$reslist['resstype'][2]);
+                foreach ($ressIDs as $ID) {
+
+                    if (!isset(Vars::$production[$Element][$ID]))
+                        continue;
+                    $BuildLevelFactor = EntitySettings::get($AccountData['Planet']['id'], $Element)['efficiency'];
+
+                    //$BuildLevel    = $levelToBuild;
+                    $eval = Resources::getProd(Vars::$production[$Element][$ID], $Element, $AccountData);
+                    $Current = eval($eval);
+
+                    $Prod['Next'][$ID] = (
+                        ($Current) *
+                        ((in_array($ID, Vars::$reslist['resstype'][1]) ? Config::getValue('ResourceMultiplier') : Config::getValue('EnergySpeed'))));
+                }
+            }
+
             $Accessible = BuildFunctions::isTechnologieAccessible($Element, $AccountData);
             $requirements = [];
             if (!$Accessible && isset(Vars::$requirement[$Element])) {
@@ -110,6 +133,7 @@ class HangarPage extends AbstractPage
                 'totalFuture'   => $totalFuture,
                 'accessible'    => $Accessible,
                 'requirements'  => $requirements,
+                'Prod'          => $Prod,
                 'costResources' => $cost,
                 'costOverflow'  => $costOverflow,
                 'elementTime'   => $time

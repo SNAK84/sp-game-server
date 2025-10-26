@@ -5,6 +5,12 @@ namespace SPGame\Game\Pages;
 use SPGame\Game\Repositories\Queues;
 use SPGame\Game\Repositories\Vars;
 use SPGame\Game\Repositories\Planets;
+use SPGame\Game\Repositories\Resources;
+use SPGame\Game\Repositories\EntitySettings;
+
+
+use SPGame\Game\Repositories\Config;
+
 use SPGame\Game\Services\BuildFunctions;
 use SPGame\Game\Services\Helpers;
 use SPGame\Game\Services\QueuesServices;
@@ -74,6 +80,33 @@ class ResearchPage extends AbstractPage
             $currentLevel = $Techs[Vars::$resource[$Element]] ?? 0;
             $levelToBuild = $currentLevel + ($QueueLevels[$Element] ?? 0);
 
+            $Prod = null;
+
+            if (in_array($Element, Vars::$reslist['prod'])) {
+
+                $ressIDs    = array_merge(array(), Vars::$reslist['resstype'][1], Vars::$reslist['resstype'][2]);
+                foreach ($ressIDs as $ID) {
+
+                    if (!isset(Vars::$production[$Element][$ID]))
+                        continue;
+                    $BuildLevelFactor = EntitySettings::get($AccountData['Planet']['id'], $Element)['efficiency'];
+
+                    $BuildLevel    = $levelToBuild;
+                    $eval = Resources::getProd(Vars::$production[$Element][$ID], $Element, $AccountData);
+                    $Current = eval($eval);
+
+                    $BuildLevel   = $levelToBuild + 1;
+                    $eval = Resources::getProd(Vars::$production[$Element][$ID], $Element, $AccountData);
+                    $Next = eval($eval);
+
+                    $Prod['Next'][$ID] = (
+                        ($Next - $Current) *
+                        ((in_array($ID, Vars::$reslist['resstype'][1]) ? Config::getValue('ResourceMultiplier') : Config::getValue('EnergySpeed'))));
+
+                    
+                }
+            }
+
             $Accessible = BuildFunctions::isTechnologieAccessible($Element, $AccountData);
             $requirements = [];
             if (!$Accessible && isset(Vars::$requirement[$Element])) {
@@ -91,17 +124,18 @@ class ResearchPage extends AbstractPage
             $time = BuildFunctions::getBuildingTime($Element, $AccountData, $cost);
 
             $ResearchList[$Element] = [
-                'id' => $Element,
-                'name' => Vars::$resource[$Element],
-                'type' => Vars::$attributes[$Element]['type'],
-                'level' => $currentLevel,
-                'maxLevel' => Vars::$attributes[$Element]['max'],
-                'accessible' => $Accessible,
-                'requirements' => $requirements,
+                'id'            => $Element,
+                'name'          => Vars::$resource[$Element],
+                'type'          => Vars::$attributes[$Element]['type'],
+                'level'         => $currentLevel,
+                'maxLevel'      => Vars::$attributes[$Element]['max'],
+                'accessible'    => $Accessible,
+                'requirements'  => $requirements,
+                'Prod'          => $Prod,
                 'costResources' => $cost,
-                'costOverflow' => $costOverflow,
-                'elementTime' => $time,
-                'levelToBuild' => $levelToBuild
+                'costOverflow'  => $costOverflow,
+                'elementTime'   => $time,
+                'levelToBuild'  => $levelToBuild
             ];
         }
 
