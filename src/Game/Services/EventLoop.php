@@ -65,7 +65,10 @@ class EventLoop
 
         foreach (Accounts::getOnline() as $Account) {
 
+            if (!$Account['id']) continue;
+
             $sendMsg = false;
+
 
             $AccountData = new AccountData($Account['id']);
 
@@ -222,6 +225,25 @@ class EventLoop
                     QueuesServices::ReCalcTimeQueue(QueuesServices::TECHS, $AccountData, $Event['added_at']);
                     $sendMsg  = true;
                     break;
+
+
+                case PlayerQueue::ActionFleetToOrbit:
+                    FleetsServices::AddToOrbit($Event['data']['items'], $AccountData, $Event['added_at']);
+                    $sendMsg  = true;
+                    break;
+
+                case PlayerQueue::ActionFleetMoveShip:
+                    FleetsServices::MoveShip($Event['data']['toFleetId'], $Event['data']['fromFleetId'], $Event['data']['shipId'], $Event['data']['count'], $AccountData, $Event['added_at']);
+                    $sendMsg  = true;
+                    break;
+
+                case PlayerQueue::ActionFleetDisband:
+                    FleetsServices::DisbandFleet($Event['data']['FleetId'], $AccountData, $Event['added_at']);
+                    $sendMsg  = true;
+                    break;
+
+
+
                 case PlayerQueue::ActionMessagesRead:
                     Notification::setReadMessages($Event['user_id'], $Event['data']['ReadId']);
                     $sendMsg  = false;

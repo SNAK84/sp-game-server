@@ -7,9 +7,10 @@ services:
     working_dir: /var/www/html/
     volumes:
       - ./:/var/www/html/
-#      - ./xdebug.ini:/usr/local/etc/php/conf.d/xdebug.ini
-    ports:
-      - "9501:9501"
+      - ./xdebug.ini:/usr/local/etc/php/conf.d/xdebug.ini
+    network_mode: "host"
+    #ports:
+    #  - "9501:9501"
     command: ["php", "/var/www/html/src/main.php"]
     restart: "no"
     environment:

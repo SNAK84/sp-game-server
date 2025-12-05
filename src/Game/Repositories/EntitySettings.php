@@ -16,8 +16,8 @@ class EntitySettings extends BaseRepository
 
     protected static array $tableSchema = [
         'columns' => [
-            'planet_id'   => ['swoole' => [\Swoole\Table::TYPE_INT, 4], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => Defaults::NONE],
-            'entity_id'   => ['swoole' => [\Swoole\Table::TYPE_INT, 4], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => Defaults::NONE],
+            'planet_id'   => ['swoole' => [\Swoole\Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => Defaults::NONE],
+            'entity_id'   => ['swoole' => [\Swoole\Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => Defaults::NONE],
             'efficiency'  => ['swoole' => [\Swoole\Table::TYPE_INT, 1], 'sql' => 'TINYINT(3) NOT NULL DEFAULT 100', 'default' => 100],
             'last_used'   => ['swoole' => [\Swoole\Table::TYPE_INT, 4], 'sql' => 'INT UNSIGNED NOT NULL DEFAULT 0', 'default' => 0],
         ],
@@ -54,11 +54,11 @@ class EntitySettings extends BaseRepository
     }
 
     // Добавление или обновление записи
-    public static function add(array $data, bool $sync = true): void
+    public static function add(array $data, bool $sync = true): int
     {
         if (!isset($data['planet_id']) || !isset($data['entity_id'])) {
             self::$logger->warning("Missing planet_id or entity_id in data", $data);
-            return;
+            return 0;
         }
 
         $key = self::makeKey((int)$data['planet_id'], (int)$data['entity_id']);
@@ -73,6 +73,8 @@ class EntitySettings extends BaseRepository
 
         // помечаем dirty для синхронизации в MySQL
         if ($sync) self::markForUpdate((int)$row['id']);
+
+	return (int)$row['id'];
     }
 
     // Обновление

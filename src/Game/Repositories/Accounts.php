@@ -30,7 +30,7 @@ class Accounts extends BaseRepository
 
     protected static array $tableSchema = [
         'columns' => [
-            'id' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(11) UNSIGNED NOT NULL', 'default' => Defaults::AUTOID],
+            'id' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => Defaults::AUTOID],
             'login' => ['swoole' => [Table::TYPE_STRING, 64], 'sql' => 'VARCHAR(64) NOT NULL', 'default' => ''],
             'email' => ['swoole' => [Table::TYPE_STRING, 128], 'sql' => 'VARCHAR(128) NOT NULL', 'default' => ''],
             'password' => ['swoole' => [Table::TYPE_STRING, 128], 'sql' => 'VARCHAR(128) NOT NULL', 'default' => ''],

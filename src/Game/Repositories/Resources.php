@@ -26,7 +26,7 @@ class PlanetResources extends BaseRepository
 
     protected static array $tableSchema = [
         'columns' => [
-            'id' => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) UNSIGNED NOT NULL', 'default' => 0],
+            'id' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => 0],
             'metal'     => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => [Defaults::CALLABLE, "SPGame\Game\Repositories\Config::getValue:StartRes901"]],
             'crystal'   => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => [Defaults::CALLABLE, "SPGame\Game\Repositories\Config::getValue:StartRes902"]],
             'deuterium' => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => [Defaults::CALLABLE, "SPGame\Game\Repositories\Config::getValue:StartRes903"]],
@@ -47,14 +47,12 @@ class UserResources extends BaseRepository
     protected static string $className = 'UserResources';
     protected static string $tableName = 'resources_user';
 
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsTable;
-    /** @var Table Список изменённых ID для синхронизации */
-    protected static Table $dirtyIdsDelTable;
+    /** @var Table */
+    protected static Table $syncTable;
 
     protected static array $tableSchema = [
         'columns' => [
-            'id'  => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) UNSIGNED NOT NULL', 'default' => 0],
+            'id'  => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => 0],
             'credit'   => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => 0],
             'doubloon' => ['swoole' => [Table::TYPE_FLOAT], 'sql' => 'DOUBLE DEFAULT 0', 'default' => 0],
         ],
@@ -71,7 +69,7 @@ class Resources
     //protected static array $Resources = [];
     protected static Logger $logger;
 
-    public static function init(RepositorySaver $saver = null): void
+    public static function init(?RepositorySaver $saver = null): void
     {
         self::$logger = Logger::getInstance();
 
@@ -327,6 +325,8 @@ class Resources
                 }
                 UserResources::update($userRes);
             }
+        } else {
+            Logger::getInstance()->warning("not find userId");
         }
     }
 }

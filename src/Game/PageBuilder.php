@@ -16,6 +16,7 @@ use SPGame\Game\Repositories\Resources;
 
 use SPGame\Game\Pages\OverviewPage;
 use SPGame\Game\Pages\BuildingsPage;
+use SPGame\Game\Pages\FleetsPage;
 use SPGame\Game\Pages\ResearchPage;
 use SPGame\Game\Pages\HangarPage;
 
@@ -77,6 +78,10 @@ class PageBuilder
                 break;
             case 'galaxy':
                 $page = new GalaxyPage($this->Msg);
+                break;
+
+            case 'fleets':
+                $page = new FleetsPage($this->Msg);
                 break;
 
             case 'messages':

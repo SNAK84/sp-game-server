@@ -9,6 +9,8 @@ use SPGame\Game\Repositories\Planets;
 use SPGame\Game\Repositories\Builds;
 use SPGame\Game\Repositories\Ships;
 use SPGame\Game\Repositories\Defenses;
+use SPGame\Game\Repositories\Fleets;
+use SPGame\Game\Repositories\FleetsShips;
 use SPGame\Game\Repositories\Resources;
 
 use SPGame\Core\Logger;
@@ -22,6 +24,10 @@ class AccountData implements ArrayAccess
     private Data $User;
     private Data $Techs;
 
+    private ?Data $AllFleets;
+    private ?Data $AllFleetsInSpace;
+    private ?Data $AllFleetShips;
+
     /** @var array<int, array{Planet: Data, Builds: Data, Resources: Data}> */
     private array $Planets = [];
 
@@ -30,12 +36,17 @@ class AccountData implements ArrayAccess
     private bool $AccountDirty = false;
     private bool $UserDirty = false;
     private bool $TechsDirty = false;
+    private bool $AllFleetsDirty = false;
+    private bool $AllFleetShipsDirty = false;
 
     private array $PlanetsDirty = [];
     private array $BuildsDirty = [];
     private array $ShipsDirty = [];
     private array $DefensesDirty = [];
     private array $ResourcesDirty = [];
+
+    private array $FleetsDirty = [];
+    private array $FleetShipsDirty = [];
 
     public function __construct(int $accountId)
     {
@@ -45,6 +56,8 @@ class AccountData implements ArrayAccess
         $this->User = new Data(Users::findByAccount($accountId), $this->UserDirty);
         $this->WorkPlanet = $this->User['current_planet'] ?? 0;
         $this->Techs = new Data(Techs::findById($this->User['id'] ?? 0), $this->TechsDirty);
+
+
 
         if ($this->User['current_planet'] === 0) {
             if ($this->User['main_planet'] === 0) {
@@ -56,13 +69,40 @@ class AccountData implements ArrayAccess
                     $this->Account->toArray()
                 ]);
 
-                $planet = Planets::CreatePlanet($this->User['id'], Lang::get($lang, "HomeworldName"), true);
+                $planet = GalaxyGenerator::CreatePlanet($this->User['id'], Lang::get($lang, "HomeworldName"), true);
                 $this->User['main_planet'] = $planet['id'];
                 $this->User['current_planet'] = $planet['id'];
                 Users::update($this->User->toArray());
             }
             $this->User['current_planet'] = $this->User['main_planet'];
             $this->WorkPlanet = $this->User['current_planet'] ?? 0;
+        }
+
+        // Загружаем все флоты игрока
+        $fleets = Fleets::findByIndex('owner_id', $this->User['id']) ?? [];
+        //$this->AllFleets = new Data($fleets, $this->AllFleetsDirty);
+
+        // Загружаем корабли всех флотов
+        $AllFleets = [];
+        $shipsGrouped = [];
+        foreach ($fleets as $fleet) {
+            $record = FleetsShips::findById($fleet['id']);
+            $shipsGrouped[$fleet['id']] = $record;
+            $AllFleets[$fleet['id']] = $fleet;
+        }
+
+        $this->AllFleets = new Data($AllFleets, $this->AllFleetsDirty);
+        $this->AllFleetShips = new Data($shipsGrouped, $this->AllFleetShipsDirty);
+
+        // Связываем ссылки между ними
+        $allFleetsArr = &$this->AllFleets->getInternal();
+        $allShipsArr  = &$this->AllFleetShips->getInternal();
+
+        foreach ($allFleetsArr as $fid => &$fleet) {
+            //$fleet['Ships'] = &$this->AllFleetShips[$fid]->getInternal();
+            $fleet['Ships'] = new Data($allShipsArr[$fid], $this->AllFleetShipsDirty);
+            // Но нужно сделать так, чтобы Data->data ссылался на $allShipsArr[$fid], а не копировал:
+            $fleet['Ships']->bindInternalReference($allShipsArr[$fid]);
         }
     }
 
@@ -71,8 +111,8 @@ class AccountData implements ArrayAccess
     public function offsetExists($offset): bool
     {
         return match ($offset) {
-            'Account', 'User', 'Techs' => true,
-            'Planet', 'Builds', 'Ships', 'Defenses', 'Resources' => !empty($this->WorkPlanet),
+            'Account', 'User', 'Techs', 'AllFleets', 'AllFleetsInSpace' => true,
+            'Planet', 'Builds', 'Ships', 'Defenses', 'Resources', 'PlanetFleets', 'Fleets' => !empty($this->WorkPlanet),
             'WorkPlanet', 'All_Builds' => true,
             default => false,
         };
@@ -85,7 +125,22 @@ class AccountData implements ArrayAccess
         if ($offset === 'Account') return $this->Account;
         if ($offset === 'User') return $this->User;
         if ($offset === 'Techs') return $this->Techs;
+        if ($offset === 'AllFleets') {
+
+
+            return $this->AllFleets;
+        }
         if ($offset === 'WorkPlanet') return $this->WorkPlanet;
+
+        // --- Вью флотов ---
+        if ($offset === 'AllFleetsInSpace') {
+            if (!$this->AllFleetsInSpace) {
+                $arr = &$this->AllFleets->getInternal();
+                $ids = array_keys(array_filter($arr, fn($f) => (int)$f['status'] === 1));
+                $this->AllFleetsInSpace = Data::fromReference($arr, $ids, $this->AllFleetsDirty);
+            }
+            return $this->AllFleetsInSpace;
+        }
 
         // --- Поддержка All_XXX ---
         if (str_starts_with($offset, 'All_')) {
@@ -107,11 +162,9 @@ class AccountData implements ArrayAccess
             $allDataObj = new Data($allData, $dirtyFlag);
 
             return $allDataObj;
-
-            return $allData;
         }
 
-        if (in_array($offset, ['Planet', 'Builds', 'Ships', 'Defenses', 'Resources'], true)) {
+        if (in_array($offset, ['Planet', 'Builds', 'Ships', 'Defenses', 'Resources', 'Fleets'], true)) {
             $planetData = &$this->getData();
             return $planetData[$offset];
         }
@@ -129,6 +182,7 @@ class AccountData implements ArrayAccess
             if (!isset($this->BuildsDirty[$this->WorkPlanet]))    $this->BuildsDirty[$this->WorkPlanet]    = false;
             if (!isset($this->ShipsDirty[$this->WorkPlanet]))     $this->ShipsDirty[$this->WorkPlanet]     = false;
             if (!isset($this->DefensesDirty[$this->WorkPlanet]))  $this->DefensesDirty[$this->WorkPlanet]  = false;
+            if (!isset($this->FleetsDirty[$this->WorkPlanet]))    $this->FleetsDirty[$this->WorkPlanet]    = false;
             if (!isset($this->ResourcesDirty[$this->WorkPlanet])) $this->ResourcesDirty[$this->WorkPlanet] = false;
         } elseif ($offset === 'Account') {
             $this->Account = new Data($value ?: [], $this->AccountDirty);
@@ -138,7 +192,7 @@ class AccountData implements ArrayAccess
             $this->Techs = new Data($value ?: [], $this->TechsDirty);
         } elseif ($offset === 'Planet') {
             $this->Planets[$this->WorkPlanet]['Planet'] = new Data($value ?: [], $this->PlanetsDirty[$this->WorkPlanet]);
-        } elseif (in_array($offset, ['Builds', 'Ships', 'Defenses', 'Resources'], true)) {
+        } elseif (in_array($offset, ['Builds', 'Ships', 'Defenses', 'Resources', 'Fleets'], true)) {
             $this->Planets[$this->WorkPlanet][$offset] = new Data($value ?: [], $this->{$offset . 'Dirty'}[$this->WorkPlanet]);
         }
     }
@@ -148,7 +202,8 @@ class AccountData implements ArrayAccess
     {
         match ($offset) {
             'Account', 'User', 'Techs' => $this->$offset = new Data([], $this->{$offset . 'Dirty'}),
-            'Planet', 'Builds', 'Ships', 'Defenses', 'Resources' => $this->Planets = [],
+            'AllFleets', 'AllFleetsInSpace' => $this->AllFleets = null,
+            'Planet', 'Builds', 'Ships', 'Defenses', 'Resources', 'Fleets' => $this->Planets = [],
             default => null,
         };
     }
@@ -168,6 +223,7 @@ class AccountData implements ArrayAccess
             $this->ShipsDirty[$planetId]     = false;
             $this->DefensesDirty[$planetId]  = false;
             $this->ResourcesDirty[$planetId] = false;
+            $this->FleetsDirty[$planetId]  = false;
 
             $this->Planets[$planetId] = [
                 'Planet'    => new Data(Planets::findById($planetId) ?: [], $this->PlanetsDirty[$planetId]),
@@ -177,6 +233,12 @@ class AccountData implements ArrayAccess
             ];
 
             $this->Planets[$planetId]['Resources'] = new Data(Resources::get($this) ?: [], $this->ResourcesDirty[$planetId]);
+
+            if (!isset($this->Planets[$planetId]['Fleets'])) {
+                $arr = &$this->AllFleets->getInternal();
+                $ids = array_keys(array_filter($arr, fn($f) => (int)$f['home_planet_id'] === $planetId || (int)$f['end_id'] === $planetId));
+                $this->Planets[$planetId]['Fleets'] = Data::fromReference($arr, $ids, $this->FleetsDirty[$planetId]);
+            }
         }
 
         // ✅ фикс: создаём ссылку на элемент массива
@@ -214,6 +276,21 @@ class AccountData implements ArrayAccess
             }
         }
 
+        // сохраняем флоты
+        if ($this->AllFleetsDirty && $this->AllFleets) {
+            foreach ($this->AllFleets->toArray() as $fleet) {
+                Fleets::update($fleet);
+            }
+            $this->AllFleetsDirty = false;
+        }
+
+        if ($this->AllFleetShipsDirty && $this->AllFleetShips) {
+            foreach ($this->AllFleetShips->toArray() as $shipList) {
+                FleetsShips::update($shipList);
+            }
+            $this->AllFleetShipsDirty = false;
+        }
+
         if ($this->UserDirty) {
             Users::update($this->User->toArray());
             $this->UserDirty = false;
@@ -238,6 +315,10 @@ class AccountData implements ArrayAccess
         $copy['Techs']   = $this->Techs->toArray();
 
         $copy->WorkPlanet = $this->WorkPlanet;
+
+        // Флоты
+        $copy->AllFleets = new Data($this->AllFleets->toArray(), $copy->AllFleetsDirty);
+        $copy->AllFleetShips = new Data($this->AllFleetShips?->toArray(), $copy->AllFleetShipsDirty);
 
         // Копируем планеты
         foreach ($this->Planets as $pid => $planetData) {
@@ -275,14 +356,17 @@ class AccountData implements ArrayAccess
         $data = $this->Planets[$pid] ?? new Data([], $dirty = false);
 
         return [
-            'Account'   => $this->Account->toArray(),
-            'User'      => $this->User->toArray(),
-            'Techs'     => $this->Techs->toArray(),
-            'Planet'    => $data['Planet']->toArray(),
-            'Builds'    => $data['Builds']->toArray(),
-            'Ships'     => $data['Ships']->toArray(),
-            'Defenses'  => $data['Defenses']->toArray(),
-            'Resources' => $data['Resources']->toArray(),
+            'Account'           => $this->Account->toArray(),
+            'User'              => $this->User->toArray(),
+            'Techs'             => $this->Techs->toArray(),
+            'Planet'            => $data['Planet']->toArray(),
+            'Builds'            => $data['Builds']->toArray(),
+            'Ships'             => $data['Ships']->toArray(),
+            'Defenses'          => $data['Defenses']->toArray(),
+            'Resources'         => $data['Resources']->toArray(),
+            'AllFleets'         => $this->AllFleets->toArray(),
+            'AllFleetsInSpace'  => $this->AllFleetsInSpace?->toArray() ?? [],
+            'AllFleetShips'     => $this->AllFleetShips->toArray(),
         ];
     }
 }
@@ -297,6 +381,30 @@ class Data implements ArrayAccess
     {
         $this->data = $data ?: [];
         $this->dirty = &$dirty;
+    }
+
+    public static function fromReference(array &$source, array $keys, bool &$dirty): self
+    {
+        $subset = [];
+        foreach ($keys as $key) {
+            if (isset($source[$key])) {
+                $subset[$key] = &$source[$key]; // <-- ССЫЛКА!
+            }
+        }
+        $obj = new self([], $dirty);
+        $obj->data = &$subset;
+        return $obj;
+    }
+
+    public function &getInternal(): array
+    {
+        return $this->data;
+    }
+
+    public function bindInternalReference(array &$source): void
+    {
+        // Переназначаем internal storage на ссылку на внешний массив
+        $this->data = &$source;
     }
 
     #[\ReturnTypeWillChange]

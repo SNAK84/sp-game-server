@@ -46,23 +46,96 @@ class GalaxyPage extends AbstractPage
                 $orbitType = $Orbits[$orbitIndex]['type'];
             }
 
-            // Проверка всех условий, включая тип орбиты
-            if (
-                $Planet['planet'] == 0 ||
-                $Planet['galaxy'] == 0 ||
-                $Planet['system'] == 0 ||
-                $Planet['planet'] > $System['max_orbits'] ||
-                $Planet['galaxy'] > (int)Config::getValue('MaxGalaxy') ||
-                $Planet['system'] > (int)Config::getValue('MaxSystem') ||
-                ($orbitType !== null && $orbitType != 0 && $orbitType != 5)
-            ) {
-                $Planet = GalaxyGenerator::regeneratePlanet($Planet);
-                //$NewPlanet = GalaxyGenerator::generatePlanet($System['star_type'],$Orbits[$orbitIndex]['distance']);
+            // === 🧭 ADMIN ACTION: Регенерация всех планет ===
+            $regen = false;
+            if ($regen) {
+                $logger = Logger::getInstance();
 
-                /*Logger::getInstance()->info("Regen Planet id " . $Planet['id'], [
-                    $Planet,
-                    $orbitType !== null ? $Orbits[$orbitIndex] : 'orbit not found',
-                ]);*/
+                $logger->info('Начата полная регенерация всех планет администратором #' . $User['id']);
+
+                $allPlanets = Planets::findAll();
+                $total = count($allPlanets);
+                $logger->info("Всего планет: {$total}");
+
+                // Сбрасываем координаты
+                foreach ($allPlanets as &$planet) {
+                    $planet['galaxy'] = 0;
+                    $planet['system'] = 0;
+                    $planet['planet'] = 0;
+                }
+
+                $processed = 0;
+                $errors = 0;
+
+                foreach ($allPlanets as &$planet) {
+                    $processed++;
+                    try {
+                        $planetId = (int)$planet['id'];
+                        $ownerId  = (int)($planet['owner_id'] ?? 0);
+
+                        // Проверяем — это домашняя планета?
+                        $isHome = false;
+                        if ($ownerId > 0) {
+                            $user = Users::findById($ownerId);
+                            if ($user && (int)$user['main_planet'] === $planetId) {
+                                $isHome = true;
+                            }
+                        }
+
+                        // Назначаем новые координаты
+                        GalaxyGenerator::normalizeCoordinates($planet);
+                        $g = (int)$planet['galaxy'];
+                        $s = (int)$planet['system'];
+                        $p = (int)$planet['planet'];
+
+                        if ($g === 0 || $s === 0 || $p === 0) {
+                            throw new \RuntimeException("Не удалось назначить координаты для #{$planetId}");
+                        }
+
+                        // Получаем систему
+                        $system = Galaxy::getSystem($g, $s);
+                        $starType = $system['star_type'] ?? 'G';
+
+                        // Находим орбиту
+                        $orbits = GalaxyOrbits::findByIndex('galaxy_system', [$g, $s]);
+                        $distance = null;
+                        foreach ($orbits as $o) {
+                            if ((int)$o['orbit'] === $p) {
+                                $distance = (int)$o['distance'];
+                                break;
+                            }
+                        }
+                        if (!$distance) $distance = 1500;
+
+                        // Генерация новой планеты
+                        $newPhys = GalaxyGenerator::generatePlanet($starType, $distance, $isHome);
+
+                        // Обновляем поля
+                        $planet['type'] = $newPhys['type'];
+                        $planet['image'] = $newPhys['image'];
+                        $planet['size'] = $newPhys['size'];
+                        $planet['fields'] = $newPhys['fields'];
+                        $planet['temp_min'] = $newPhys['temp_min'];
+                        $planet['temp_max'] = $newPhys['temp_max'];
+                        $planet['gravity'] = $newPhys['gravity'];
+                        $planet['atmosphere'] = $newPhys['atmosphere'];
+                        $planet['habitability'] = $newPhys['habitability'];
+                        
+                        Planets::update($planet);
+
+                        $logger->info("OK: #{$planetId} G{$g}:S{$s}:P{$p}" . ($isHome ? " [HOME]" : ""));
+                    } catch (\Throwable $e) {
+                        $errors++;
+                        $logger->error("Ошибка у планеты #{$planet['id']}: " . $e->getMessage());
+                    }
+                }
+
+                
+                $logger->info("Регенерация завершена: {$processed} планет, ошибок {$errors}");
+                /*return [
+                    'page' => 'galaxy_admin_reassign',
+                    'message' => "Регенерация завершена. Обработано {$processed} планет, ошибок {$errors}.",
+                ];*/
             }
 
             if (!isset($PlanetUser[$Planet['owner_id']])) {

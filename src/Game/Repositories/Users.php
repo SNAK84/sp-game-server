@@ -26,13 +26,13 @@ class Users extends BaseRepository
     protected static array $tableSchema = [
         'columns' => [
             'id' => [
-                'swoole' => [Table::TYPE_INT, 4],
-                'sql'    => 'INT(11) UNSIGNED NOT NULL AUTO_INCREMENT',
+                'swoole' => [Table::TYPE_INT, 8],
+                'sql'    => 'BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT',
                 'default' => Defaults::AUTOID,
             ],
             'account_id' => [
-                'swoole' => [Table::TYPE_INT, 4],
-                'sql'    => 'INT(11) NOT NULL',
+                'swoole' => [Table::TYPE_INT, 8],
+                'sql'    => 'BIGINT(20) NOT NULL',
                 'default' => Defaults::NONE,
             ],
             'name' => [

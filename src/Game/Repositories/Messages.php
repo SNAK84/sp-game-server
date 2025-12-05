@@ -60,10 +60,10 @@ class Messages extends BaseRepository
      */
     protected static array $tableSchema = [
         'columns' => [
-            'id'       => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => Defaults::AUTOID],
-            'from_id'  => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 0],
+            'id'       => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => Defaults::AUTOID],
+            'from_id'  => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => 0],
             'from'     => ['swoole' => [Table::TYPE_STRING, 64], 'sql' => 'VARCHAR(64) NOT NULL', 'default' => ''],
-            'to_id'    => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 0],
+            'to_id'    => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => 0],
             'type'     => ['swoole' => [Table::TYPE_INT, 1], 'sql' => "INT UNSIGNED NOT NULL", 'default' => 0],
             'subject'  => ['swoole' => [Table::TYPE_STRING, 128], 'sql' => "VARCHAR(128) NOT NULL", 'default' => ''],
             'text'     => ['swoole' => [Table::TYPE_STRING, 1024], 'sql' => "TEXT NOT NULL", 'default' => ''],

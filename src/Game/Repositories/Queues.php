@@ -21,9 +21,9 @@ class Queues extends BaseRepository
      */
     protected static array $tableSchema = [
         'columns' => [
-            'id'          => ['swoole' => [Table::TYPE_INT, 8],  'sql' => 'INT UNSIGNED NOT NULL AUTO_INCREMENT', 'default' => Defaults::AUTOID],
-            'user_id'     => ['swoole' => [Table::TYPE_INT, 8],  'sql' => 'INT UNSIGNED NOT NULL', 'default' => 0],
-            'planet_id'   => ['swoole' => [Table::TYPE_INT, 8],  'sql' => 'INT UNSIGNED NULL', 'default' => 0],
+            'id'          => ['swoole' => [Table::TYPE_INT, 8],  'sql' => 'BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT', 'default' => Defaults::AUTOID],
+            'user_id'     => ['swoole' => [Table::TYPE_INT, 8],  'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => 0],
+            'planet_id'   => ['swoole' => [Table::TYPE_INT, 8],  'sql' => 'BIGINT(20) UNSIGNED NULL', 'default' => 0],
             'object_id'   => ['swoole' => [Table::TYPE_INT, 8],  'sql' => 'INT UNSIGNED NOT NULL', 'default' => 0],
             'count'       => ['swoole' => [Table::TYPE_INT, 4],  'sql' => 'INT UNSIGNED DEFAULT 1', 'default' => 1],
             'action'      => ['swoole' => [Table::TYPE_STRING, 16], 'sql' => "ENUM('build','destroy') DEFAULT 'build'", 'default' => 'build'],

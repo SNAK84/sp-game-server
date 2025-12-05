@@ -119,62 +119,58 @@ class GalaxyGenerator
 
         while (true) {
             $systemData = Galaxy::getSystem($galaxy, $system);
-            $starType = $systemData['star_type'] ?? 'G';
-            /*if (!in_array($starType, ['F', 'G', 'K', 'A'])) {
+            if (!$systemData) {
                 $system++;
                 continue;
-            }*/
+            }
 
+            $starType = $systemData['star_type'] ?? 'G';
+            $maxOrbits = (int)($systemData['max_orbits'] ?? 7);
+
+            // --- получаем орбиты и занятость ---
             $orbits = GalaxyOrbits::findByIndex('galaxy_system', [$galaxy, $system]);
             if (!$orbits) {
                 $system++;
                 continue;
             }
 
-            $totalOrbits = count($orbits);
             $planets = Planets::findByIndex('galaxy_system', [$galaxy, $system]);
             $usedCount = $planets ? count($planets) : 0;
+            $totalOrbits = count($orbits);
 
-            if ($usedCount / max(1, $totalOrbits) <= 0.2) {
+            // --- правило: если занято более 20%, пропускаем систему ---
+            if ($usedCount / max(1, $totalOrbits) > 0.2) {
+                $system++;
+                continue;
+            }
 
-                $usedOrbits = $planets ? array_column($planets, 'planet') : [];
+            // --- вычисляем "жилая зона" по орбитам ---
+            $minOrbit = (int)round($maxOrbits * 0.3);
+            $maxOrbit = (int)round($maxOrbits * 0.6);
+            if ($minOrbit < 1) $minOrbit = 1;
 
-                // Собираем все свободные орбиты (без планеты, не занятые)
-                $freeOrbits = [];
-                foreach ($orbits as $o) {
-                    // Пропускаем орбиты с типом != 0 (астероидные пояса, газовые гиганты и т.п.)
-                    if (($o['type'] ?? 0) != 0) {
-                        continue;
-                    }
+            // --- собираем свободные подходящие орбиты ---
+            $usedOrbits = $planets ? array_column($planets, 'planet') : [];
+            $freeOrbits = [];
+            foreach ($orbits as $o) {
+                if (($o['type'] ?? 0) != 0) continue; // пропускаем астероидные и газовые
+                if (in_array($o['orbit'], $usedOrbits, true)) continue;
 
-                    $dist = $o['distance'];
-
-                    if ($dist >= 1200 && $dist <= 2800 && !in_array($o['orbit'], $usedOrbits, true)) {
-                        $freeOrbits[] = $o;
-                    }
+                if ($o['orbit'] >= $minOrbit && $o['orbit'] <= $maxOrbit) {
+                    $freeOrbits[] = $o;
                 }
+            }
 
-                // Если найдены свободные орбиты
-                if (count($freeOrbits) > 0) {
-                    $chosenOrbit = $freeOrbits[array_rand($freeOrbits)]; // случайная свободная
+            if (!empty($freeOrbits)) {
+                // --- выбираем случайную свободную орбиту из "жизненной зоны" ---
+                $chosen = $freeOrbits[array_rand($freeOrbits)];
 
-                    return [
-                        'galaxy'   => $galaxy,
-                        'system'   => $system,
-                        'orbit'    => $chosenOrbit['orbit'],
-                        'distance' => $chosenOrbit['distance'],
-                    ];
-                }
-
-
-                /*foreach ($orbits as $o) {
-                    $dist = $o['distance'];
-                    if ($dist >= 1200 && $dist <= 2800 && empty($o['planet'])) {
-                        Config::setValue('LastGalaxyPos', $galaxy);
-                        Config::setValue('LastSystemPos', $system);
-                        return ['galaxy' => $galaxy, 'system' => $system, 'orbit' => $o['orbit'], 'distance' => $o['distance']];
-                    }
-                }*/
+                return [
+                    'galaxy'   => $galaxy,
+                    'system'   => $system,
+                    'orbit'    => $chosen['orbit'],
+                    'distance' => $chosen['distance'],
+                ];
             }
 
             $system++;
@@ -278,20 +274,28 @@ class GalaxyGenerator
         }
 
         // --- базовая температура от звезды ---
-        $luminosityFactor = pow($starTemp / 6000, 4); // светимость относительно Солнца
-        $tempEarth = 293; // 20°C в Кельвинах
-        $tempBaseK = $tempEarth * $luminosityFactor * sqrt(1500 / max(1, $distance));
-        $tempC = $tempBaseK - 273.15;
+        $luminosityFactor = pow($starTemp / 5778, 4); // относительная светимость к Солнцу
+        // базовая температура около 20°C на 1500 ед. у G-звезды
+        $tempBaseC = 20 * pow($luminosityFactor, 0.25) * pow(1500 / max(300, $distance), 0.5);
 
-        // --- балансная поправка по орбитальной позиции (нелинейный градиент) ---
-        $heatCurve = 350 - 470 * pow($orbitNorm, 1.4);
-        // orbitNorm=0 → +350°C, orbitNorm=1 → примерно -120°C
-        $tempC = ($tempC * 0.4) + ($heatCurve * 0.6); // сглаживаем физическую и балансную часть
+        // --- балансная поправка по орбитальной позиции (игровая нелинейность) ---
+        // даёт естественный градиент: ближние орбиты горячие, дальние холодные
+        $heatCurve = 160 - 320 * pow($orbitNorm, 1.0);
+        // orbitNorm=0 → +160°C (вблизи звезды), orbitNorm=1 → ≈ -160°C (дальняя зона)
 
-        // --- небольшой разброс ---
-        $tempMin = round($tempC - random_int(15, 40));
-        $tempMax = round($tempC + random_int(10, 35));
-        $avgTemp = ($tempMin + $tempMax) / 2;
+        // --- комбинируем физику и игровую кривую ---
+        $tempC = ($tempBaseC * 1.9) + ($heatCurve * 1.1);
+
+        // --- защита от крайних значений ---
+        if ($tempC > 400) $tempC = 400;
+        if ($tempC < -200) $tempC = -200;
+
+        // --- добавим небольшой случайный разброс ---
+        $tempMin = round($tempC - random_int(0, 40));
+        $tempMax = round($tempC + random_int(0, 40));
+        $avgTemp = round(($tempMin + $tempMax) / 2, 1);
+
+
 
 
         if ($homeWorld) {
@@ -302,18 +306,26 @@ class GalaxyGenerator
             $tempMax = 40;
         } else {
             // --- тип планеты по температуре и зоне ---
-            $habitableStart = pow($starTemp / 8000, 2) * 1000;
-            $habitableEnd   = $habitableStart * 2.2;
+            // --- Определяем "зону обитаемости" в зависимости от типа звезды ---
+            $starFactor = $starTemp / 5778; // Сравнение с Солнцем
+            $habitableStart = 1000 * pow($starFactor, 1.7);   // ближняя граница
+            $habitableEnd   = 2500 * pow($starFactor, 1.7);   // дальняя граница
 
+            // --- Классификация по температуре ---
             if ($avgTemp > 150) {
-                $type = 'res_hot';
+                $type = 'res_hot'; // адские жаркие
             } elseif ($avgTemp < -80) {
-                $type = 'res_ice';
-            } elseif ($distance >= $habitableStart && $distance <= $habitableEnd) {
-                $type = mt_rand(0, 1) ? 'dirt' : 'water';
+                $type = 'res_ice'; // ледяные
+            } elseif ($avgTemp >= -20 && $avgTemp <= 60) {
+                // зона "комфортных температур" — высокий шанс на обитаемость
+                $type = mt_rand(0, 3) === 0 ? 'water' : 'dirt'; // 25% шанс океанического мира
+                //} elseif ($distance >= $habitableStart && $distance <= $habitableEnd) {
+                // запасной вариант, если температура не идеально подходит, но в зоне обитаемости
+                //    $type = mt_rand(0, 1) ? 'dirt' : 'water';
             } else {
-                $type = 'res';
+                $type = 'res'; // нейтральный скалистый
             }
+
 
             $orbitNorm = 0.0;
             if ($starMax > $starMin) {

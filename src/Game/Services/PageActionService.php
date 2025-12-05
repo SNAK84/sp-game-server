@@ -105,6 +105,25 @@ class PageActionService
                 }
                 //Logger::getInstance()->info("messages Data", $Msg->source());
                 break;
+            case 'fleets':
+                if ($action === 'toOrbit') {
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionFleetToOrbit, [
+                        'items' => $Msg->getData('items', [])
+                    ]);
+                }
+                if ($action == "MoveShip") {
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionFleetMoveShip, [
+                        'fromFleetId' => $Msg->getData('fromFleetId', 0),
+                        'toFleetId' => $Msg->getData('toFleetId', 0),
+                        'shipId' => $Msg->getData('shipId', 0),
+                        'count' => $Msg->getData('count', 0),
+                    ]);
+                }if ($action == "DisbandFleet") {
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionFleetDisband, [
+                        'FleetId' => $Msg->getData('FleetId', 0)
+                    ]);
+                }
+                break;
 
             case 'messages':
                 if ($action === 'read') {

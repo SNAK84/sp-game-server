@@ -28,8 +28,8 @@ class Defenses extends BaseRepository
     protected static array $tableSchema = [
         'columns' => [
             'id' => [
-                'swoole' => [Table::TYPE_INT, 4],
-                'sql'    => 'INT(11) UNSIGNED NOT NULL',
+                'swoole' => [Table::TYPE_INT, 8],
+                'sql'    => 'BIGINT(20) UNSIGNED NOT NULL',
                 'default' => Defaults::NONE,
             ]
         ],
@@ -41,13 +41,13 @@ class Defenses extends BaseRepository
     /** @var Table */
     protected static Table $syncTable;
 
-    public static function init(RepositorySaver $saver = null): void
+    public static function init(?RepositorySaver $saver = null): void
     {
 
         foreach (array_merge(Vars::$reslist['defense'], Vars::$reslist['missile']) as $ResID) {
             self::$tableSchema['columns'][Vars::$resource[$ResID]] =  [
-                'swoole' => [Table::TYPE_INT, 4],
-                'sql'    => 'INT(11) UNSIGNED NOT NULL DEFAULT 0',
+                'swoole' => [Table::TYPE_INT, 8],
+                'sql'    => 'BIGINT(20) UNSIGNED NOT NULL DEFAULT 0',
                 'default' => 0,
             ];
         }

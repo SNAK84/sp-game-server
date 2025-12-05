@@ -20,7 +20,7 @@ class Galaxy extends BaseRepository
     protected static string $tableName = 'galaxy';
     protected static array $tableSchema = [
         'columns' => [
-            'id'           => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => Defaults::AUTOID],
+            'id'           => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => Defaults::AUTOID],
             'galaxy'       => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 0],
             'system'       => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 0],
             'star_type'    => ['swoole' => [Table::TYPE_STRING, 8], 'sql' => 'VARCHAR(8) NOT NULL', 'default' => 'G'],

@@ -50,7 +50,7 @@ abstract class BaseRepository
     /**
      * Инициализация репозитория
      */
-    public static function init(RepositorySaver $saver = null): void
+    public static function init(?RepositorySaver $saver = null): void
     {
         $start = microtime(true);
         $before_memory = memory_get_usage();
@@ -462,14 +462,14 @@ abstract class BaseRepository
     /**
      * Добавление или обновление записи
      */
-    public static function add(array $data, bool $sync = true): void
+    public static function add(array $data, bool $sync = true): ?int
     {
 
         $row = static::castRowToSchema($data, true);
 
         if (!isset($row['id'])) {
             static::$logger->warning("Cannot add row without 'id'", $data);
-            return;
+            return null;
         }
 
         static::$table->set((string)$row['id'], $row);
@@ -492,6 +492,8 @@ abstract class BaseRepository
 
         // Помечаем для синхронизации
         if ($sync) static::markForUpdate((int)$row['id']);
+
+        return (int)$row['id'];
     }
 
     /**

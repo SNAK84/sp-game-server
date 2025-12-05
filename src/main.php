@@ -29,10 +29,15 @@ use SPGame\Game\Repositories\Messages;
 use SPGame\Game\Repositories\EntitySettings;
 
 use SPGame\Game\Repositories\Config;
+use SPGame\Game\Repositories\Fleets;
+use SPGame\Game\Repositories\FleetsShips;
 use SPGame\Game\Repositories\Vars;
 use SPGame\Game\Repositories\PlayerQueue;
 
 use SPGame\Game\Services\RepositorySaver;
+
+ini_set('memory_limit', '2G');
+set_time_limit(0);
 
 try {
     Environment::init(__DIR__ . '/../.env');
@@ -67,6 +72,9 @@ try {
 
     Galaxy::init($saver);
     GalaxyOrbits::init($saver);
+
+    Fleets::init($saver);
+    FleetsShips::init($saver);
 
     Queues::init($saver);
     Messages::init($saver);

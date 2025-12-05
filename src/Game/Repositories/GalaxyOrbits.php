@@ -26,7 +26,7 @@ class GalaxyOrbits extends BaseRepository
     protected static string $tableName = 'galaxy_orbits';
     protected static array $tableSchema = [
         'columns' => [
-            'id'           => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => Defaults::AUTOID],
+            'id'           => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'BIGINT(20) UNSIGNED NOT NULL', 'default' => Defaults::AUTOID],
             'galaxy'       => ['swoole' => [Table::TYPE_INT, 1], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 0],
             'system'       => ['swoole' => [Table::TYPE_INT, 2], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 0],
             'orbit'        => ['swoole' => [Table::TYPE_INT, 1], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 0],

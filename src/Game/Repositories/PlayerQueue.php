@@ -14,13 +14,17 @@ class PlayerQueue extends BaseRepository
     public const ActionQueueDismantle   = "ActionQueueDismantle";
     public const ActionQueueCancel      = "ActionQueueCancel";
     public const ActionQueueHangarAdd   = "ActionQueueHangarAdd";
-    public const ActionQueueHangarCancel= "ActionQueueHangarCancel";
+    public const ActionQueueHangarCancel = "ActionQueueHangarCancel";
 
     public const ActionQueueReCalcTech  = "ActionQueueReCalcTech";
     public const SendActualeData        = "SendActualeData";
 
     public const ActionMessagesRead     = "ActionMessagesRead";
     public const ActionMessagesNew      = "ActionMessagesNew";
+
+    public const ActionFleetToOrbit     = "ActionFleetToOrbit";
+    public const ActionFleetMoveShip    = "ActionFleetMoveShip";
+    public const ActionFleetDisband     = "ActionFleetDisband";
 
 
     protected static Table $table;

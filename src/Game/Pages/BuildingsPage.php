@@ -145,7 +145,7 @@ class BuildingsPage extends AbstractPage
             $time = BuildFunctions::getBuildingTime($Element, $AccountData, $cost);
 
             $destroyCost = BuildFunctions::getElementPrice($Element, $AccountData, true);
-            $destroyTime = BuildFunctions::getBuildingTime($Element, $AccountData, $destroyCost);
+            $destroyTime = BuildFunctions::getBuildingTime($Element, $AccountData, $destroyCost, true);
             $destroyOverflow = BuildFunctions::getRestPrice($Element, $AccountData, $destroyCost);
 
             $buyable = Vars::$attributes[$Element]['max'] > $levelToBuild;
