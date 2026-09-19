@@ -15,6 +15,9 @@ class FleetsShips extends BaseRepository
     /** @var Table Основная таблица */
     protected static Table $table;
 
+    /** @var array Таблицы индексов Swoole только для FleetsShips */
+    protected static array $indexTables = [];
+
     protected static string $className = 'FleetsShips';
     protected static string $tableName = 'fleets_ships';
 

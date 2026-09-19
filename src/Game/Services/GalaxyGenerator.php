@@ -187,7 +187,7 @@ class GalaxyGenerator
         }
     }
 
-    public static function findFreePlanetPosition($startGalaxy, $startSystem, bool $randomOrbit = true): ?array
+    public static function findFreePlanetPosition(int $startGalaxy, int $startSystem, bool $randomOrbit = true): ?array
     {
         $maxGalaxy = (int)Config::getValue('MaxGalaxy');
         $maxSystem = (int)Config::getValue('MaxSystem');
@@ -493,7 +493,7 @@ class GalaxyGenerator
         return (int)round($fields);
     }
 
-    public static function CreatePlanet(int $userId, string $NamePlanet, bool $HomeWorld = false): array
+    public static function CreatePlanet(int $userId, string $NamePlanet, bool $HomeWorld = false, ?array $position = null): array
     {
         $logger = Logger::getInstance();
 
@@ -513,6 +513,10 @@ class GalaxyGenerator
         $planetData = self::generatePlanet($starType, $position['distance'], $HomeWorld);
 
         // --- 3. Добавляем общие поля ---
+        $planetData['galaxy'] = (int)$position['galaxy'];
+        $planetData['system'] = (int)$position['system'];
+        $planetData['planet'] = (int)$position['orbit'];
+        $planetData['distance'] = (int)$position['distance'];
         $planetData['owner_id'] = $userId;
         $planetData['name'] = $NamePlanet;
         $planetData['create_time'] = time();
@@ -522,6 +526,25 @@ class GalaxyGenerator
         // --- 4. Приведение к схеме и сохранение ---
         $planetData = Planets::castRowToSchema($planetData, true);
         Planets::add($planetData);
+
+        // Помечаем орбиту как занятую планетой
+        $orbitData = GalaxyOrbits::findByIndex('galaxy_system_orbit', [
+            $planetData['galaxy'],
+            $planetData['system'],
+            $planetData['planet'],
+        ]);
+
+        if (!empty($orbitData[0])) {
+            $orbitData[0]['type'] = GalaxyOrbits::PLANET;
+            GalaxyOrbits::update($orbitData[0]);
+        } else {
+            $logger->warning("Не найдена орбита для созданной планеты", [
+                'planet_id' => $planetData['id'] ?? 0,
+                'galaxy' => $planetData['galaxy'],
+                'system' => $planetData['system'],
+                'orbit' => $planetData['planet'],
+            ]);
+        }
 
         $logger->info("Создана планета {$planetData['name']} (ID={$planetData['id']}) для пользователя #{$userId}");
 

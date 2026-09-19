@@ -28,14 +28,13 @@ enum FleetCommandType: int
     case TRANSPORT = 30;    // Перевозка ресурсов
     case LOAD = 31;         // Погрузка ресурсов и топлива
     case UNLOAD = 32;       // Выгрузка ресурсов и топлива
-    case HARVEST = 33;      // Сбор обломков (переработчики)
+    case RECYCLE = 33;      // Сбор обломков (переработчики)
     case COLONIZE = 34;     // Колонизация новой планеты
-    case TRANSFER = 35;     // Передача ресурсов между флотами (в космосе или при стыковке)
 
         // ====== SPECIAL ======
     case EXPEDITION = 40;   // Экспедиция (исследовательская миссия)
-    case SCOUT = 41;        // Разведка области без боя
-    case PATROL = 42;       // Патрулирование орбиты / системы с циклическим маршрутом
+    //case SCOUT = 41;        // Разведка области без боя
+    //case PATROL = 42;       // Патрулирование орбиты / системы с циклическим маршрутом
     case OBSERVE = 43;      // Наблюдение за системой (сенсоры, спутники)
 
         // ====== CONTROL ======
@@ -43,8 +42,10 @@ enum FleetCommandType: int
     case LAND = 51;         // Приземление / расформирование флота
     case STAY = 52;         // Сменить домашнюю планету
     case MERGE = 53;        // Объединить два флота
-    case SPLIT = 54;        // Разделить флот
-    case CANCEL = 55;       // Отмена текущей миссии (возврат домой)
+    case RESEARCH = 54;
+
+    //case SPLIT = 54;        // Разделить флот
+    //case CANCEL = 55;       // Отмена текущей миссии (возврат домой)
 
     /**
      * Возвращает ключ для файла локализации (lang.json)
@@ -67,21 +68,22 @@ enum FleetCommandType: int
             self::TRANSPORT     => 'fleet_command.transport',
             self::LOAD          => 'fleet_command.load',
             self::UNLOAD        => 'fleet_command.unload',
-            self::HARVEST       => 'fleet_command.harvest',
+            self::RECYCLE       => 'fleet_command.recycle',
             self::COLONIZE      => 'fleet_command.colonize',
-            self::TRANSFER      => 'fleet_command.transfer',
+            //self::TRANSFER      => 'fleet_command.transfer',
 
             self::EXPEDITION    => 'fleet_command.expedition',
-            self::SCOUT         => 'fleet_command.scout',
-            self::PATROL        => 'fleet_command.patrol',
+            //self::SCOUT         => 'fleet_command.scout',
+            //self::PATROL        => 'fleet_command.patrol',
             self::OBSERVE       => 'fleet_command.observe',
 
             self::WAIT          => 'fleet_command.wait',
             self::LAND          => 'fleet_command.land',
             self::STAY          => 'fleet_command.stay',
             self::MERGE         => 'fleet_command.merge',
-            self::SPLIT         => 'fleet_command.split',
-            self::CANCEL        => 'fleet_command.cancel',
+            self::RESEARCH         => 'fleet_command.research',
+            //self::SPLIT         => 'fleet_command.split',
+            //self::CANCEL        => 'fleet_command.cancel',
         };
     }
 

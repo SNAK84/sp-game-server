@@ -3,9 +3,12 @@
 namespace SPGame\Game\Services;
 
 use SPGame\Core\Logger;
-use SPGame\Game\Repositories\Fleets;
-use SPGame\Game\Repositories\FleetsShips;
+use SPGame\Core\Message;
+use SPGame\Core\WSocket;
+use SPGame\Game\Pages\FleetsPage;
+use SPGame\Game\Repositories\Accounts;
 use SPGame\Game\Repositories\Vars;
+
 
 class FleetsServices
 {
@@ -20,24 +23,9 @@ class FleetsServices
             return;
         }
 
-        $Planet = $AccountData['Planet'];
+        $fleetsData = FleetsData::getInstance();
 
-        $Fleet = [
-            'owner_id'           => $AccountData['User']['id'],
-            'owner_id'           => $AccountData['User']['id'],
-            'home_planet_id'     => $Planet['id'],
-            'current_parent_id'  => $Planet['id'],
-            'current_parent_type' => 'planet',
-            'anchor_distance'    => 0.0,
-        ];
-
-        $Fleet = Fleets::castRowToSchema($Fleet, true);
-
-        $FleetShips = [
-            'id'        => $Fleet['id'],
-            'fleet_id'  => $Fleet['id'],
-            'owner_id'  => $Fleet['owner_id'],
-        ];
+        $fleet = $fleetsData->create($AccountData);
 
         $CountShips = 0;
         foreach ($items as $Element => $Count) {
@@ -46,7 +34,8 @@ class FleetsServices
             if (!isset($AccountData['Ships'][$name])) continue;
             if ($Count < 1 || $Count > $AccountData['Ships'][$name]) continue;
 
-            $FleetShips["{$name}_count"] = $Count;
+            $fleet->addShip($Element, $Count);
+
             $AccountData['Ships'][$name] -= $Count;
             $CountShips++;
         }
@@ -58,13 +47,11 @@ class FleetsServices
 
         //Logger::getInstance()->info("AddToOrbit FleetShips", $FleetShips);
         if ($CountShips > 0) {
-
-            // Добавляем флот в AccountData
-            $AccountData['Fleets'][$Fleet['id']] = array_merge($Fleet, ['Ships' => $FleetShips]);
-
-            //Fleets::add($Fleet);
-            //FleetsShips::add($FleetShips);
+            // Создание и регистрация флота принадлежат FleetsData.
             $AccountData->save();
+            $fleet->save();
+        } else {
+            $fleet->destroy();
         }
     }
 
@@ -78,6 +65,7 @@ class FleetsServices
         bool $save = true
     ) {
         $Logger = Logger::getInstance();
+        $fleetsData = $AccountData->getFleetsData();
 
         if ($count <= 0) {
             $Logger->warning("MoveShip: invalid count {$count}");
@@ -90,35 +78,38 @@ class FleetsServices
             $Logger->error("MoveShip: Unknown ShipId {$shipId}");
             return;
         }
-        
+
         $toPlanet   = ($toFleetId === 0);
         $fromPlanet = ($fromFleetId === 0);
 
         // Проверка существования флотов
-        if (!$fromPlanet && empty($AccountData["Fleets"][$fromFleetId])) {
+        $fromFleet = $fromPlanet ? null : $fleetsData->get($fromFleetId);
+        $toFleet = $toPlanet ? null : $fleetsData->get($toFleetId);
+        if (!$fromPlanet && $fromFleet === null) {
             $Logger->warning("MoveShip: fromFleetId {$fromFleetId} not found");
             return;
         }
-        if (!$toPlanet && empty($AccountData["Fleets"][$toFleetId])) {
+        if (!$toPlanet && $toFleet === null) {
             $Logger->warning("MoveShip: toFleetId {$toFleetId} not found");
             return;
         }
 
         // Если участвует планета, укажем рабочую
         if ($toPlanet || $fromPlanet) {
-            $AccountData["WorkPlanet"] = $AccountData["Fleets"][$fromFleetId]['start_id'] ?? $AccountData["WorkPlanet"];
+            $AccountData["WorkPlanet"] = $fromFleet?->getHomePlanetId() ?? $AccountData["WorkPlanet"];
         }
 
         // Перемещение между флотами
         if ($toFleetId > 0 && $fromFleetId > 0) {
 
-            $fromShips = &$AccountData["Fleets"][$fromFleetId]['Ships'];
-            $toShips   = &$AccountData["Fleets"][$toFleetId]['Ships'];
+            $fromShips = $fromFleet->getShip($shipId);
+            $toShips   = $toFleet->getShip($shipId);
 
-            $fromCount = (int)($fromShips["{$ShipName}_count"] ?? 0);
-            $toCount   = (int)($toShips["{$ShipName}_count"] ?? 0);
-            $fromExp   = (float)($fromShips["{$ShipName}_experience"] ?? 0);
-            $toExp     = (float)($toShips["{$ShipName}_experience"] ?? 0);
+
+            $fromCount = $fromShips->getCount() ?? 0;
+            $toCount   = $toShips?->getCount() ?? 0;
+            $fromExp   = $fromShips->getExperience() ?? 0;
+            $toExp     = $toShips?->getExperience() ?? 0;
 
             if ($count > $fromCount) $count = $fromCount;
             if ($count <= 0) return;
@@ -133,19 +124,19 @@ class FleetsServices
             $toExp   = ($toExp + $fromAvg * $count); // суммарный опыт
             $fromExp = $fromAvg * $fromCount;
 
-            $fromShips["{$ShipName}_count"] = $fromCount;
-            $fromShips["{$ShipName}_experience"] = $fromExp;
+            $fromShips->setCount($fromCount);
+            $fromShips->setExperience($fromExp);
 
-            $toShips["{$ShipName}_count"] = $toCount;
-            $toShips["{$ShipName}_experience"] = $toExp;
+            $toShips->setCount($toCount);
+            $toShips->setExperience($toExp);
 
             // Флот → Планета
         } elseif ($toPlanet) {
-            $fromShips = &$AccountData["Fleets"][$fromFleetId]['Ships'];
+            $fromShips = $fromFleet->getShip($shipId);
             $planetShips = &$AccountData['Ships'];
 
-            $fromCount = (int)($fromShips["{$ShipName}_count"] ?? 0);
-            $fromExp   = (float)($fromShips["{$ShipName}_experience"] ?? 0);
+            $fromCount = $fromShips->getCount() ?? 0;
+            $fromExp   = $fromShips->getExperience() ?? 0;
 
             if ($count > $fromCount) $count = $fromCount;
             if ($count <= 0) return;
@@ -154,17 +145,17 @@ class FleetsServices
 
             $fromCount -= $count;
             $planetShips[$ShipName] = (int)($planetShips[$ShipName] ?? 0) + $count;
-            $fromShips["{$ShipName}_count"] = $fromCount;
-            $fromShips["{$ShipName}_experience"] = $fromAvg * $fromCount;
+            $fromShips->setCount($fromCount);
+            $fromShips->setExperience($fromAvg * $fromCount);
 
             // Планета → Флот
         } elseif ($fromPlanet) {
             $planetShips = &$AccountData['Ships'];
-            $toShips = &$AccountData["Fleets"][$toFleetId]['Ships'];
+            $toShips = $toFleet->getShip($shipId);
 
             $fromCount = (int)($planetShips[$ShipName] ?? 0);
-            $toCount   = (int)($toShips["{$ShipName}_count"] ?? 0);
-            $toExp     = (float)($toShips["{$ShipName}_experience"] ?? 0);
+            $toCount   = $toShips?->getCount() ?? 0;
+            $toExp     = $toShips?->getExperience() ?? 0;
 
             if ($count > $fromCount) $count = $fromCount;
             if ($count <= 0) return;
@@ -173,95 +164,59 @@ class FleetsServices
             $toCount   += $count;
 
             $planetShips[$ShipName] = $fromCount;
-            $toShips["{$ShipName}_count"] = $toCount;
+            $toShips->setCount($toCount);
+            $toShips->setExperience($toExp);
         }
 
         // Проверяем — не стал ли флот пустым
-        if (!$fromPlanet && self::isFleetEmpty($AccountData["Fleets"][$fromFleetId]['Ships'])) {
+        if (!$fromPlanet && $fromFleet->getTotalShips() === 0) {
             self::DisbandFleet($fromFleetId, $AccountData, $Time, true, $save);
         }
-        if (!$toPlanet && self::isFleetEmpty($AccountData["Fleets"][$toFleetId]['Ships'])) {
+        if (!$toPlanet && $toFleet->getTotalShips() === 0) {
             self::DisbandFleet($toFleetId, $AccountData, $Time, true, $save);
         }
 
         // Сохранение
         if ($save) {
             $AccountData->save();
+            $fromFleet->save();
+            $toFleet->save();
         }
-    }
-
-    /**
-     * Проверка пуст ли флот
-     */
-    private static function isFleetEmpty(Data $ships): bool
-    {
-        foreach ($ships->toArray() as $key => $value) {
-            if (str_ends_with($key, '_count') && $value > 0) return false;
-        }
-        return true;
     }
 
     public static function DisbandFleet(int $fleetId, AccountData &$AccountData, float $Time, bool $returnToPlanet = true, bool $save = true): bool
     {
         $Logger = Logger::getInstance();
 
-        if (empty($AccountData["Fleets"][$fleetId])) {
+        $Fleet = $AccountData->getFleetsData()->get($fleetId);
+        if ($Fleet === null) {
             $Logger->warning("DisbandFleet: fleetId {$fleetId} not found");
             return false;
         }
-
-        $Fleet = &$AccountData["Fleets"][$fleetId];
-        $Ships = &$Fleet['Ships'];
 
         // --- Возврат ресурсов ---
         if ($returnToPlanet) {
             $planetResources = &$AccountData['Resources'];
 
-            $ressIDs = array_merge(Vars::$reslist['resstype'][1], Vars::$reslist['resstype'][3]);
-            foreach ($ressIDs as $ResID) {
-                $value = (float)($Fleet["resource_" . Vars::$resource[$ResID]] ?? 0);
-                if ($value > 0) {
-                    $planetResources[$ResID]['count'] += $value;
-                    $Fleet["resource_" . Vars::$resource[$ResID]] = 0;
-                }
+            $FleetResources = $Fleet->getResources();
+
+            foreach ($FleetResources as $ResID => $Resource) {
+                $planetResources[$ResID]['count'] += $Resource->GetCount();
+                $Resource->setCount(0);
             }
 
             $Logger->info("DisbandFleet: returned resources from fleet {$fleetId} to planet");
-        }
 
-        if (self::isFleetEmpty($Ships)) {
-            $Logger->info("DisbandFleet: fleetId {$fleetId} has no ships", $Ships->toArray());
-            unset($AccountData["Fleets"][$fleetId]);
-            if ($save) {
-                Fleets::delete($Fleet->toArray());
-                FleetsShips::delete($Ships->toArray());
-                $AccountData->save();
-            }
-            return true;
-        }
-
-        // Возвращаем корабли на планету (если включено)
-        if ($returnToPlanet) {
-            foreach ($Ships->toArray() as $key => $value) {
-                if (str_ends_with($key, '_count')) {
-                    $ShipName = str_replace('_count', '', $key);
-                    $count = (int)$value;
-                    if ($count > 0) {
-                        $AccountData['Ships'][$ShipName] += $count;
-                    }
-                }
+            // Возврат кораблей
+            foreach ($Fleet->getShips() as $shipId => $ship) {
+                $AccountData['Ships'][$ship->getShipTypeName()] += $ship->getCount();
             }
         }
 
+        // Удаляем флот из общего registry.
+        $AccountData->getFleetsData()->remove($fleetId, $save);
 
-
-        $Logger->info("DisbandFleet: removing fleet {$fleetId}");
-
-        // Удаляем флот и записи
-        unset($AccountData["Fleets"][$fleetId]);
         if ($save) {
-            Fleets::delete($Fleet->toArray());
-            FleetsShips::delete($Ships->toArray());
             $AccountData->save();
         }
         return true;

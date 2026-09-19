@@ -7,7 +7,7 @@ use SPGame\Game\Repositories\Vars;
 
 class FleetFunctions
 {
-    public static function GetShipConsumption($Ship, AccountData $AccountData)
+    public static function GetShipConsumption(int $Ship, AccountData $AccountData)
     {
         return (
             ($AccountData['Techs']['impulse_motor_tech'] >= 5 && $Ship == 202) ||
@@ -16,7 +16,7 @@ class FleetFunctions
             Vars::$attributes[$Ship]['consumption'];
     }
 
-    public static function GetShipSpeed($Ship, AccountData $AccountData)
+    public static function GetShipSpeed(int $Ship, AccountData $AccountData)
     {
 
         $techSpeed    = Vars::$attributes[$Ship]['tech'];

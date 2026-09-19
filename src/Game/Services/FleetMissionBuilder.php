@@ -25,16 +25,18 @@ class FleetMissionBuilder
     {
         return match ($mission) {
             FleetMissionType::ATTACK => self::buildAttack($start, $target, $options),
+            FleetMissionType::GROUP_ATTACK => self::buildGroupAttack($start, $target, $options),
+            FleetMissionType::DESTROY => self::buildDestroy($start, $target, $options),
             FleetMissionType::TRANSPORT => self::buildTransport($start, $target, $options),
             FleetMissionType::COLONIZE => self::buildColonize($start, $target, $options),
-            FleetMissionType::HARVEST => self::buildHarvest($start, $target, $options),
+            FleetMissionType::RECYCLE => self::buildRecycle($start, $target, $options),
             FleetMissionType::EXPEDITION => self::buildExpedition($start, $target, $options),
             FleetMissionType::DEFEND => self::buildDefend($start, $target, $options),
             FleetMissionType::SPY => self::buildSpy($start, $target, $options),
-            FleetMissionType::RETURN => self::buildReturn($start, $options),
+            FleetMissionType::RESEARCH => self::buildResearch($start, $target, $options),
             FleetMissionType::RELOCATE => self::buildRelocate($start, $target, $options),
             FleetMissionType::MERGE => self::buildMerge($start, $target, $options),
-            FleetMissionType::SCOUT => self::buildScout($start, $target, $options),
+            FleetMissionType::OBSERVE => self::buildObserve($start, $target, $options),
             default => [],
         };
     }
@@ -152,6 +154,28 @@ class FleetMissionBuilder
         return $cmds;
     }
 
+    public static function buildGroupAttack(array $start, array $target, array $options = []): array
+    {
+        $cmds = self::buildForwardPath($start, $target);
+        $cmds[] = ['type' => FleetCommandType::GROUP_ATTACK, 'params' => ['target' => $target]];
+        $cmds = array_merge($cmds, self::buildForwardPath($target, $start));
+        $cmds[] = ['type' => FleetCommandType::UNLOAD, 'params' => ['target' => $start]];
+        $cmds[] = ['type' => FleetCommandType::STAY, 'params' => ['at' => $start]];
+
+        return $cmds;
+    }
+
+    public static function buildDestroy(array $start, array $target, array $options = []): array
+    {
+        $cmds = self::buildForwardPath($start, $target);
+        $cmds[] = ['type' => FleetCommandType::DESTROY, 'params' => ['target' => $target]];
+        $cmds = array_merge($cmds, self::buildForwardPath($target, $start));
+        $cmds[] = ['type' => FleetCommandType::UNLOAD, 'params' => ['target' => $start]];
+        $cmds[] = ['type' => FleetCommandType::STAY, 'params' => ['at' => $start]];
+
+        return $cmds;
+    }
+
     public static function buildTransport(array $start, array $target, array $options = []): array
     {
         $return = $options['return'] ?? true;
@@ -191,12 +215,12 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildHarvest(array $start, array $target, array $options = []): array
+    public static function buildRecycle(array $start, array $target, array $options = []): array
     {
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
 
         $cmds = array_merge($cmds, self::buildForwardPath($start, $target));
-        $cmds[] = ['type' => FleetCommandType::HARVEST, 'params' => ['target' => $target]];
+        $cmds[] = ['type' => FleetCommandType::RECYCLE, 'params' => ['target' => $target]];
         $cmds = array_merge($cmds, self::buildForwardPath($target, $start));
         $cmds[] = ['type' => FleetCommandType::UNLOAD, 'params' => ['target' => $start]];
         $cmds[] = ['type' => FleetCommandType::STAY, 'params' => ['at' => $start]];
@@ -251,13 +275,18 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildReturn(array $start, array $options = []): array
+    public static function buildResearch(array $start, array $target, array $options = []): array
     {
-        // Простая команда "вернись домой" — разворачиваем в реальные движения:
-        // Если флот в пределах системы — просто move_to_home, иначе составной маршрут.
-        $fakeTarget = $options['current_position'] ?? $start;
-        // buildReturnPath expects start(original_home), target(current_position)
-        return self::buildForwardPath($fakeTarget, $start);
+        $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
+
+        $cmds = array_merge($cmds, self::buildForwardPath($start, $target));
+        $cmds[] = ['type' => FleetCommandType::RESEARCH, 'params' => ['target' => $target]];
+
+        $cmds = array_merge($cmds, self::buildForwardPath($target, $start));
+        $cmds[] = ['type' => FleetCommandType::UNLOAD, 'params' => ['target' => $start]];
+        $cmds[] = ['type' => FleetCommandType::STAY, 'params' => ['at' => $start]];
+
+        return $cmds;
     }
 
     public static function buildRelocate(array $start, array $target, array $options = []): array
@@ -279,12 +308,12 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildScout(array $start, array $target, array $options = []): array
+    public static function buildObserve(array $start, array $target, array $options = []): array
     {
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
         $cmds = array_merge($cmds, self::buildForwardPath($start, $target));
 
-        $cmds[] = ['type' => FleetCommandType::SCOUT, 'params' => ['target' => $target]];
+        $cmds[] = ['type' => FleetCommandType::OBSERVE, 'params' => ['target' => $target]];
 
 
         $cmds = array_merge($cmds, self::buildForwardPath($target, $start));

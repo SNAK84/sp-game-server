@@ -29,6 +29,7 @@ use SPGame\Game\Repositories\Messages;
 use SPGame\Game\Repositories\EntitySettings;
 
 use SPGame\Game\Repositories\Config;
+use SPGame\Game\Repositories\FleetCommands;
 use SPGame\Game\Repositories\Fleets;
 use SPGame\Game\Repositories\FleetsShips;
 use SPGame\Game\Repositories\Vars;
@@ -75,6 +76,7 @@ try {
 
     Fleets::init($saver);
     FleetsShips::init($saver);
+    FleetCommands::init($saver);
 
     Queues::init($saver);
     Messages::init($saver);

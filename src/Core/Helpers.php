@@ -11,7 +11,7 @@ class Helpers
     /**
      * Генерация PIN-кода с длиной из настроек Environment
      */
-    public static function generatePin(): int
+    public static function generatePin(): string
     {
         $length = Environment::getInt('PIN_LENGTH', 6);
 

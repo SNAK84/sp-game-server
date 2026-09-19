@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -50,6 +51,10 @@ $total = count($allPlanets);
 $logger->info("Загружено планет: {$total}");
 
 foreach ($allPlanets as &$planet) {
+
+    $System  = Galaxy::getSystem((int)$planet['galaxy'], (int)$planet['system']);
+    $Orbits  = GalaxyOrbits::findByIndex('galaxy_system', [(int)$planet['galaxy'], (int)$planet['system']]);
+
     $planet['galaxy'] = 0;
     $planet['system'] = 0;
     $planet['planet'] = 0;
@@ -75,6 +80,7 @@ foreach ($allPlanets as &$planet) {
             }
         }
 
+
         // Определяем свободную позицию
         GalaxyGenerator::normalizeCoordinates($planet);
 
@@ -93,7 +99,7 @@ foreach ($allPlanets as &$planet) {
         }
         $starType = $system['star_type'] ?? 'G';
 
-        $orbits = GalaxyOrbits::findByIndex('galaxy_system', [$g, $s]);
+        $orbits = GalaxyOrbits::findByIndex('galaxy_system', [$g, $s]) ?? [];
         $distance = null;
         foreach ($orbits as $orbit) {
             if ((int)$orbit['orbit'] === $p) {
@@ -118,9 +124,25 @@ foreach ($allPlanets as &$planet) {
         $planet['gravity']       = $newPhys['gravity'];
         $planet['atmosphere']    = $newPhys['atmosphere'];
         $planet['habitability']  = $newPhys['habitability'];
-        
+
 
         Planets::update($planet);
+
+        // Помечаем орбиту как занятую планетой
+        $orbitData = GalaxyOrbits::findByIndex('galaxy_system_orbit', [$g, $s, $p]);
+
+        if ($orbitData !== null) {
+            $orbitData['type'] = GalaxyOrbits::PLANET;
+            GalaxyOrbits::update($orbitData);
+        } else {
+            $logger->warning("Не найдена орбита для созданной планеты", [
+                'planet_id' => $planet['id'] ?? 0,
+                'galaxy' => $g,
+                'system' => $s,
+                'orbit' => $p,
+            ]);
+        }
+
         $logger->info("Планета #{$planetId} → G{$g}:S{$s}:P{$p}" . ($isHomeWorld ? " [Home]" : ""));
     } catch (\Throwable $e) {
         $errors++;
@@ -133,6 +155,8 @@ $logger->info("Этап 2 завершён. Всего: {$processed}, ошибо
 
 // --- ЭТАП 3: Синхронизация с базой ---
 Planets::syncToDatabase();
+Galaxy::syncToDatabase();
+GalaxyOrbits::syncToDatabase();
 
 $logger->info("=== DONE: Все планеты успешно перегенерированы ===");
 echo "Готово! Всего обработано: {$processed}, ошибок: {$errors}\n";

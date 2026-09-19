@@ -4,6 +4,7 @@ namespace SPGame\Game\Services;
 
 use SPGame\Core\Logger;
 use SPGame\Core\Message;
+use SPGame\Game\Pages\FleetsPage;
 use SPGame\Game\Repositories\PlayerQueue;
 
 class PageActionService
@@ -123,6 +124,57 @@ class PageActionService
                         'FleetId' => $Msg->getData('FleetId', 0)
                     ]);
                 }
+                /*
+                if ($action == "SendMission") {
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionFleetSendMission, [
+                        'fleet_id' => $Msg->getData('fleet_id', 0),
+                        'mission_type' => $Msg->getData('mission_type', 0),
+                        'target' => $Msg->getData('target', []),
+                        'start_time' => $Msg->getData('start_time', 0)
+                    ]);
+                    $handle = true;
+                }
+                if ($action == "SetFleetCommands") {
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionFleetSetCommands, [
+                        'fleet_id' => $Msg->getData('fleet_id', 0),
+                        'start_time' => $Msg->getData('start_time', 0),
+                        'commands' => $Msg->getData('commands', [])
+                    ]);
+                    $handle = true;
+                }
+                if ($action == "DeleteCommand") {
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionFleetDeleteCommand, [
+                        'fleet_id' => $Msg->getData('fleet_id', 0),
+                        'command_index' => $Msg->getData('command_index', 0)
+                    ]);
+                    $handle = true;
+                }
+                /*if ($action == "GetAvailableMissions") {
+                    PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionFleetGetAvailableMissions, [
+                        'fleet_id' => $Msg->getData('fleet_id', 0),
+                        'target' => $Msg->getData('target', []),
+                        'requestId' => $Msg->getRequestId(),
+                    ]);
+                    $handle = true;
+                }
+                if ($action == "GetFleetCommands") {
+                    // Возвращаем текущие команды флота
+                    $fleetId = $Msg->getData('fleet_id', 0);
+                    
+                    // Получаем данные о флоте
+                    $fleetsRepo = $AccountData["Fleets"];
+                    $fleet = $fleetsRepo->findById($fleetId);
+                    
+                    if (!$fleet) {
+                        $Msg->setError('fleet_not_found', 'Fleet not found');
+                        $Msg->setData('commands', []);
+                    } else {
+                        // Возвращаем команды
+                        $commands = $fleet['commands'] ?? [];
+                        $Msg->setData('commands', $commands);
+                    }
+                    $handle = true;
+                }*/
                 break;
 
             case 'messages':

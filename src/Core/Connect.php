@@ -153,6 +153,16 @@ class Connect
     private static function handleEmailNotVerified(array $result, Message $response, int $fd): array
     {
         $aid = self::getAccount($fd);
+        if (!$aid) {
+            // Если account ещё не привязан к соединению (например, при авторизации
+            // по сохранённому токену), привязываем его — иначе последующее
+            // подтверждение PIN вернёт ошибку NOT_AUTHORIZED (111).
+            $accByToken = !empty($result['token']) ? Accounts::findByToken($result['token']) : null;
+            $aid = $accByToken ? $accByToken['id'] : null;
+            if ($aid) {
+                Connect::setAccount($fd, (int)$aid);
+            }
+        }
         $accaunt = Accounts::findById($aid);
 
         $response->setToken($accaunt['token'] ?? '');
@@ -259,9 +269,11 @@ class Connect
                 } elseif (isset($result['success']) && $result['success'] === true) {
 
                     if ($action == 'send_verify_email') {
+                        $response->setToken($result['token'] ?? '');
                         $response->setData('message', $result['message']);
-                        $response->setMode("0overview");
-                        $response->setAction("");
+                        $response->setData("cooldown", Accounts::getResendCooldownEmail($result['id'] ?? self::getAccount($frame->fd)));
+                        $response->setData("PinLeght", Environment::getInt('PIN_LENGTH', 6));
+                        $response->setMode("login")->setAction("verify_email");
                         return $response->source();
                     }
 
@@ -308,6 +320,19 @@ class Connect
 
                 $response->setError('missing_token', 'Token is required')->setMode("login")->setAction("login");
                 return $response->source();
+            }
+
+            // --- НЕ запускаем игровой режим для неверифицированного аккаунта ---
+            // При наличии сохранённого токена клиент может слать игровой mode (overview и т.п.),
+            // а также 'reconnect'. Для такого аккаунта всегда возвращаем окно верификации,
+            // не выполняя authByToken (иначе образуется цикл запросов "Token auth denied").
+            $preAcc = Accounts::findByToken($token);
+            if ($preAcc && empty($preAcc['verify_email'])) {
+                return self::handleEmailNotVerified(
+                    ['success' => true, 'id' => $preAcc['id'], 'token' => $token],
+                    $response,
+                    $frame->fd
+                );
             }
 
             // Проверяем токен — authByToken должен возвращать массив с success

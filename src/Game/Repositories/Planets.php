@@ -47,6 +47,7 @@ class Planets extends BaseRepository
         'indexes' => [
             ['name' => 'PRIMARY', 'type' => 'PRIMARY', 'fields' => ['id']],
             ['name' => 'idx_owner_id', 'type' => 'INDEX', 'fields' => ['owner_id']],
+
         ],
     ];
 
@@ -56,7 +57,9 @@ class Planets extends BaseRepository
     /** Индексы Swoole */
     protected static array $indexes = [
         'owner_id' => ['key' => ['owner_id'], 'Unique' => false],
-        'galaxy_system' => ['key' => ['galaxy', 'system'], 'Unique' => false]
+        'galaxy_system' => ['key' => ['galaxy', 'system'], 'Unique' => false],
+        'galaxy_system_planet' => ['key' => ['galaxy', 'system', 'planet'], 'Unique' => false],
+        'galaxy_system_planet_type' => ['key' => ['galaxy', 'system', 'planet', 'planet_type'], 'Unique' => true]
     ];
 
     /** @var Table */

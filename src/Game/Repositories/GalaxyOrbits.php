@@ -16,7 +16,7 @@ class GalaxyOrbits extends BaseRepository
     public const EMPTY         = 0;
     public const ASTEROID_BELT = 1;
     public const GAS_GIANT     = 2;
-    public const PLANET        = 5;
+    public const PLANET        = 5;   
 
     /** @var Table Основная таблица */
     protected static Table $table;
@@ -44,7 +44,7 @@ class GalaxyOrbits extends BaseRepository
 
     /** Индексы Swoole */
     protected static array $indexes = [
-        'galaxy_system_orbit' => ['key' => ['galaxy', 'system', 'orbit'], 'Unique' => false],
+        'galaxy_system_orbit' => ['key' => ['galaxy', 'system', 'orbit'], 'Unique' => true],
         'galaxy_system' => ['key' => ['galaxy', 'system'], 'Unique' => false]
     ];
 

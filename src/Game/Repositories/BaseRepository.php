@@ -234,7 +234,10 @@ abstract class BaseRepository
     protected static function buildIndexKey(array|string $value): string
     {
         if (is_array($value)) {
-            sort($value, SORT_STRING); // сортируем элементы для уникальности вне зависимости от порядка
+            // sort($value, SORT_STRING); // сортируем элементы для уникальности вне зависимости от порядка
+            // Для составных индексов порядок полей важен: [galaxy, system, orbit]
+            // и [galaxy, orbit, system] — это разные ключи, даже если по смыслу
+            // элементы похожи. Сортировка ломает корректность поиска.
             $key = implode('_', array_map(fn($v) => (string)$v, $value));
         } else {
             $key = (string)$value;

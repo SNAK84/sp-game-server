@@ -45,7 +45,7 @@ class Accounts extends BaseRepository
             'credit' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(8) DEFAULT 0', 'default' => 0],
             'lang' => ['swoole' => [Table::TYPE_STRING, 4], 'sql' => "VARCHAR(4) DEFAULT 'ru'", 'default' => 'ru'],
             'frame' => ['swoole' => [Table::TYPE_INT, 8], 'default' => 0],
-            'email_pin' => ['swoole' => [Table::TYPE_INT, 4], 'default' => 0],
+            'email_pin' => ['swoole' => [Table::TYPE_STRING, 8], 'sql' => "VARCHAR(8) DEFAULT NULL", 'default' => ''],
             'mode' => ['swoole' => [Table::TYPE_STRING, 32], 'default' => ''],
         ],
         'indexes' => [
@@ -387,7 +387,7 @@ class Accounts extends BaseRepository
             return ['error' => Errors::getArrayMessage(Errors::INVALID_TOKEN)];
         }
 
-        if ((string)$account['email_pin'] !== (string)$pin) {
+        if (trim((string)$account['email_pin']) !== trim((string)$pin)) {
             self::$logger->warning("Invalid email PIN for account ID {$accountId} | FD: $fd");
             return ['error' => Errors::getArrayMessage(Errors::INVALID_PIN)];
         }
@@ -505,20 +505,6 @@ class Accounts extends BaseRepository
             ];
         }
 
-        // Обновляем время последней отправки
-        $account['last_send_verify_mail'] = time();
-        self::update($account);
-
-        // Обновляем в базе данных
-        /*$db = Database::getInstance();
-        $db->query(
-            "UPDATE accounts SET last_send_verify_mail = :last_send_verify_mail WHERE id = :id",
-            [
-                ':last_send_verify_mail' => $account['last_send_verify_mail'],
-                ':id' => $accountId
-            ]
-        );*/
-
         self::$logger->info("Resending verification PIN for account {$account['login']} | ID: $accountId");
 
         $sent = self::sendEmailConfirmation($accountId);
@@ -528,10 +514,15 @@ class Accounts extends BaseRepository
             return ['error' => Errors::getArrayMessage(Errors::SEND_FAILED)];
         }
 
+        // Устанавливаем время последней отправки ТОЛЬКО после успешной отправки письма
+        $account['last_send_verify_mail'] = time();
+        self::update($account);
+
         self::$logger->info("Verification PIN email sent successfully for account {$account['login']} | ID: $accountId");
 
         return [
             'success' => true,
+            'id' => $accountId,
             'message' => 'Verification PIN sent'
         ];
     }

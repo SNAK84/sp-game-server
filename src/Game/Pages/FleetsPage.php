@@ -7,36 +7,55 @@ use SPGame\Core\Logger;
 use SPGame\Game\Enums\FleetCommandType;
 use SPGame\Game\Enums\FleetMissionType;
 
+use SPGame\Game\Fleet\Fleet;
 use SPGame\Game\Repositories\Fleets;
 use SPGame\Game\Repositories\FleetsShips;
+use SPGame\Game\Repositories\PlayerQueue;
 use SPGame\Game\Repositories\Vars;
 
 use SPGame\Game\Services\FleetFunctions;
 
 use SPGame\Game\Services\AccountData;
 
-use SPGame\Game\Services\FleetsServices;
+use SPGame\Game\Services\FleetMissionService;
 
 class FleetsPage extends AbstractPage
 {
     public function render(AccountData &$AccountData): array
     {
 
-        if ($this->Msg->getAction() === 'MoveShip') {
-
-            $fromFleetId = $this->Msg->getData('fromFleetId', 0);
-            $toFleetId = $this->Msg->getData('toFleetId', 0);
-            $shipId = $this->Msg->getData('shipId', 0);
-            $count = $this->Msg->getData('count', 0);
-
-            FleetsServices::MoveShip($toFleetId, $fromFleetId, $shipId, $count, $AccountData, microtime(true), false);
-
-            //$this->logger->info("MoveShip Fleet to Fleet to " . $AccountData["Fleets"][$toFleetId]['Ships']["destructor_count"]);
-        }
-        if ($this->Msg->getAction() === 'DisbandFleet') {
-            FleetsServices::DisbandFleet($this->Msg->getData('FleetId', 0), $AccountData, microtime(true), true, false);
+        $AvailableMissions = null;
+        $TravelInfo = null;
+        $Target = $this->Msg->getData('target', []);
+        if (!is_array($Target)) {
+            $Target = [];
         }
 
+        Logger::getInstance()->info("FleetsPage getAction", [$this->Msg->getAction()]);
+
+
+        if ($this->Msg->getAction() === 'GetAvailableMissions') {
+
+            $coordinates = $this->Msg->getData('coordinates', []);
+
+            // coordinates {"galaxy":1,"system":1,"type":1,"orbit":2}
+            Logger::getInstance()->info("coordinates", $coordinates);
+
+            $fleetMissionService = $this->getFleetMissionService();
+            $fleetId = $this->Msg->getData('fleetId');
+
+            $AvailableMissions = $fleetMissionService->getAvailableMissions(
+                $AccountData,
+                $fleetId,
+                $coordinates
+            );
+
+            $TravelInfo = $fleetMissionService->getTravelInfo(
+                $AccountData,
+                $fleetId,
+                $coordinates
+            );
+        }
 
         $Planet = &$AccountData['Planet'];
 
@@ -53,7 +72,10 @@ class FleetsPage extends AbstractPage
             'PlanetShips'   => $PlanetShips,
             'FleetTypes'    => Vars::$reslist['nametype']['fleet'],
             'FleetMissions' => FleetMissionType::list(),
+            'AvailableMissions' => $AvailableMissions,
+            'TravelInfo'    => $TravelInfo,
             'FleetCommands' => FleetCommandType::list(),
+            'Target'        => $Target,
         ];
     }
 
@@ -62,22 +84,18 @@ class FleetsPage extends AbstractPage
      */
     private function buildFleetList(AccountData &$AccountData): array
     {
+        $fleets = $AccountData->getFleetsData()->getForPlanet(
+            (int) $AccountData['User']['id'],
+            (int) $AccountData['Planet']['id']
+        );
 
-        Logger::getInstance()->info("buildFleetList",  $AccountData["Fleets"]->toArray());
-
-        $Fleets = $AccountData["Fleets"]->toArray();
         $FleetList = [];
 
-        // Построим карту name -> id только для кораблей (fleet)
-        /*$nameToId = [];
-        foreach (Vars::$reslist['fleet'] as $fid) {
-            $nameToId[Vars::$resource[$fid]] = $fid;
-        }*/
+        foreach ($fleets as $fleet) {
+            if ($fleet === null) {
+                continue;
+            }
 
-        foreach ($Fleets as $Fleet) {
-
-            // Если в строке флота нет блока Ships — пропускаем
-            $rawShips = $Fleet['Ships'] ?? [];
             $shipsNormalized = [];
 
             $countTotal = 0;
@@ -86,99 +104,96 @@ class FleetsPage extends AbstractPage
             $consumptionTotal = 0.0;
             $speedList = [];
 
-            // Перебираем все потенциальные корабли по списку ресурсов fleet
-            foreach (Vars::$reslist['fleet'] as $ShipId) {
-                $name = Vars::$resource[$ShipId];
+            // Перебираем фактический состав доменного Fleet.
+            foreach ($fleet->getShips() as $ShipId => $ship) {
+                $ShipId = (int) $ShipId;
+                //$name = Vars::$resource[$ShipId] ?? (string) $ShipId;
 
-                // Поля в флоте имеют формат: {name}_count, {name}_damage, {name}_experience, {name}_morale, {name}_status
-                $countKey = $name . '_count';
-                if (!isset($rawShips[$countKey])) {
-                    // возможно имя в raw отличается (например underscore vs dash) — но по твоему примеру совпадает
-                    continue;
-                }
-
-                $shipCount = (int)($rawShips[$countKey] ?? 0);
+                $shipCount = $ship->getCount();
                 if ($shipCount <= 0) {
                     // сохраним нулевой корабль (опционально) — но для клиента лучше не класть нулевые элементы
                     continue;
                 }
 
-                // Получаем дополнительные поля, если они есть
-                $damageKey = $name . '_damage';
-                $expKey = $name . '_experience';
-                $moraleKey = $name . '_morale';
-                $statusKey = $name . '_status';
-
-
-                $shipDamage = isset($rawShips[$damageKey]) ? (float)$rawShips[$damageKey] : 0.0;
-                $shipExp = isset($rawShips[$expKey]) ? (float)$rawShips[$expKey] : 0.0;
-                $shipMorale = isset($rawShips[$moraleKey]) ? (float)$rawShips[$moraleKey] : 1.0;
-                $shipStatus = isset($rawShips[$statusKey]) ? (int)$rawShips[$statusKey] : 0;
-
                 // Атрибуты корабля из Vars
-                $attr = Vars::$attributes[$ShipId] ?? [];
-                $shipCapacity = $attr['capacity'] ?? 0.0;
+                //$attr = Vars::$attributes[$ShipId] ?? [];
+                //$shipCapacity = $attr['capacity'] ?? 0.0;
 
                 // Функции расчёта, использующие AccountData (например модификаторы)
-                $shipSpeed = FleetFunctions::GetShipSpeed($ShipId, $AccountData);
-                $shipConsumption = FleetFunctions::GetShipConsumption($ShipId, $AccountData);
+                //$shipSpeed = FleetFunctions::GetShipSpeed($ShipId, $AccountData);
+                //$shipConsumption = FleetFunctions::GetShipConsumption($ShipId, $AccountData);
 
                 // Нормализованный объект корабля
                 $shipsNormalized[$ShipId] = [
                     'id'          => $ShipId,
-                    'name'        => $name,
+                    'name'        => $ship->getShipTypeName(),
                     'count'       => $shipCount,
-                    'speed'       => $shipSpeed,
-                    'capacity'    => $shipCapacity,
-                    'consumption' => $shipConsumption,
-                    'damage'      => $shipDamage,
-                    'experience'  => $shipExp,
-                    'morale'      => $shipMorale,
-                    'status'      => $shipStatus,
+                    'speed'       => $ship->getSpeed($AccountData),
+
+                    'capacity'    => $ship->getCapacity(),
+                    'consumption' => $ship->getConsumption($AccountData),
+
+                    'damage'      => $ship->getDamage(),
+                    'experience'  => $ship->getExperience(),
+                    'morale'      => $ship->getMorale(),
+                    'status'      => $ship->getStatus(),
                 ];
 
                 // Агрегаты флота
                 $countTotal += $shipCount;
                 $types++;
-                $capacityTotal += $shipCapacity * $shipCount;
-                $consumptionTotal += $shipConsumption * $shipCount;
-                $speedList[] = $shipSpeed;
+                $capacityTotal += $ship->getCapacityAll();
+                $consumptionTotal += $ship->getConsumptionAll($AccountData);
+                $speedList[] = $ship->getSpeed($AccountData);
             }
 
-            // вычислим скорость флота — минимальная из скоростей составляющих кораблей, если не задана
-            $fleetSpeed = $Fleet['speed'] ?? 0;
-            if (empty($fleetSpeed)) {
-                $fleetSpeed = (count($speedList) ? min($speedList) : 0);
-            }
+            $fleetSpeed = $fleet->getTotalSpeed($AccountData);
+            $startPosition = $fleet->StartPosition();
+            $endPosition = $fleet->EndPosition();
+            $currentPosition = $fleet->CurrentPosition();
 
             // Сформируем запись для клиента
-            $FleetList[$Fleet['id']] = [
-                'id'            => $Fleet['id'],
-                'mission'       => $Fleet['mission'],
-                'status'        => $Fleet['status'] ?? 0,
-                'is_return'     => $Fleet['is_return'] ?? 0,
+            $FleetList[$fleet->getId()] = [
+                'id'            => $fleet->getId(),
+                'mission'       => $fleet->getMission(),
+                'status'        => $fleet->getStatus(),
+                //'is_return'     => $fleet->isReturn() ? 1 : 0,
                 'speed'         => $fleetSpeed,
                 'count'         => $countTotal,
                 'types'         => $types,
                 'capacity'      => $capacityTotal,
                 'consumption'   => $consumptionTotal,
-                'fuel'          => $Fleet['fuel_current'] ?? 0.0,
-                'experience'    => $Fleet['experience'] ?? 0.0,
-                'resources'     => $this->extractResources($Fleet),
+                'fuel'          => $fleet->getFuelCurrent(),
+                'experience'    => $fleet->getExperience(),
+                'resources'     => $this->extractResources($fleet),
                 'ships'         => $shipsNormalized,
                 'start'         => [
-                    'galaxy' => $Fleet['start_galaxy'],
-                    'system' => $Fleet['start_system'],
-                    'planet' => $Fleet['start_planet'],
+                    'galaxy' => $startPosition->getGalaxy(),
+                    'system' => $startPosition->getSystem(),
+                    'orbit' => $startPosition->getOrbit(),
+                    'object_type' => $startPosition->getObjectType(),
+                    'distance' => $startPosition->getDistance(),
+                    'deg' => $startPosition->getDeg(),
+                    'type' => $startPosition->getType(),
                 ],
                 'end'           => [
-                    'galaxy' => $Fleet['end_galaxy'],
-                    'system' => $Fleet['end_system'],
-                    'planet' => $Fleet['end_planet'],
+                    'galaxy' => $endPosition->getGalaxy(),
+                    'system' => $endPosition->getSystem(),
+                    'orbit' => $endPosition->getOrbit(),
+                    'object_type' => $endPosition->getObjectType(),
+                    'distance' => $endPosition->getDistance(),
+                    'deg' => $endPosition->getDeg(),
+                    'type' => $endPosition->getType(),
                 ],
-                'start_time'    => $Fleet['start_time'],
-                'end_time'      => $Fleet['end_time'],
-                'stay_time'     => $Fleet['stay_time'],
+                'current'       => [
+                    'galaxy' => $currentPosition->getGalaxy(),
+                    'system' => $currentPosition->getSystem(),
+                    'distance' => $currentPosition->getDistance(),
+                    'deg' => $currentPosition->getDeg(),
+                ],
+                'start_time'    => $fleet->getStartTime(),
+                'end_time'      => $fleet->getEndTime(),
+                'stay_time'     => $fleet->getStayTime(),
             ];
         }
 
@@ -216,20 +231,25 @@ class FleetsPage extends AbstractPage
     /**
      * Извлекает ресурсы из строки флота
      */
-    private function extractResources(array $Fleet): array
+    private function extractResources(Fleet $fleet): array
     {
         $resources = [];
-        $ressIDs = array_merge(Vars::$reslist['resstype'][1], Vars::$reslist['resstype'][3]);
-        foreach ($ressIDs as $ResID) {
-            $key = "resource_" . Vars::$resource[$ResID];
-            if (isset($Fleet[$key])) {
-                $resources[$ResID] = [
-                    'id' => $ResID,
-                    'name' => Vars::$resource[$ResID],
-                    'count' => (float)$Fleet[$key],
-                ];
-            }
+
+        foreach ($fleet->getResources() as $resource) {
+            $resources[$resource->getID()] = [
+                'id' => $resource->getID(),
+                'name' => $resource->getName(),
+                'count' => $resource->getCount(),
+            ];
         }
+
         return $resources;
+    }
+
+    protected FleetMissionService $fleetMissionService;
+
+    protected function getFleetMissionService(): FleetMissionService
+    {
+        return $this->fleetMissionService ??= new FleetMissionService();
     }
 }

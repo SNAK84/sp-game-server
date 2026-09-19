@@ -197,7 +197,7 @@ class FleetCommands extends BaseRepository
     {
         foreach (self::$table as $id => $cmd) {
             if ($cmd['fleet_id'] === $fleetId) {
-                self::delete($id);
+                self::delete(['id' => $id]);
             }
         }
     }

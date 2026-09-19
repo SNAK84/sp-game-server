@@ -47,8 +47,11 @@ class Fleets extends BaseRepository
             // === Текущие координаты ===
             'current_galaxy' => ['swoole' => [Table::TYPE_INT, 1], 'sql' => 'TINYINT(2) NOT NULL', 'default' => 1],
             'current_system' => ['swoole' => [Table::TYPE_INT, 2], 'sql' => 'SMALLINT(3) NOT NULL', 'default' => 1],
+            'current_orbit'    => ['swoole' => [Table::TYPE_INT, 1], 'sql' => 'TINYINT(2) NOT NULL', 'default' => 0],
+            'current_object_type' => ['swoole' => [Table::TYPE_STRING, 16], 'sql' => 'VARCHAR(16) NOT NULL DEFAULT ""', 'default' => ''],
             'current_distance' => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(17,6)', 'default' => 0.0],
             'current_deg'      => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(17,6)', 'default' => 0.0],
+            'current_type'     => ['swoole' => [Table::TYPE_STRING, 8], 'sql' => 'VARCHAR(8) NOT NULL DEFAULT "object"', 'default' => 'object'],
 
             // === Тайминги ===
             'start_time'  => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(17,6)', 'default' => Defaults::MICROTIME],
@@ -64,7 +67,6 @@ class Fleets extends BaseRepository
             // === Ресурсы и топливо ===
             'fuel_total'       => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(17,6)', 'default' => 0.0],
             'fuel_current'     => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(17,6)', 'default' => 0.0],
-            'fuel_consumption' => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(17,6)', 'default' => 0.0],
 
             // === Статистика боя / эффективности ===
             'experience'       => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(17,6)', 'default' => 0.0],
@@ -90,6 +92,7 @@ class Fleets extends BaseRepository
         'status' => ['key' => ['status'], 'Unique' => false],
         'start_coords' => ['key' => ['start_galaxy', 'start_system'], 'Unique' => false],
         'end_coords' => ['key' => ['end_galaxy', 'end_system'], 'Unique' => false],
+        'owner_id_home_planet_id_status' => ['key' => ['owner_id', 'home_planet_id', 'status'], 'Unique' => false],
     ];
 
     protected static Table $syncTable;
@@ -129,5 +132,15 @@ class Fleets extends BaseRepository
             }
         }
         return $result;
+    }
+
+    public static function getById(int $fleetId): ?array
+    {
+        if ($fleetId <= 0) {
+            return null;
+        }
+
+        $fleet = static::$table->get((string) $fleetId);
+        return $fleet ?: null;
     }
 }

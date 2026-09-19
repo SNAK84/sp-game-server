@@ -242,6 +242,58 @@ class EventLoop
                     $sendMsg  = true;
                     break;
 
+                    /*
+                case PlayerQueue::ActionFleetSendMission:
+                    // Отправка флота с миссией
+                    $fleetId = $Event['data']['fleet_id'] ?? 0;
+                    $missionType = $Event['data']['mission_type'] ?? 0;
+                    $target = $Event['data']['target'] ?? [];
+                    $startTime = $Event['data']['start_time'] ?? 0;
+                    
+                    if ($fleetId > 0) {
+                        $fleetsPage = new \SPGame\Game\Pages\FleetsPage(new \SPGame\Core\Message());
+                        $fleetsPage->sendMission($fleetId, $missionType, $target, $startTime, $AccountData, $Event['added_at']);
+                        $sendMsg  = true;
+                    }
+                    break;
+
+                case PlayerQueue::ActionFleetSetCommands:
+                    // Установка команд флота
+                    $fleetId = $Event['data']['fleet_id'] ?? 0;
+                    $startTime = $Event['data']['start_time'] ?? 0;
+                    $commands = $Event['data']['commands'] ?? [];
+                    
+                    if ($fleetId > 0) {
+                        $fleetsPage = new \SPGame\Game\Pages\FleetsPage(new \SPGame\Core\Message());
+                        $fleetsPage->setFleetCommands($fleetId, $startTime, $commands, $AccountData, $Event['added_at']);
+                        $sendMsg  = true;
+                    }
+                    break;
+
+                case PlayerQueue::ActionFleetDeleteCommand:
+                    // Удаление команды флота
+                    $fleetId = $Event['data']['fleet_id'] ?? 0;
+                    $commandIndex = $Event['data']['command_index'] ?? 0;
+                    
+                    if ($fleetId > 0) {
+                        $fleetsPage = new \SPGame\Game\Pages\FleetsPage(new \SPGame\Core\Message());
+                        $fleetsPage->deleteCommand($fleetId, $commandIndex, $AccountData, $Event['added_at']);
+                        $sendMsg  = true;
+                    }
+                    break;
+*/
+                /*case PlayerQueue::ActionFleetGetAvailableMissions:
+                    $fleetId = (int)($Event['data']['fleet_id'] ?? 0);
+                    $target = $Event['data']['target'] ?? [];
+                    FleetsServices::GetAvailableMissions(
+                        $fleetId,
+                        is_array($target) ? $target : [],
+                        $AccountData, $Event['added_at']
+                    );
+
+                    $sendMsg = true;
+                    break;
+*/
 
 
                 case PlayerQueue::ActionMessagesRead:

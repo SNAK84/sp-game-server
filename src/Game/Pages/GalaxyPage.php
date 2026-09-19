@@ -16,8 +16,10 @@ use SPGame\Game\Repositories\Vars;
 
 use SPGame\Game\Services\Helpers;
 use SPGame\Game\Services\AccountData;
+use SPGame\Game\Services\FleetMissionService;
 use SPGame\Game\Services\GalaxyGenerator;
 use SPGame\Game\Services\QueuesServices;
+use SPGame\Game\Enums\FleetMissionType;
 
 class GalaxyPage extends AbstractPage
 {
@@ -36,6 +38,7 @@ class GalaxyPage extends AbstractPage
 
         $PlanetUser = [];
         $PlanetsList = [];
+        $FleetMissionService = new FleetMissionService();
         foreach ($Planets as &$Planet) {
 
             // Находим индекс орбиты по полю 'orbit'
@@ -156,7 +159,17 @@ class GalaxyPage extends AbstractPage
                 'deg'           => $Planet['deg'],
                 'speed'         => $Planet['speed'],
                 'rotation'      => $Planet['rotation'],
+                'owner_id'      => $Planet['owner_id'],
                 'UserName'      => $PlanetUser[$Planet['owner_id']]['name'],
+                'AvailableMissions' => $FleetMissionService->getAvailableMissionsForTarget(
+                    $AccountData,
+                    [
+                        'galaxy' => (int)$Planet['galaxy'],
+                        'system' => (int)$Planet['system'],
+                        'orbit' => (int)$Planet['planet'],
+                        'type' => 1,
+                    ]
+                ),
 
             ];
         }
@@ -169,9 +182,11 @@ class GalaxyPage extends AbstractPage
             'System'        => $System,
             'Orbits'        => $Orbits,
             'Planets'       => $PlanetsList,
+            'UserId'        => (int)$User['id'],
             'MaxGalaxy'     => (int)Config::getValue('MaxGalaxy'),
             'MaxSystem'     => (int)Config::getValue('MaxSystem'),
-            'SpeedPlanets'  => (int)Config::getValue('SpeedPlanets', 24)
+            'SpeedPlanets'  => (int)Config::getValue('SpeedPlanets', 24),
+            'FleetMissions' => FleetMissionType::list(),
         ];
     }
 }

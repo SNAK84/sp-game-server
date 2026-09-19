@@ -53,6 +53,12 @@ class Config extends BaseRepository
         'FieldsByTerraformer'=> 5,
         'FieldsByMoonBasis'  => 3,
         'SiloFactor'         => 3,
+
+        // === Перелёт флота между системами/галактиками ===
+        'InterSystemJumpDistance'  => 100000,
+        'InterGalaxyJumpDistance'  => 10000000,
+        'FleetGameSpeed'           => 10,
+        'FleetSpeedFactor'         => 1,
     ];
 
     protected static array $tableSchema = [
