@@ -194,6 +194,9 @@ class QueuesServices
         ];
 
         // транзакция для атомарности списания ресурсов и добавления в очередь
+        $resourceSnapshot = null;
+        $resourcesChanged = false;
+        $createdQueueId = null;
 
         try {
             if ($ActualCount == 0) {
@@ -234,6 +237,8 @@ class QueuesServices
                 }
 
                 $Resources = &$AccountData['Resources'];
+                $resourceSnapshot = self::snapshotResources($AccountData);
+                $resourcesChanged = true;
 
                 foreach ($costResources as $key => $value) {
                     if (!isset($Resources[$key]['count'])) $Resources[$key]['count'] = 0;
@@ -243,10 +248,21 @@ class QueuesServices
                 PlayerQueue::addQueue((int)$User['account_id'], (int)$User['id'], (int)$Planet['id'], PlayerQueue::ActionQueueReCalcTech);
             }
 
+            // Фиксируем ID до вызова add(), чтобы удалить частично созданную
+            // runtime-запись, если BaseRepository::add() завершится исключением.
+            $createdQueueId = Queues::nextId();
+            $addQueue['id'] = $createdQueueId;
             Queues::add($addQueue);
 
             Logger::getInstance()->info("QueuesServices::AddToQueue: added to queue", $addQueue);
         } catch (\Throwable $e) {
+            self::rollbackQueueRuntime(
+                $CurrentQueue,
+                $createdQueueId === null ? [] : [$createdQueueId],
+                $AccountData,
+                $resourceSnapshot,
+                $resourcesChanged
+            );
             Logger::getInstance()->error("QueuesServices::AddToQueue transaction error: " . $e->getMessage(), ['exception' => $e]);
             return;
         }
@@ -277,7 +293,13 @@ class QueuesServices
             $Missiles[$elementID] = BuildFunctions::getElementLevel($elementID, $AccountData);
         }
 
-        foreach ($items as $Element => $Count) {
+        $originalQueue = $CurrentQueue;
+        $resourceSnapshot = self::snapshotResources($AccountData);
+        $resourcesChanged = false;
+        $createdQueueIds = [];
+
+        try {
+            foreach ($items as $Element => $Count) {
             if ($CurrentQueueCount >= $MaxQueue) break;
             if (
                 empty($Count)
@@ -325,17 +347,21 @@ class QueuesServices
 
                 if ($availableToAdd > 0) {
                     $addCount = min($Count, $availableToAdd);
-                    $LastQueue['count'] += $addCount;
-                    $LastQueue['end_time'] += $addCount * $elementTime;
+                    $updatedLastQueue = $LastQueue;
+                    $updatedLastQueue['count'] += $addCount;
+                    $updatedLastQueue['end_time'] += $addCount * $elementTime;
 
-                    $QueueStartTime = $LastQueue['end_time'];
+                    $QueueStartTime = $updatedLastQueue['end_time'];
 
-                    Queues::update($LastQueue);
-
-                    // Списываем ресурсы
+                    // Сначала меняем resources, затем queue; catch ниже
+                    // восстанавливает обе части при ошибке второй операции.
+                    $resourcesChanged = true;
                     foreach ($costResources as $key => $value) {
                         $AccountData['Resources'][$key]['count'] -= $value * $addCount;
                     }
+
+                    Queues::update($updatedLastQueue);
+                    $LastQueue = $updatedLastQueue;
 
                     $Count -= $addCount;
                     if ($Count <= 0) continue;
@@ -348,6 +374,7 @@ class QueuesServices
 
 
             $addQueue = [
+                'id'        => Queues::nextId(),
                 'user_id'   => $userId,
                 'planet_id' => $planetId,
                 'object_id' => $Element,
@@ -361,16 +388,32 @@ class QueuesServices
             ];
 
 
-            Queues::add($addQueue);
+            // Запоминаем ID ещё до add(): add() может записать row, а
+            // затем бросить exception во время индексации.
+            $createdQueueIds[] = (int)$addQueue['id'];
 
+            $resourcesChanged = true;
             foreach ($costResources as $key => $value) {
                 if (!isset($AccountData['Resources'][$key]['count'])) $AccountData['Resources'][$key]['count'] = 0;
                 $AccountData['Resources'][$key]['count'] -= $value * $Count;
             }
 
+            Queues::add($addQueue);
+
             $QueueStartTime = $addQueue['end_time'];
             $LastQueue = $addQueue;
             $CurrentQueueCount++;
+            }
+        } catch (\Throwable $e) {
+            self::rollbackQueueRuntime(
+                $originalQueue,
+                $createdQueueIds,
+                $AccountData,
+                $resourceSnapshot,
+                $resourcesChanged
+            );
+            Logger::getInstance()->error("QueuesServices::AddToQueueHangar transaction error: " . $e->getMessage(), ['exception' => $e]);
+            return;
         }
     }
 
@@ -918,6 +961,80 @@ class QueuesServices
         }
 
         return false; // нечего активировать
+    }
+
+    private static function snapshotResources(AccountData $AccountData): array
+    {
+        return $AccountData['Resources']->toArray();
+    }
+
+    private static function getRuntimeQueueRow(int $queueId): ?array
+    {
+        foreach (Queues::getAll() ?? [] as $row) {
+            if ((int)($row['id'] ?? 0) === $queueId) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Компенсирует только runtime-состояние текущей операции постановки.
+     * Не используется для общего transaction framework и не затрагивает PlayerQueue.
+     */
+    private static function rollbackQueueRuntime(
+        array $originalQueue,
+        array $createdQueueIds,
+        AccountData &$AccountData,
+        ?array $resourceSnapshot,
+        bool $resourcesChanged
+    ): void {
+        if ($resourcesChanged && $resourceSnapshot !== null) {
+            try {
+                $AccountData['Resources'] = $resourceSnapshot;
+            } catch (\Throwable $rollbackException) {
+                Logger::getInstance()->critical('QueuesServices resource rollback failed', [
+                    'exception' => $rollbackException,
+                ]);
+            }
+        }
+
+        foreach (array_reverse(array_values(array_unique(array_map('intval', $createdQueueIds)))) as $queueId) {
+            try {
+                $createdQueue = self::getRuntimeQueueRow($queueId);
+                if ($createdQueue !== null) {
+                    Queues::delete($createdQueue);
+                }
+            } catch (\Throwable $rollbackException) {
+                Logger::getInstance()->critical('QueuesServices created queue rollback failed', [
+                    'queueId' => $queueId,
+                    'exception' => $rollbackException,
+                ]);
+            }
+        }
+
+        foreach ($originalQueue as $originalRow) {
+            $queueId = (int)($originalRow['id'] ?? 0);
+            if ($queueId <= 0) {
+                continue;
+            }
+
+            try {
+                // Не используем Queues::findById(): BaseRepository::findById()
+                // создаёт отсутствующую runtime-запись автоматически.
+                if (self::getRuntimeQueueRow($queueId) === null) {
+                    Queues::add($originalRow);
+                } else {
+                    Queues::update($originalRow);
+                }
+            } catch (\Throwable $rollbackException) {
+                Logger::getInstance()->critical('QueuesServices existing queue rollback failed', [
+                    'queueId' => $queueId,
+                    'exception' => $rollbackException,
+                ]);
+            }
+        }
     }
 
     /**

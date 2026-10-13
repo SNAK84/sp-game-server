@@ -8,8 +8,11 @@ use SPGame\Game\Fleet\Fleet;
 use SPGame\Game\Fleet\FleetPosition;
 use SPGame\Game\Fleet\FleetResource;
 use SPGame\Game\Fleet\FleetShip;
+use SPGame\Game\Fleet\FleetTarget;
 use SPGame\Game\Enums\FleetMissionType;
 use SPGame\Game\Repositories\Vars;
+use SPGame\Game\Services\AccountData;
+use SPGame\Game\Services\FleetMissionService;
 use SPGame\Game\Services\FleetsData;
 
 /**
@@ -253,6 +256,41 @@ function testCompositeIndexKeyPreservesFieldOrder(): void
     $keyB = $method->invoke(null, [1, 1, 2]);
 
     assertTrue($keyA !== $keyB, 'индекс должен учитывать порядок полей');
+}
+
+function testFleetTargetPreservesCoordinates(): void
+{
+    $target = FleetTarget::fromCoordinates([
+        'galaxy' => 1,
+        'system' => 10,
+        'orbit' => 4,
+        'type' => 1,
+        'distance' => 125.5,
+        'deg' => 270.0,
+    ]);
+
+    assertEquals([
+        'galaxy' => 1,
+        'system' => 10,
+        'orbit' => 4,
+        'type' => 1,
+        'distance' => 125.5,
+        'deg' => 270.0,
+    ], $target->toCoordinates(), 'FleetTarget должен сохранять координаты');
+}
+
+function testFleetMissionApiUsesFleetTarget(): void
+{
+    $method = new \ReflectionMethod(FleetMissionService::class, 'getAvailableMissions');
+    $parameters = $method->getParameters();
+
+    assertEquals(Fleet::class, $parameters[0]->getType()->getName(), 'первым параметром должен быть Fleet');
+    assertEquals(FleetTarget::class, $parameters[1]->getType()->getName(), 'вторым параметром должен быть FleetTarget');
+    assertEquals(AccountData::class, $parameters[2]->getType()->getName(), 'третьим параметром должен быть AccountData');
+
+    $source = file_get_contents($method->getFileName());
+    assertTrue(!str_contains($source, 'getAvailableMissionsForTarget'), 'старый API перебора флотов удалён');
+    assertTrue(!str_contains($source, 'getFleetsData()->get'), 'сервис не должен повторно искать Fleet');
 }
 
 // ------------------------------------------------------------------
@@ -594,6 +632,8 @@ $tests = [
     __NAMESPACE__ . '\\testConsumeFuelNeverNegative',
     __NAMESPACE__ . '\\testFleetCapacitySum',
     __NAMESPACE__ . '\\testCompositeIndexKeyPreservesFieldOrder',
+    __NAMESPACE__ . '\\testFleetTargetPreservesCoordinates',
+    __NAMESPACE__ . '\\testFleetMissionApiUsesFleetTarget',
 
     __NAMESPACE__ . '\\testFleetSetStatusValid',
     __NAMESPACE__ . '\\testFleetSetStatusInvalidThrows',

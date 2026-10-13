@@ -8,7 +8,7 @@ use SPGame\Core\WSocket;
 use SPGame\Game\Pages\FleetsPage;
 use SPGame\Game\Repositories\Accounts;
 use SPGame\Game\Repositories\Vars;
-
+use SPGame\Game\Space\ObjectType;
 
 class FleetsServices
 {
@@ -102,14 +102,14 @@ class FleetsServices
         // Перемещение между флотами
         if ($toFleetId > 0 && $fromFleetId > 0) {
 
-            $fromShips = $fromFleet->getShip($shipId);
-            $toShips   = $toFleet->getShip($shipId);
+            $fromShip = $fromFleet->getShip($shipId);
+            $toShip   = $toFleet->getShip($shipId) ?? $toFleet->setShipCount($shipId, 0);
 
 
-            $fromCount = $fromShips->getCount() ?? 0;
-            $toCount   = $toShips?->getCount() ?? 0;
-            $fromExp   = $fromShips->getExperience() ?? 0;
-            $toExp     = $toShips?->getExperience() ?? 0;
+            $fromCount = $fromShip->getCount() ?? 0;
+            $toCount   = $toShip?->getCount() ?? 0;
+            $fromExp   = $fromShip->getExperience() ?? 0;
+            $toExp     = $toShip?->getExperience() ?? 0;
 
             if ($count > $fromCount) $count = $fromCount;
             if ($count <= 0) return;
@@ -124,19 +124,19 @@ class FleetsServices
             $toExp   = ($toExp + $fromAvg * $count); // суммарный опыт
             $fromExp = $fromAvg * $fromCount;
 
-            $fromShips->setCount($fromCount);
-            $fromShips->setExperience($fromExp);
+            $fromShip->setCount($fromCount);
+            $fromShip->setExperience($fromExp);
 
-            $toShips->setCount($toCount);
-            $toShips->setExperience($toExp);
+            $toShip->setCount($toCount);
+            $toShip->setExperience($toExp);
 
             // Флот → Планета
         } elseif ($toPlanet) {
-            $fromShips = $fromFleet->getShip($shipId);
+            $fromShip = $fromFleet->getShip($shipId);
             $planetShips = &$AccountData['Ships'];
 
-            $fromCount = $fromShips->getCount() ?? 0;
-            $fromExp   = $fromShips->getExperience() ?? 0;
+            $fromCount = $fromShip->getCount() ?? 0;
+            $fromExp   = $fromShip->getExperience() ?? 0;
 
             if ($count > $fromCount) $count = $fromCount;
             if ($count <= 0) return;
@@ -145,17 +145,17 @@ class FleetsServices
 
             $fromCount -= $count;
             $planetShips[$ShipName] = (int)($planetShips[$ShipName] ?? 0) + $count;
-            $fromShips->setCount($fromCount);
-            $fromShips->setExperience($fromAvg * $fromCount);
+            $fromShip->setCount($fromCount);
+            $fromShip->setExperience($fromAvg * $fromCount);
 
             // Планета → Флот
         } elseif ($fromPlanet) {
             $planetShips = &$AccountData['Ships'];
-            $toShips = $toFleet->getShip($shipId);
+            $toShip = $toFleet->getShip($shipId) ?? $toFleet->setShipCount($shipId, 0);
 
             $fromCount = (int)($planetShips[$ShipName] ?? 0);
-            $toCount   = $toShips?->getCount() ?? 0;
-            $toExp     = $toShips?->getExperience() ?? 0;
+            $toCount   = $toShip?->getCount() ?? 0;
+            $toExp     = $toShip?->getExperience() ?? 0;
 
             if ($count > $fromCount) $count = $fromCount;
             if ($count <= 0) return;
@@ -164,8 +164,9 @@ class FleetsServices
             $toCount   += $count;
 
             $planetShips[$ShipName] = $fromCount;
-            $toShips->setCount($toCount);
-            $toShips->setExperience($toExp);
+            $toShip->setCount($toCount);
+            $toShip->setExperience($toExp);
+
         }
 
         // Проверяем — не стал ли флот пустым
@@ -179,8 +180,8 @@ class FleetsServices
         // Сохранение
         if ($save) {
             $AccountData->save();
-            $fromFleet->save();
-            $toFleet->save();
+            if (!$toPlanet) $toFleet->save();
+            if (!$fromPlanet) $fromFleet->save();
         }
     }
 
@@ -202,7 +203,8 @@ class FleetsServices
 
             foreach ($FleetResources as $ResID => $Resource) {
                 $planetResources[$ResID]['count'] += $Resource->GetCount();
-                $Resource->setCount(0);
+                if ($Resource !== null)
+                    $Resource->setCount(0);
             }
 
             $Logger->info("DisbandFleet: returned resources from fleet {$fleetId} to planet");

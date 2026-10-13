@@ -9,7 +9,12 @@ use SPGame\Game\Repositories\PlayerQueue;
 
 class PageActionService
 {
-    public static function handle(Message $Msg, AccountData &$AccountData, int $aid): bool
+    public static function handle(
+        Message $Msg,
+        AccountData &$AccountData,
+        int $aid,
+        ?Message $response = null
+    ): bool
     {
         $User = &$AccountData['User'];
         $Planet = &$AccountData['Planet'];
@@ -123,6 +128,67 @@ class PageActionService
                     PlayerQueue::addQueue($aid, $User['id'], $Planet['id'], PlayerQueue::ActionFleetDisband, [
                         'FleetId' => $Msg->getData('FleetId', 0)
                     ]);
+                }
+                if ($action === 'SendMission') {
+                    $fleetId = (int)$Msg->getData('fleetId', 0);
+                    $missionType = (int)$Msg->getData('missionType', 0);
+                    $coordinates = $Msg->getData('coordinates', []);
+                    $resources = $Msg->getData('resources', []);
+
+                    try {
+                        if (!is_array($coordinates) || !is_array($resources)) {
+                            throw new \InvalidArgumentException('Некорректные данные миссии флота.');
+                        }
+
+                        $fleet = $AccountData->getFleetsData()->get($fleetId);
+                        if ($fleet === null) {
+                            throw new \InvalidArgumentException('Флот недоступен.');
+                        }
+
+                        foreach (PlayerQueue::getByAccount($aid) ?? [] as $queuedEvent) {
+                            if (
+                                ($queuedEvent['action'] ?? '') === PlayerQueue::ActionFleetSendMission
+                                && (int)($queuedEvent['data']['fleetId'] ?? 0) === $fleetId
+                            ) {
+                                throw new \LogicException('Отправка этого флота уже ожидает обработки.');
+                            }
+                        }
+
+                        $prepared = FleetCommandsService::prepareMissionRequest(
+                            $fleet,
+                            $AccountData,
+                            $missionType,
+                            $coordinates,
+                            $Msg->getData('speedFactor'),
+                            $Msg->getData('fuel'),
+                            $resources
+                        );
+
+                        PlayerQueue::addQueue(
+                            $aid,
+                            (int)$User['id'],
+                            (int)$prepared['sourcePlanet']['id'],
+                            PlayerQueue::ActionFleetSendMission,
+                            [
+                                'fleetId' => $fleetId,
+                                'missionType' => $missionType,
+                                'coordinates' => $prepared['targetCoordinate']->toArray(),
+                                'speedFactor' => $prepared['speedFactor'],
+                                'fuel' => $prepared['fuel'],
+                                'resources' => $prepared['resources'],
+                            ]
+                        );
+                    } catch (\InvalidArgumentException|\LogicException $exception) {
+                        $response?->setError('fleet_mission_unavailable', $exception->getMessage());
+                    } catch (\Throwable $exception) {
+                        Logger::getInstance()->error('SendMission validation failed', [
+                            'fleetId' => $fleetId,
+                            'message' => $exception->getMessage(),
+                        ]);
+                        $response?->setError('fleet_mission_failed', 'Не удалось принять миссию флота.');
+                    }
+
+                    $handle = true;
                 }
                 /*
                 if ($action == "SendMission") {

@@ -136,7 +136,7 @@ enum FleetMissionType: int
             self::COLONIZE     => ['planet'],
             self::OBSERVE      => ['point'],
             self::MERGE        => ['fleet'],
-            self::EXPEDITION   => ['point'],
+            self::EXPEDITION   => ['orbit'],
         };
     }
 

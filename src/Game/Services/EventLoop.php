@@ -20,6 +20,10 @@ use SPGame\Game\Repositories\Queues;
 use SPGame\Game\Repositories\Vars;
 
 use SPGame\Game\Repositories\PlayerQueue;
+use SPGame\Game\Repositories\FleetCommands;
+use SPGame\Game\Enums\FleetCommandType;
+use SPGame\Game\Fleet\Fleet;
+use SPGame\Game\Space\CoordinateType;
 
 use Swoole\Timer;
 
@@ -61,7 +65,13 @@ class EventLoop
      */
     public function process(): void
     {
-        $StatTimeTick = microtime(true);
+        $now = microtime(true);
+
+        // Fleet events являются временными событиями мира и обрабатываются
+        // до обычного прохода online Accounts.
+        if (!$this->processFleetEvents($now)) {
+            return;
+        }
 
         foreach (Accounts::getOnline() as $Account) {
 
@@ -75,7 +85,7 @@ class EventLoop
             if (!$AccountData['User']) continue;
 
             // 🧩 Приводим состояние всех планет и технологий игрока к текущему времени
-            $sendMsg = $this->processPlayerStateAtTime($StatTimeTick, $AccountData);
+            $sendMsg = $this->processPlayerStateAtTime($now, $AccountData);
 
             $AccountData->save();
 
@@ -87,8 +97,171 @@ class EventLoop
             }
         }
         // Можно логировать, если нужно
-        $duration = round(microtime(true) - $StatTimeTick, 3);
+        $duration = round(microtime(true) - $now, 3);
         $this->logger->debug("Event process time: {$duration}s");
+    }
+
+    /**
+     * Обработать due Fleet events в глобальном chronological порядке.
+     */
+    protected function processFleetEvents(float $now): bool
+    {
+        $scheduler = new FleetEventScheduler();
+
+        try {
+            $scheduler->process(
+                $now,
+                static function (float $eventNow): ?array {
+                    return FleetCommands::getPendingTimeCommands($eventNow)[0] ?? null;
+                },
+                function (array $command): bool {
+                    $fleetId = (int)$command['fleet_id'];
+                    $fleet = FleetsData::getInstance()->get($fleetId);
+
+                    if ($fleet === null) {
+                        // Fleet уже уничтожен. Его временные события больше не
+                        // принадлежат игровому миру и не должны блокировать
+                        // глобальный scheduler.
+                        FleetCommands::clearFleetQueue($fleetId);
+                        return true;
+                    }
+
+                    $eventTime = (float)$command['execute_time'];
+                    $this->processFleetObjectStateAtTime($command, $fleet, $eventTime);
+
+                    $ownerUser = Users::findById($fleet->getOwnerId());
+                    $ownerAccountId = (int)($ownerUser['account_id'] ?? 0);
+                    if ($ownerAccountId <= 0) {
+                        throw new \LogicException("Аккаунт владельца Fleet #{$fleetId} не найден.");
+                    }
+
+                    $affectedAccountIds = [$ownerAccountId => true];
+                    $target = FleetCommandsService::getCommandTarget($command);
+                    $commandType = FleetCommandType::from((int)$command['command_type']);
+                    $current = $fleet->getCurrentCoordinate();
+                    if (
+                        $commandType === FleetCommandType::MOVE_IN_SYSTEM
+                        && $target?->getType() === CoordinateType::OBJECT
+                        && $target->getObjectType() !== null
+                        && $current->getGalaxy() === $target->getGalaxy()
+                        && $current->getSystem() === $target->getSystem()
+                    ) {
+                        $targetPlanet = Planets::findByIndex(
+                            'galaxy_system_planet_type',
+                            [
+                                $target->getGalaxy(),
+                                $target->getSystem(),
+                                $target->getOrbit(),
+                                $target->getObjectType()->value,
+                            ]
+                        );
+                        $targetUser = Users::findById((int)($targetPlanet['owner_id'] ?? 0));
+                        $targetAccountId = (int)($targetUser['account_id'] ?? 0);
+                        if ($targetAccountId > 0) {
+                            $affectedAccountIds[$targetAccountId] = true;
+                        }
+                    }
+
+                    $ownerAccountData = new AccountData($ownerAccountId);
+                    $completed = FleetCommandsService::completeCommand(
+                        $command,
+                        $fleet,
+                        $ownerAccountData
+                    );
+                    if ($completed) {
+                        foreach (array_keys($affectedAccountIds) as $accountId) {
+                            $this->sendActualData((int)$accountId);
+                        }
+                    }
+
+                    return $completed;
+                }
+            );
+            return true;
+        } catch (\Throwable $exception) {
+            // Не отмечаем проблемную команду выполненной: состояние можно
+            // диагностировать и повторить после исправления причины.
+            $this->logger->error('Fleet event processing stopped', [
+                'message' => $exception->getMessage(),
+                'exception' => $exception::class,
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Привести только затронутый OBJECT к event time.
+     */
+    protected function processFleetObjectStateAtTime(
+        array $command,
+        Fleet $fleet,
+        float $eventTime
+    ): void
+    {
+        $target = FleetCommandsService::getCommandTarget($command);
+        if ($target === null || $target->getType() !== CoordinateType::OBJECT) {
+            return;
+        }
+
+        $commandType = FleetCommandType::from((int)$command['command_type']);
+        if (
+            $commandType === FleetCommandType::MOVE_BETWEEN_SYSTEMS
+            || $commandType === FleetCommandType::MOVE_BETWEEN_GALAXIES
+        ) {
+            return;
+        }
+
+        if ($commandType === FleetCommandType::MOVE_IN_SYSTEM) {
+            $current = $fleet->getCurrentCoordinate();
+            $currentPosition = $current->getType() === CoordinateType::FLEET
+                ? $current->getLastKnownPosition()
+                : $current;
+            $targetPosition = $target;
+
+            if (
+                $currentPosition->getGalaxy() !== $targetPosition->getGalaxy()
+                || $currentPosition->getSystem() !== $targetPosition->getSystem()
+            ) {
+                // Это сегмент выхода к границе исходной системы, а не
+                // взаимодействие с конечным OBJECT.
+                return;
+            }
+        }
+
+        $objectType = $target->getObjectType();
+        if ($objectType === null) {
+            // Служебные орбиты не являются объектами Planets и не требуют
+            // актуализации чужого AccountData.
+            return;
+        }
+
+        $object = Planets::findByIndex(
+            'galaxy_system_planet_type',
+            [
+                $target->getGalaxy(),
+                $target->getSystem(),
+                $target->getOrbit(),
+                $objectType->value,
+            ]
+        );
+        if (!$object || (int)($object['owner_id'] ?? 0) <= 0) {
+            return;
+        }
+
+        $objectOwner = Users::findById((int)$object['owner_id']);
+        $objectOwnerAccountId = (int)($objectOwner['account_id'] ?? 0);
+        if ($objectOwnerAccountId <= 0) {
+            throw new \LogicException('Аккаунт владельца Fleet target не найден.');
+        }
+
+        $accountData = new AccountData($objectOwnerAccountId);
+        $accountData['WorkPlanet'] = (int)$object['id'];
+        $this->processPlayerStateAtTime(
+            $eventTime,
+            $accountData,
+            (int)$object['id']
+        );
+        $accountData->save();
     }
 
 
@@ -96,7 +269,11 @@ class EventLoop
     /**
      * Приводит состояние всех планет игрока и его очередей к заданному моменту времени.
      */
-    protected function processPlayerStateAtTime(float $targetTime, AccountData &$AccountData): bool
+    protected function processPlayerStateAtTime(
+        float $targetTime,
+        AccountData &$AccountData,
+        ?int $onlyPlanetId = null
+    ): bool
     {
         $sendMsg = false;
         $userId = $AccountData['User']['id'];
@@ -106,8 +283,15 @@ class EventLoop
 
 
         // После обработки очередей — доводим ресурсы всех планет до targetTime
-        $Planets = Planets::getAllPlanets($userId);
+        $Planets = $onlyPlanetId !== null
+            ? [
+                $onlyPlanetId => Planets::findById($onlyPlanetId),
+            ]
+            : Planets::getAllPlanets($userId);
         foreach ($Planets as $pid => $Planet) {
+            if (!$Planet) {
+                continue;
+            }
             $AccountData['WorkPlanet'] = $Planet['id'];
             $sendMsg = Helpers::processPlanet($targetTime, $AccountData) ? true : $sendMsg;
         }
@@ -189,7 +373,24 @@ class EventLoop
 
             switch ($Event['action']) {
                 case PlayerQueue::ActionSelectPlanet:
-                    $AccountData['User']['current_planet'] = $Event['planet_id'];
+                    $planetId = (int)($Event['planet_id'] ?? 0);
+                    $planet = $planetId > 0 ? Planets::findById($planetId) : null;
+
+                    if (
+                        !$planet
+                        || (int)$planet['owner_id'] !== (int)$AccountData['User']['id']
+                    ) {
+                        $this->logger->warning('Rejected invalid queued planet selection', [
+                            'accountId' => $accountId,
+                            'planetId' => $planetId,
+                        ]);
+                        // Удаляем некорректное событие ниже и отправляем актуальный
+                        // snapshot, не меняя current_planet.
+                        $sendMsg = true;
+                        break;
+                    }
+
+                    $AccountData['User']['current_planet'] = $planetId;
                     $sendMsg  = true;
                     break;
                 case PlayerQueue::ActionRenamePlanet:
@@ -240,6 +441,38 @@ class EventLoop
                 case PlayerQueue::ActionFleetDisband:
                     FleetsServices::DisbandFleet($Event['data']['FleetId'], $AccountData, $Event['added_at']);
                     $sendMsg  = true;
+                    break;
+
+                case PlayerQueue::ActionFleetSendMission:
+                    $fleetId = (int)($Event['data']['fleetId'] ?? 0);
+                    $fleet = $AccountData->getFleetsData()->get($fleetId);
+                    try {
+                        if ($fleet === null) {
+                            throw new \InvalidArgumentException('Флот недоступен.');
+                        }
+
+                        FleetCommandsService::startMission(
+                            $fleet,
+                            $AccountData,
+                            (int)($Event['data']['missionType'] ?? 0),
+                            is_array($Event['data']['coordinates'] ?? null)
+                                ? $Event['data']['coordinates']
+                                : [],
+                            $Event['data']['speedFactor'] ?? null,
+                            $Event['data']['fuel'] ?? null,
+                            is_array($Event['data']['resources'] ?? null)
+                                ? $Event['data']['resources']
+                                : [],
+                            (float)$Event['added_at']
+                        );
+                    } catch (\Throwable $exception) {
+                        $this->logger->warning('Queued SendMission отклонён без изменения gameplay state', [
+                            'accountId' => $accountId,
+                            'fleetId' => $fleetId,
+                            'message' => $exception->getMessage(),
+                        ]);
+                    }
+                    $sendMsg = true;
                     break;
 
                     /*

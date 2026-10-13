@@ -9,6 +9,9 @@ use SPGame\Game\Repositories\Fleets;
 use SPGame\Game\Repositories\FleetsShips;
 use SPGame\Game\Repositories\Vars;
 
+use SPGame\Game\Space\CoordinateType;
+use SPGame\Game\Space\ObjectType;
+
 final class FleetsData
 {
     private static ?self $instance = null;
@@ -91,29 +94,28 @@ final class FleetsData
         return $fleets;
     }
 
-    public function create(AccountData $AccountData): Fleet
-    {
+	public function create(AccountData $AccountData): Fleet
+	{
 
-        $Planet = $AccountData['Planet'];
-        $Fleet = [
-            'owner_id'           => $AccountData['User']['id'],
-            'home_planet_id'     => $Planet['id'],
-            'current_parent_id'  => $Planet['id'],
-            'current_parent_type' => 'planet',
-            'anchor_distance'    => 0.0,
+		$Planet = $AccountData['Planet'];
+		$now = microtime(true);
+		$objectType = ObjectType::from((int)$Planet['planet_type']);
+		$Fleet = [
+			'owner_id' => $AccountData['User']['id'],
+			'home_planet_id' => $Planet['id'],
 
-            // Координаты старта = координаты планеты
-            'start_galaxy'       => $Planet['galaxy'],
-            'start_system'       => $Planet['system'],
-            'start_orbit'        => $Planet['planet'],
-            'start_object_type'  => 'planet',
+			// Новый Fleet ещё не начал миссию: start/target остаются NULL-состоянием
+			// coordinate_type = 0. Физическое положение задаётся currentCoordinate.
+			'current_coordinate_type' => CoordinateType::OBJECT->value,
+			'current_galaxy' => (int)$Planet['galaxy'],
+			'current_system' => (int)$Planet['system'],
+			'current_orbit' => (int)$Planet['planet'],
+			'current_object_type' => $objectType->value,
+			'current_distance' => 0.0,
+			'current_angle' => 0.0,
+			'current_position_time' => $now,
+		];
 
-            // Текущие координаты = координаты планеты
-            'current_galaxy'     => $Planet['galaxy'],
-            'current_system'     => $Planet['system'],
-            'current_distance'   => 0.0,
-            'current_deg'        => 0.0,
-        ];
 
 
         $row = Fleets::castRowToSchema($Fleet, true);
@@ -133,7 +135,8 @@ final class FleetsData
         if ($fleet === null) {
             throw new \RuntimeException("Не удалось загрузить созданный флот #{$fleetId}.");
         }
-        $this->FleetsDirty[$fleetId] = true;
+
+		$this->FleetsDirty[$fleetId] = true;
         return $fleet;
     }
 

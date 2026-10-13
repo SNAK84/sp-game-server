@@ -5,20 +5,21 @@ namespace SPGame\Game\Services;
 use SPGame\Core\Logger;
 
 use SPGame\Game\Enums\FleetMissionType;
-use SPGame\Game\Repositories\Config;
-use SPGame\Game\Repositories\Fleets;
-use SPGame\Game\Repositories\FleetsShips;
+use SPGame\Game\Fleet\Fleet;
+use SPGame\Game\Fleet\FleetTarget;
 use SPGame\Game\Repositories\Galaxy;
 use SPGame\Game\Repositories\GalaxyOrbits;
 use SPGame\Game\Repositories\Planets;
 
 use SPGame\Game\Repositories\Vars;
+use SPGame\Game\Space\Coordinate;
+use SPGame\Game\Space\CoordinateType;
+use SPGame\Game\Space\ObjectType;
 
 /**
  * Логика определения доступных миссий флота.
  *
  * Отвечает только за:
- * - определение флота;
  * - определение цели;
  * - определение возможностей флота;
  * - определение доступных миссий.
@@ -28,26 +29,12 @@ use SPGame\Game\Repositories\Vars;
 class FleetMissionService
 {
 
-
-    /**
-     * Типы навигационных целей, которые сейчас передаёт клиент.
-     *
-     * 1..3 — объект на орбите.
-     * 4    — свободная точка в пространстве.
-     */
-    public const NAVIGATION_POINT = 4;
-
     /**
      * Получить доступные миссии для флота.
      *
-     * @param AccountData $accountData Данные текущего игрока.
-     * @param int $fleetId             ID флота.
-     * @param array $coordinates       [
-     *                                    'galaxy' => 1,
-     *                                    'system' => 2,
-     *                                    'type'   => 1,
-     *                                    'orbit'  => 1,
-     *                                ]
+    * @param Fleet $fleet             Конкретный флот.
+    * @param FleetTarget $target      Цель назначения.
+    * @param AccountData $accountData Данные текущего игрока.
      *
      * @return array{
      *     missions: array,
@@ -56,15 +43,11 @@ class FleetMissionService
      * }
      */
     public function getAvailableMissions(
-        AccountData $accountData,
-        int $fleetId,
-        array $coordinates
+        Fleet $fleet,
+        FleetTarget $target,
+        AccountData $accountData
     ): array {
-        $context = $this->buildContext(
-            $accountData,
-            $fleetId,
-            $coordinates
-        );
+        $context = $this->buildContext($accountData, $fleet, $target);
 
         if (!$context['valid']) {
             return [
@@ -83,29 +66,6 @@ class FleetMissionService
         ];
     }
 
-    public function getAvailableMissionsForTarget(
-        AccountData $accountData,
-        array $coordinates
-    ): array {
-        $fleets = $accountData['Fleets'];
-        if (!is_array($fleets)) {
-            return [];
-        }
-
-        $missions = [];
-        foreach (array_keys($fleets) as $fleetId) {
-            $available = $this->getAvailableMissions($accountData, (int)$fleetId, $coordinates);
-            foreach ($available['missions'] as $missionId) {
-                $missions[(int)$missionId] = true;
-            }
-        }
-
-        $missionIds = array_keys($missions);
-        sort($missionIds);
-
-        return $missionIds;
-    }
-
     /**
      * Рассчитать диапазон расстояния, времени полёта и расхода топлива до цели.
      *
@@ -113,29 +73,37 @@ class FleetMissionService
      * зависит от неизвестного угла планет на орбите, поэтому считается диапазоном
      * [min; max] по правилу треугольника (|R1-R2| .. R1+R2).
      *
-     * При перелёте в другую систему/галактику флот покидает систему на радиусе
-     * "дальняя орбита системы + 500" и входит в целевую систему на таком же
-     * радиусе в случайной точке, поэтому итоговый диапазон складывается из
-     * диапазона выхода, фиксированного "прыжка" (Config::InterSystemJumpDistance /
-     * InterGalaxyJumpDistance) и диапазона входа к цели.
+     * При перелёте в другую систему/галактику флот покидает систему на
+     * служебной границе, рассчитанной из масштаба звезды, по текущему углу и
+     * входит в целевую систему на её служебной границе в случайной точке.
+     * Поэтому выход из исходной
+     * системы имеет точную длину, а диапазон остаётся только на участке входа
+     * к цели.
+     *
+     * Для миссий с возвратом fuel содержит расход полного маршрута, тогда как
+     * distance и duration описывают время прибытия к цели.
      *
      * @return array{distance: array{min:int,max:int}, duration: array{min:int,max:int}, fuel: array{min:float,max:float}}|null
      */
     public function getTravelInfo(
+        Fleet $fleet,
+        FleetTarget $target,
         AccountData $accountData,
-        int $fleetId,
-        array $coordinates
+        ?float $speedFactor = null,
+        ?FleetMissionType $mission = null
     ): ?array {
-        $context = $this->buildContext($accountData, $fleetId, $coordinates);
+        $context = $this->buildContext($accountData, $fleet, $target);
 
         if (!$context['valid']) {
             return null;
         }
 
-        $homePlanet = Planets::findById((int)($context['fleet']['home_planet_id'] ?? 0));
+        $homePlanet = Planets::findById($fleet->getHomePlanetId());
         if (!$homePlanet) {
             return null;
         }
+
+        $requestedTarget = $target;
 
         $startGalaxy = (int)$homePlanet['galaxy'];
         $startSystem = (int)$homePlanet['system'];
@@ -146,33 +114,136 @@ class FleetMissionService
         $targetSystem = (int)$target['system'];
         $targetRadius = (float)($target['distance'] ?? 0.0);
 
+        $flight = new FleetFlightService();
+
         if ($startGalaxy === $targetGalaxy && $startSystem === $targetSystem) {
-            $minDistance = abs($startRadius - $targetRadius);
-            $maxDistance = $startRadius + $targetRadius;
-        } else {
-            $startSystemInfo = Galaxy::getSystem($startGalaxy, $startSystem);
-            $targetSystemInfo = Galaxy::getSystem($targetGalaxy, $targetSystem);
+            $localTransferDistance = null;
+            $startObjectType = ObjectType::tryFrom((int)($homePlanet['planet_type'] ?? 0));
+            $targetObjectType = $requestedTarget->getObjectType();
 
-            $exitRadius = (float)($startSystemInfo['max_distance'] ?? 0) + 500.0;
-            $entryRadius = (float)($targetSystemInfo['max_distance'] ?? 0) + 500.0;
-
-            $jumpDistance = abs($startSystem - $targetSystem) * (float)Config::getValue('InterSystemJumpDistance');
-            if ($startGalaxy !== $targetGalaxy) {
-                $jumpDistance += abs($startGalaxy - $targetGalaxy) * (float)Config::getValue('InterGalaxyJumpDistance');
+            if ($startObjectType !== null && $targetObjectType !== null) {
+                $localTransferDistance = $flight->getLocalObjectTransferDistance(
+                    Coordinate::object(
+                        $startGalaxy,
+                        $startSystem,
+                        (int)$homePlanet['planet'],
+                        $startObjectType
+                    ),
+                    Coordinate::object(
+                        $targetGalaxy,
+                        $targetSystem,
+                        $requestedTarget->getOrbit(),
+                        $targetObjectType
+                    )
+                );
             }
 
-            $minDistance = abs($startRadius - $exitRadius) + $jumpDistance + abs($entryRadius - $targetRadius);
-            $maxDistance = ($startRadius + $exitRadius) + $jumpDistance + ($entryRadius + $targetRadius);
+            if ($localTransferDistance !== null) {
+                $minDistance = $localTransferDistance;
+                $maxDistance = $localTransferDistance;
+            } elseif ((int)($target['orbit_type'] ?? -1) === GalaxyOrbits::EXPEDITION) {
+                // Служебный OBJECT не вращается: его угол будет
+                // материализован из угла Fleet, поэтому preview точный.
+                $minDistance = abs($startRadius - $targetRadius);
+                $maxDistance = $minDistance;
+            } else {
+                // Обычный внутрисистемный preview остаётся диапазоном: точное
+                // положение будет рассчитано при фактической активации MOVE.
+                $minDistance = abs($startRadius - $targetRadius);
+                $maxDistance = $startRadius + $targetRadius;
+            }
+            $minSegments = [$minDistance];
+            $maxSegments = [$maxDistance];
+            $returnMinSegments = $minSegments;
+            $returnMaxSegments = $maxSegments;
+            if ($localTransferDistance !== null) {
+                $minGameSegments = $minSegments;
+                $maxGameSegments = $maxSegments;
+            } else {
+                $minGameSegments = [$flight->calculateInSystemGameDistance($minDistance)];
+                $maxGameSegments = [$flight->calculateInSystemGameDistance($maxDistance)];
+            }
+            $returnMinGameSegments = $minGameSegments;
+            $returnMaxGameSegments = $maxGameSegments;
+        } else {
+            $exitRadius = (float)GalaxyGenerator::getSpecialOrbit(
+                $startGalaxy,
+                $startSystem,
+                GalaxyOrbits::SYSTEM_EDGE
+            )['distance'];
+            $entryRadius = (float)GalaxyGenerator::getSpecialOrbit(
+                $targetGalaxy,
+                $targetSystem,
+                GalaxyOrbits::SYSTEM_EDGE
+            )['distance'];
+
+            $sourceExitDistance = abs($exitRadius - $startRadius);
+            $jumpDistance = $flight->calculateTransitionDistance(
+                $startGalaxy,
+                $startSystem,
+                $targetGalaxy,
+                $targetSystem
+            );
+            if (in_array(
+                (int)($target['orbit_type'] ?? -1),
+                [GalaxyOrbits::SYSTEM_EDGE, GalaxyOrbits::EXPEDITION],
+                true
+            )) {
+                $destinationMinDistance = abs($entryRadius - $targetRadius);
+                $destinationMaxDistance = $destinationMinDistance;
+            } else {
+                $destinationMinDistance = abs($entryRadius - $targetRadius);
+                $destinationMaxDistance = $entryRadius + $targetRadius;
+            }
+
+            $minSegments = [$sourceExitDistance, $jumpDistance, $destinationMinDistance];
+            $maxSegments = [$sourceExitDistance, $jumpDistance, $destinationMaxDistance];
+            $returnMinSegments = [
+                abs($entryRadius - $targetRadius),
+                $jumpDistance,
+                abs($exitRadius - $startRadius),
+            ];
+            $returnMaxSegments = [
+                abs($entryRadius - $targetRadius),
+                $jumpDistance,
+                $exitRadius + $startRadius,
+            ];
+            $minGameSegments = [
+                $flight->calculateInSystemGameDistance($sourceExitDistance),
+                $jumpDistance,
+                $flight->calculateInSystemGameDistance($destinationMinDistance),
+            ];
+            $maxGameSegments = [
+                $flight->calculateInSystemGameDistance($sourceExitDistance),
+                $jumpDistance,
+                $flight->calculateInSystemGameDistance($destinationMaxDistance),
+            ];
+            $returnMinGameSegments = [
+                $flight->calculateInSystemGameDistance(abs($entryRadius - $targetRadius)),
+                $jumpDistance,
+                $flight->calculateInSystemGameDistance(abs($exitRadius - $startRadius)),
+            ];
+            $returnMaxGameSegments = [
+                $flight->calculateInSystemGameDistance(abs($entryRadius - $targetRadius)),
+                $jumpDistance,
+                $flight->calculateInSystemGameDistance($exitRadius + $startRadius),
+            ];
+            $minDistance = array_sum($minSegments);
+            $maxDistance = array_sum($maxSegments);
         }
 
-        $fleetStats = $this->calcFleetStats($context['fleet'], $accountData);
+        $fleetStats = $this->calcFleetStats($fleet, $accountData);
 
         if ($fleetStats['speed'] <= 0) {
             return null;
         }
 
-        $gameSpeed = (float)Config::getValue('FleetGameSpeed');
-        $speedFactor = (float)Config::getValue('FleetSpeedFactor');
+        $fuelMinSegments = $minGameSegments;
+        $fuelMaxSegments = $maxGameSegments;
+        if ($mission === FleetMissionType::TRANSPORT) {
+            $fuelMinSegments = array_merge($fuelMinSegments, $returnMinGameSegments);
+            $fuelMaxSegments = array_merge($fuelMaxSegments, $returnMaxGameSegments);
+        }
 
         return [
             'distance' => [
@@ -180,38 +251,111 @@ class FleetMissionService
                 'max' => (int)round($maxDistance),
             ],
             'duration' => [
-                'min' => $this->calcDuration($minDistance, $fleetStats['speed'], $gameSpeed, $speedFactor),
-                'max' => $this->calcDuration($maxDistance, $fleetStats['speed'], $gameSpeed, $speedFactor),
+                'min' => (int)round($this->calculateSegmentsDuration($flight, $minGameSegments, $fleetStats['speed'], $speedFactor)),
+                'max' => (int)round($this->calculateSegmentsDuration($flight, $maxGameSegments, $fleetStats['speed'], $speedFactor)),
             ],
             'fuel' => [
-                'min' => $this->calcFuel($fleetStats['consumption'], $minDistance),
-                'max' => $this->calcFuel($fleetStats['consumption'], $maxDistance),
+                // Командный pipeline списывает топливо по каждому MOVE, поэтому
+                // округление выполняется отдельно для каждого участка.
+                'min' => $this->calculateSegmentsFuel(
+                    $flight,
+                    $fleet,
+                    $accountData,
+                    $fuelMinSegments,
+                    $speedFactor
+                ),
+                'max' => $this->calculateSegmentsFuel(
+                    $flight,
+                    $fleet,
+                    $accountData,
+                    $fuelMaxSegments,
+                    $speedFactor
+                ),
             ],
+        ];
+    }
+
+    /** @param list<float> $segments */
+    private function calculateSegmentsFuel(
+        FleetFlightService $flight,
+        Fleet $fleet,
+        AccountData $accountData,
+        array $segments,
+        ?float $speedFactor
+    ): float {
+        $fuel = 0.0;
+        foreach ($segments as $distance) {
+            if ($distance > 0.0) {
+                $fuel += $flight->calculateFuelConsumption(
+                    $fleet,
+                    $accountData,
+                    [(float)$distance],
+                    $speedFactor
+                );
+            }
+        }
+
+        return $fuel;
+    }
+
+    /**
+     * @param list<float> $segments
+     */
+    private function calculateSegmentsDuration(
+        FleetFlightService $flight,
+        array $segments,
+        float $speed,
+        ?float $speedFactor
+    ): float {
+        $duration = 0.0;
+        foreach ($segments as $distance) {
+            if ($distance > 0.0) {
+                $duration += $flight->calculateGameDuration($distance, $speed, $speedFactor);
+            }
+        }
+
+        return $duration;
+    }
+
+    /**
+     * @return array{min: float, max: float}
+     */
+    protected function calculateInterSystemDistanceRange(
+        float $startRadius,
+        float $exitRadius,
+        float $targetRadius,
+        float $entryRadius,
+        float $jumpDistance
+    ): array {
+        // Выход выполняется радиально по текущему углу и не имеет диапазона.
+        $sourceExitDistance = abs($exitRadius - $startRadius);
+
+        // Угол появления в целевой системе случаен: от одной стороны до
+        // противоположной относительно цели.
+        $destinationMinDistance = abs($entryRadius - $targetRadius);
+        $destinationMaxDistance = $entryRadius + $targetRadius;
+
+        return [
+            'min' => $sourceExitDistance + $jumpDistance + $destinationMinDistance,
+            'max' => $sourceExitDistance + $jumpDistance + $destinationMaxDistance,
         ];
     }
 
     /**
      * Суммарное потребление топлива и минимальная скорость флота (по составу кораблей).
      */
-    protected function calcFleetStats(array|\SPGame\Game\Fleet\Fleet $fleet, AccountData $accountData): array
+    protected function calcFleetStats(Fleet $fleet, AccountData $accountData): array
     {
-        $ships = $fleet['Ships'] ?? [];
-        if ($ships instanceof \SPGame\Game\Fleet\FleetShipsView) {
-            $ships = $ships->toArray();
-        }
-
         $consumption = 0.0;
         $speeds = [];
 
-        foreach (Vars::$reslist['fleet'] as $shipId) {
-            $name = Vars::$resource[$shipId];
-            $count = (int)($ships[$name . '_count'] ?? 0);
-            if ($count <= 0) {
+        foreach ($fleet->getShips() as $ship) {
+            if ($ship->getCount() <= 0) {
                 continue;
             }
 
-            $consumption += FleetFunctions::GetShipConsumption($shipId, $accountData) * $count;
-            $speeds[] = FleetFunctions::GetShipSpeed($shipId, $accountData);
+            $consumption += $ship->getConsumptionAll($accountData);
+            $speeds[] = $ship->getSpeed($accountData);
         }
 
         return [
@@ -221,61 +365,50 @@ class FleetMissionService
     }
 
     /**
-     * Классическая формула времени полёта (см. старую версию игры).
-     */
-    protected function calcDuration(float $distance, float $speed, float $gameSpeed, float $speedFactor): int
-    {
-        if ($speed <= 0 || $gameSpeed <= 0 || $speedFactor <= 0) {
-            return 0;
-        }
-
-        return (int)round(((35000 / $gameSpeed) * sqrt($distance * 10 / $speed) + 10) / $speedFactor);
-    }
-
-    /**
-     * Расход топлива пропорционален суммарному потреблению кораблей и расстоянию.
-     */
-    protected function calcFuel(float $consumption, float $distance): float
-    {
-        return round($consumption * $distance / 10000, 2);
-    }
-
-    /**
      * Построить полный контекст флота и цели.
      *
      * Это основной подготовительный этап перед определением миссий.
      */
     protected function buildContext(
         AccountData $accountData,
-        int $fleetId,
-        array $coordinates
+        Fleet $fleet,
+        FleetTarget $target
     ): array {
         $messages = [];
 
-        $fleet = $this->getFleet($accountData, $fleetId);
+        $resolvedTarget = $this->resolveTarget($target);
 
-        if (!$fleet) {
+        if (!$resolvedTarget['valid']) {
             return [
                 'valid' => false,
-                'messages' => ['Флот не найден.'],
+                'messages' => $resolvedTarget['messages'],
             ];
         }
 
-        $target = $this->resolveTarget($coordinates);
+        if ((int)($resolvedTarget['orbit_type'] ?? -1) === GalaxyOrbits::EXPEDITION) {
+            $current = $fleet->getCurrentCoordinate();
+            if ($current->getType() === CoordinateType::FLEET) {
+                $current = $current->getLastKnownPosition();
+            }
 
-        if (!$target['valid']) {
-            return [
-                'valid' => false,
-                'messages' => $target['messages'],
-            ];
+            if (
+                $current === null
+                || $current->getGalaxy() !== (int)$resolvedTarget['galaxy']
+                || $current->getSystem() !== (int)$resolvedTarget['system']
+            ) {
+                return [
+                    'valid' => false,
+                    'messages' => ['Экспедиция доступна только в текущей системе флота.'],
+                ];
+            }
         }
 
-        Logger::getInstance()->info("target",  $target);
+        Logger::getInstance()->info("target",  $resolvedTarget);
 
 
 
         $ownerId = (int)($accountData['User']['id'] ?? 0);
-        $targetOwnerId = (int)($target['owner_id'] ?? 0);
+        $targetOwnerId = (int)($resolvedTarget['owner_id'] ?? 0);
 
         return [
             'valid' => true,
@@ -283,27 +416,15 @@ class FleetMissionService
             'owner_id' => $ownerId,
 
             // Флот
-            'fleet_id' => $fleetId,
             'fleet' => $fleet,
 
             // Цель
-            'coordinates' => $coordinates,
-            'target' => $target,
+            'coordinates' => $target->toCoordinates(),
+            'target' => $resolvedTarget,
 
 
             'messages' => $messages,
         ];
-    }
-
-    protected function getFleet(
-        AccountData $accountData,
-        int $fleetId
-    ): ?\SPGame\Game\Fleet\Fleet {
-        if ($fleetId <= 0) {
-            return null;
-        }
-
-        return $accountData->getFleetsData()->get($fleetId);
     }
 
     /**
@@ -314,21 +435,24 @@ class FleetMissionService
      *     galaxy: 1,
      *     system: 2,
      *     type: 1,
-     *     orbit: 1
+     *     orbit: 1,
+     *     objectType: 1
      * }
      *
-     * type здесь является типом объекта GalaxyOrbits:
-     *
-     * GalaxyOrbits::EMPTY
-     * GalaxyOrbits::ASTEROID_BELT
-     * GalaxyOrbits::GAS_GIANT
-     * GalaxyOrbits::PLANET
+     * type — CoordinateType, objectType — ObjectType. GalaxyOrbits является
+     * server-side source of truth для радиуса и назначения орбиты.
      */
-    protected function resolveTarget(array $coordinates): array
+    protected function resolveTarget(FleetTarget $target): array
     {
-        $galaxy = (int)($coordinates['galaxy'] ?? 0);
-        $system = (int)($coordinates['system'] ?? 0);
-        $type   = (int)($coordinates['type'] ?? 0);
+        if ($target->getCoordinateType() === CoordinateType::FLEET) {
+            return $this->invalidTarget(
+                'Определение позиции целевого флота пока не реализовано.'
+            );
+        }
+
+        $galaxy = $target->getGalaxy();
+        $system = $target->getSystem();
+        $objectType = $target->getObjectType();
 
         if ($galaxy <= 0 || $system <= 0) {
             return $this->invalidTarget(
@@ -339,12 +463,11 @@ class FleetMissionService
         /*
         * Свободная точка.
         */
-        if ($type === self::NAVIGATION_POINT) {
-            return $this->resolvePointTarget($coordinates);
+        if ($target->getCoordinateType() === CoordinateType::POINT) {
+            return $this->resolvePointTarget($target);
         }
 
-
-        $orbit = (int)($coordinates['orbit'] ?? 0);
+        $orbit = $target->getOrbit();
 
         if ($orbit <= 0) {
             return $this->invalidTarget(
@@ -355,30 +478,102 @@ class FleetMissionService
         /*
         * Получаем данные орбиты.
         */
-        $GalaxyOrbit = GalaxyOrbits::findByIndex(
+        $GalaxyOrbitRows = GalaxyOrbits::findByIndex(
             'galaxy_system_orbit',
             [$galaxy, $system, $orbit]
         );
 
-        if (!$GalaxyOrbit) {
+        if (!$GalaxyOrbitRows) {
             return $this->invalidTarget(
                 "Орбита {$galaxy}:{$system}:{$orbit} не найдена."
             );
         }
 
+        $GalaxyOrbit = $GalaxyOrbitRows;
 
-        if ($GalaxyOrbit['type'] === GalaxyOrbits::PLANET) {
-            // На орбите есть планета, определяем её
-
-            $planet = Planets::findByIndex(
-                'galaxy_system_planet_type',
-                [$galaxy, $system, $orbit, '1']
-            );
-
-            /*
-            Тут будет поиск луны и обломков
-            */
+        $orbitType = (int)$GalaxyOrbit['type'];
+        if ($orbitType === GalaxyOrbits::SYSTEM_EDGE) {
+            return $this->invalidTarget('Граница системы недоступна как пользовательская цель.');
         }
+
+        if ($orbitType === GalaxyOrbits::EXPEDITION) {
+            if ($objectType !== null) {
+                return $this->invalidTarget('Экспедиционная орбита не является типом объекта.');
+            }
+
+            return [
+                'valid' => true,
+                'galaxy' => $galaxy,
+                'system' => $system,
+                'orbit' => $orbit,
+                'type' => 'object',
+                'object_type' => null,
+                'orbit_type' => $orbitType,
+                'planet' => null,
+                'moon' => null,
+                'debris' => null,
+                'distance' => (float)($GalaxyOrbit['distance'] ?? 0),
+            ];
+        }
+
+        $systemRows = Galaxy::findByIndex('galaxy_system', [$galaxy, $system]);
+        $systemData = is_array($systemRows) && isset($systemRows[0])
+            ? $systemRows[0]
+            : null;
+        if (
+            $systemData !== null
+            && $orbit > (int)($systemData['max_orbits'] ?? 0)
+        ) {
+            return $this->invalidTarget('Орбита выходит за пределы выбранной системы.');
+        }
+
+        // Фактическая запись Planets подтверждает занятость орбиты. Это также
+        // позволяет корректно обработать старые планеты, созданные до починки
+        // маркировки GalaxyOrbits::PLANET.
+        $planet = Planets::findByIndex(
+            'galaxy_system_planet_type',
+            [$galaxy, $system, $orbit, ObjectType::PLANET->value]
+        );
+
+        // Защитный fallback для уже работающего runtime: если точечный
+        // unique-индекс рассинхронизирован, координатный индекс всё ещё
+        // позволяет однозначно найти планету нужного типа.
+        if ($planet === null) {
+            $coordinateRows = Planets::findByIndex(
+                'galaxy_system_planet',
+                [$galaxy, $system, $orbit]
+            ) ?? [];
+
+            foreach ($coordinateRows as $coordinateRow) {
+                if ((int)($coordinateRow['planet_type'] ?? 0) === ObjectType::PLANET->value) {
+                    $planet = $coordinateRow;
+                    Logger::getInstance()->warning(
+                        "FleetMissionService: восстановлена планета {$galaxy}:{$system}:{$orbit} через координатный индекс"
+                    );
+                    break;
+                }
+            }
+        }
+
+        if ($planet !== null && $orbitType === GalaxyOrbits::EMPTY) {
+            Logger::getInstance()->warning(
+                "FleetMissionService: планета {$galaxy}:{$system}:{$orbit} находится на орбите с типом EMPTY"
+            );
+            $orbitType = GalaxyOrbits::PLANET;
+        }
+
+        if ($objectType === null) {
+            // Совместимость со старой записью PLANET, где тип объекта лежал в type.
+            if ($orbitType !== GalaxyOrbits::PLANET) {
+                return $this->invalidTarget('Неизвестный тип объекта.');
+            }
+            $objectType = ObjectType::PLANET;
+        }
+
+
+        /*
+        Тут будет поиск луны и обломков
+        */
 
         return [
             'valid' => true,
@@ -388,6 +583,8 @@ class FleetMissionService
             'orbit' => $orbit,
 
             'type' => 'object',
+            'object_type' => $objectType->value,
+            'orbit_type' => $orbitType,
 
             'planet' => $planet ?? null,
             'moon' => $moon ?? null,
@@ -400,25 +597,25 @@ class FleetMissionService
     /**
      * Цель является свободной точкой пространства.
      */
-    protected function resolvePointTarget(array $coordinates): array
+    protected function resolvePointTarget(FleetTarget $target): array
     {
 
-        if (!isset($coordinates['distance'])) {
+        if ($target->getDistance() === null) {
             return $this->invalidTarget(
                 'Не указано расстояние до точки.'
             );
         }
 
-        if (!isset($coordinates['deg'])) {
+        if ($target->getDeg() === null) {
             return $this->invalidTarget(
                 'Не указан угол точки.'
             );
         }
 
-        $galaxy = (int)($coordinates['galaxy']);
-        $system = (int)($coordinates['system']);
-        $distance = (float)$coordinates['distance'];
-        $deg = (float)$coordinates['deg'];
+        $galaxy = $target->getGalaxy();
+        $system = $target->getSystem();
+        $distance = $target->getDistance();
+        $deg = $target->getDeg();
 
         if ($distance < 0) {
             return $this->invalidTarget(
@@ -464,8 +661,8 @@ class FleetMissionService
         $YourPlanet = false;
         $UsedPlanet = false;
 
-        $coordinates = $context['coordinates'];
-        $coordinates['type'] = (int)$coordinates['type'];
+        $objectType = (int)($context['target']['object_type'] ?? 0);
+        $orbitType = (int)($context['target']['orbit_type'] ?? -1);
 
         $OwnerId = 0;
         $TargetId = 0;
@@ -476,12 +673,12 @@ class FleetMissionService
             true
         );
 
-        if ($coordinates['type'] === 1 || $coordinates['type'] === 3) {
+        if ($objectType === ObjectType::PLANET->value || $objectType === ObjectType::MOON->value) {
             $TargetId = (int)($context['target']['planet']['id'] ?? 0);
             $OwnerId = (int)($context['target']['planet']['owner_id'] ?? 0);
             $YourPlanet = ($TargetId > 0 && $context['owner_id'] === $OwnerId);
             $UsedPlanet = ($TargetId > 0);
-        } else if ($coordinates['type'] === 2) {
+        } else if ($objectType === ObjectType::DEBRIS->value) {
             $TargetId = (int)($context['target']['moon']['id'] ?? 0);
             $OwnerId = (int)($context['target']['moon']['owner_id'] ?? 0);
             $YourPlanet = ($TargetId > 0 && $context['owner_id'] === $OwnerId);
@@ -492,16 +689,16 @@ class FleetMissionService
 
         //$combo = Vars::$CombatCaps;
 
-        if ($coordinates['type'] === 2) {
+        if ($objectType === ObjectType::DEBRIS->value) {
             if (isset($fleetMissions[FleetMissionType::RECYCLE->value])) {
                 $missiontype[FleetMissionType::RECYCLE->value] = true;
             }
         }
-        if ($coordinates['type'] === 1 || $coordinates['type'] === 3) {
+        if ($objectType === ObjectType::PLANET->value || $objectType === ObjectType::MOON->value) {
 
             if (
                 isset($fleetMissions[FleetMissionType::COLONIZE->value])
-                && !$UsedPlanet && $coordinates['type'] === 1
+                && !$UsedPlanet && $objectType === ObjectType::PLANET->value
             ) {
                 $missiontype[FleetMissionType::COLONIZE->value] = true;
             }
@@ -539,6 +736,13 @@ class FleetMissionService
             $missiontype[FleetMissionType::RELOCATE->value] = true;
         }
 
+        if (
+            $orbitType === GalaxyOrbits::EXPEDITION
+            && isset($fleetMissions[FleetMissionType::EXPEDITION->value])
+        ) {
+            $missiontype[FleetMissionType::EXPEDITION->value] = true;
+        }
+
         
 
         $missions = array_keys($missiontype);
@@ -553,31 +757,22 @@ class FleetMissionService
      *
      * Результат: массив ID миссий (int) без дубликатов.
      */
-    protected function fleetCanPerform(array|\SPGame\Game\Fleet\Fleet $fleet): array
+    protected function fleetCanPerform(Fleet $fleet): array
     {
-        $ships = $fleet['Ships'] ?? [];
-
-        if ($ships instanceof \SPGame\Game\Fleet\FleetShipsView) $ships = $ships->toArray();
-
-        if (!is_array($ships) || !$ships) {
+        $ships = $fleet->getShips();
+        if (!$ships) {
             return [];
         }
 
         $missions = [];
         $seen = [];
 
-        foreach (Vars::$reslist['fleet'] as $elementId) {
-            $shipName = Vars::$resource[$elementId] ?? null;
-
-            if (!$shipName) {
+        foreach ($ships as $ship) {
+            if ($ship->getCount() <= 0) {
                 continue;
             }
 
-            $count = (int)($ships[$shipName . '_count'] ?? 0);
-
-            if ($count <= 0) {
-                continue;
-            }
+            $elementId = $ship->getShipTypeId();
 
             // Vars::loadAll() преобразует fleetMissions в массив ID FleetMissionType.
             $availableMissions = Vars::$attributes[$elementId]['missions'] ?? null;

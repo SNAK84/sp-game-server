@@ -120,7 +120,7 @@ final class FleetShip
     private function changed(string $key, int|float $value): void
     {
         if ($this->onChange !== null) {
-            ($this->onChange)($this->shipTypeName . '_' . $key, $value);
+            ($this->onChange)($key, $value);
         }
     }
 

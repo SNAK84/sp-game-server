@@ -371,17 +371,49 @@ class Connect
             if ($action == "planetselect") {
 
                 $User = \SPGame\Game\Repositories\Users::findByAccount($authResult['id']);
+                $rawData = is_array($frame->data) ? ($frame->data['data'] ?? null) : null;
+                $rawPlanetId = is_array($rawData) && array_key_exists('planetId', $rawData)
+                    ? $rawData['planetId']
+                    : null;
+                $planetId = null;
+
+                // Значение из HTML select приходит строкой, но остальные типы
+                // не должны неявно превращаться в идентификатор планеты.
+                if (is_int($rawPlanetId)) {
+                    $planetId = $rawPlanetId;
+                } elseif (is_string($rawPlanetId) && ctype_digit(trim($rawPlanetId))) {
+                    $planetId = (int)trim($rawPlanetId);
+                }
+
+                $planet = $planetId !== null && $planetId > 0
+                    ? \SPGame\Game\Repositories\Planets::findById($planetId)
+                    : null;
+
+                if (
+                    !$User
+                    || !$planet
+                    || (int)$planet['owner_id'] !== (int)$User['id']
+                ) {
+                    return $response
+                        ->setMode('none')
+                        ->setError('planet_unavailable', 'Planet unavailable')
+                        ->source();
+                }
+
                 \SPGame\Game\Repositories\PlayerQueue::addQueue(
                     $authResult['id'],
                     $User['id'],
-                    $Msg->getData("planetId"),
+                    $planetId,
                     \SPGame\Game\Repositories\PlayerQueue::ActionSelectPlanet,
                     [
                         'Element' => $Msg->getData('id'),
                         'AddMode' => true
                     ]
                 );
-                return;
+
+                // Команда только принята в PlayerQueue. Переключение и ActualData
+                // по-прежнему выполняются асинхронно в EventLoop.
+                return $response->setMode('none')->source();
             }
             // --- Роутинг по режимам (game logic) ---
             switch ($mode) {

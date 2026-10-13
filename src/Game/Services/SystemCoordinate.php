@@ -1,6 +1,6 @@
 <?php
 
-namespace SPGame\Game\ValueObjects;
+namespace SPGame\Game\Services;
 
 /**
  * Координата объекта внутри звёздной системы
@@ -12,6 +12,7 @@ class SystemCoordinate
     public int $system;
     public float $radius;          // Расстояние от звезды
     public float $angle;           // Положение по орбите
+
     public ?int $orbit;            // Номер орбиты (для планет)
     public string $type;           // planet | moon | debris | base | fleet
     public float $rotationSpeed;   // °/сек (для вращающихся объектов)

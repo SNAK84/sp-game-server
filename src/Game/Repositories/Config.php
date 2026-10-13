@@ -33,7 +33,7 @@ class Config extends BaseRepository
         'LastSystemPos'      => 1,
         'MaxGalaxy'          => 3,
         'MaxSystem'          => 128,
-        'SpeedPlanets'       => 24,      // Оборотов за час
+        'SpeedPlanets'       => 24,      // 24 = базовая орбитальная скорость; 96 = ускорение x4
         'StartRes901'        => 60000,
         'StartRes902'        => 40000,
         'StartRes903'        => 20000,

@@ -45,7 +45,7 @@ class Accounts extends BaseRepository
             'credit' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT(8) DEFAULT 0', 'default' => 0],
             'lang' => ['swoole' => [Table::TYPE_STRING, 4], 'sql' => "VARCHAR(4) DEFAULT 'ru'", 'default' => 'ru'],
             'frame' => ['swoole' => [Table::TYPE_INT, 8], 'default' => 0],
-            'email_pin' => ['swoole' => [Table::TYPE_STRING, 8], 'sql' => "VARCHAR(8) DEFAULT NULL", 'default' => ''],
+            'email_pin' => ['swoole' => [Table::TYPE_STRING, 8], 'default' => ''],
             'mode' => ['swoole' => [Table::TYPE_STRING, 32], 'default' => ''],
         ],
         'indexes' => [
@@ -333,7 +333,7 @@ class Accounts extends BaseRepository
             'login' => $login,
             'email' => $email,
             'password' => $hashedPassword,
-            'last_send_verify_mail' => time(),
+            'last_send_verify_mail' => 0,
             'reg_ip' => $ip,
             'last_ip' => $ip,
             'frame' => $fd
@@ -388,7 +388,7 @@ class Accounts extends BaseRepository
         }
 
         if (trim((string)$account['email_pin']) !== trim((string)$pin)) {
-            self::$logger->warning("Invalid email PIN for account ID {$accountId} | FD: $fd");
+            self::$logger->warning("Invalid email PIN for account ID {$accountId} | FD: $fd | PIN: $pin | Expected: {$account['email_pin']}");
             return ['error' => Errors::getArrayMessage(Errors::INVALID_PIN)];
         }
 
@@ -475,8 +475,14 @@ class Accounts extends BaseRepository
         $result = $mailer->sendVerificationPin($account['email'], $account['login'], $pin);
 
         if ($result) {
-            self::$logger->info("Email confirmation sent successfully to {$account['email']} | ID: $id");
+            $account['last_send_verify_mail'] = time();
+            $account['email_pin'] = $pin;
+            self::update($account);
+            $account = self::findById($id);
+            self::$logger->info("Email confirmation sent successfully to {$account['email']} | ID: $id | Pin: $pin | accaunt_pin: {$account['email_pin']}");
         } else {
+            $account['last_send_verify_mail'] = 0;
+            self::update($account);
             self::$logger->error("Failed to send email confirmation to {$account['email']} | ID: $id");
         }
 
@@ -515,6 +521,7 @@ class Accounts extends BaseRepository
         }
 
         // Устанавливаем время последней отправки ТОЛЬКО после успешной отправки письма
+        $account = self::findById($accountId);
         $account['last_send_verify_mail'] = time();
         self::update($account);
 

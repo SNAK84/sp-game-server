@@ -28,6 +28,7 @@ class Galaxy extends BaseRepository
             'min_distance' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 16],
             'max_distance' => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 16],
             'max_orbits'   => ['swoole' => [Table::TYPE_INT, 8], 'sql' => 'INT UNSIGNED NOT NULL', 'default' => 16],
+            'rotation'     => ['swoole' => [Table::TYPE_INT, 1], 'sql' => 'TINYINT(1) UNSIGNED NOT NULL DEFAULT 1', 'default' => 1],
         ],
         'indexes' => [
             ['name' => 'PRIMARY', 'type' => 'PRIMARY', 'fields' => ['id']],
@@ -46,14 +47,18 @@ class Galaxy extends BaseRepository
     /** @var Table */
     protected static Table $syncTable;
 
+    /**
+     * Единый профиль звёзд для генератора и представления галактики.
+     * mass/radius указаны в долях Солнца, temperature — в Кельвинах.
+     */
     public static array $starTypes = [
-        'O' => ['color' => 'lightblue',   'size' => [25, 30], 'range' => [800, 12000], 'max_orbits' => 15],
-        'B' => ['color' => 'deepskyblue', 'size' => [22, 26], 'range' => [700, 10000], 'max_orbits' => 13],
-        'A' => ['color' => 'white',       'size' => [18, 23], 'range' => [600, 9000],  'max_orbits' => 11],
-        'F' => ['color' => 'beige',       'size' => [16, 20], 'range' => [600, 8000],  'max_orbits' => 9],
-        'G' => ['color' => 'yellow',      'size' => [14, 18], 'range' => [600, 7000],  'max_orbits' => 7],
-        'K' => ['color' => 'orange',      'size' => [12, 16], 'range' => [600, 6000],  'max_orbits' => 6],
-        'M' => ['color' => 'red',         'size' => [10, 14], 'range' => [600, 5000],  'max_orbits' => 5],
+        'O' => ['color' => 'lightblue',   'size' => [25, 30], 'temperature' => [30000, 45000], 'mass' => [16.0, 40.0], 'radius' => [6.6, 12.0], 'max_orbits' => 15],
+        'B' => ['color' => 'deepskyblue', 'size' => [22, 26], 'temperature' => [10000, 30000], 'mass' => [2.1, 16.0],  'radius' => [1.8, 6.6],  'max_orbits' => 13],
+        'A' => ['color' => 'white',       'size' => [18, 23], 'temperature' => [7500, 10000],  'mass' => [1.4, 2.1],   'radius' => [1.4, 1.8],  'max_orbits' => 11],
+        'F' => ['color' => 'beige',       'size' => [16, 20], 'temperature' => [6000, 7500],   'mass' => [1.04, 1.4],  'radius' => [1.15, 1.4], 'max_orbits' => 9],
+        'G' => ['color' => 'yellow',      'size' => [14, 18], 'temperature' => [5200, 6000],   'mass' => [0.8, 1.04],  'radius' => [0.96, 1.15], 'max_orbits' => 7],
+        'K' => ['color' => 'orange',      'size' => [12, 16], 'temperature' => [3700, 5200],   'mass' => [0.45, 0.8],  'radius' => [0.7, 0.96], 'max_orbits' => 6],
+        'M' => ['color' => 'red',         'size' => [10, 14], 'temperature' => [2400, 3700],   'mass' => [0.08, 0.45], 'radius' => [0.1, 0.7],  'max_orbits' => 5],
     ];
 
     /**
@@ -63,8 +68,8 @@ class Galaxy extends BaseRepository
     {
         $star = self::findByIndex('galaxy_system', [$galaxy, $system]);
         if (!$star) $star[] = GalaxyGenerator::generateSystem($galaxy, $system);
-        
-        //GalaxyOrbits::findByIndex('galaxy_system', [$galaxy, $system]);
+
+        GalaxyGenerator::ensureSpecialOrbits($star[0]);
 
         return $star[0];
     }

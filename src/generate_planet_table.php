@@ -5,23 +5,22 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use SPGame\Game\Services\GalaxyGenerator;
+use SPGame\Game\Repositories\Galaxy;
 
 ini_set('display_errors', '1');
 error_reporting(E_ALL);
 
-// Получаем приватный static $starTypes из GalaxyGenerator через Reflection
-$ref = new ReflectionClass(GalaxyGenerator::class);
-$prop = $ref->getProperty('starTypes');
-$prop->setAccessible(true);
-$starTypes = $prop->getValue();
+$starTypes = Galaxy::$starTypes;
 
 header('Content-Type: text/html; charset=utf-8');
 
 $rows = [];
 foreach ($starTypes as $starCode => $starInfo) {
     $maxOrbits = (int)($starInfo['max_orbits'] ?? 0);
-    $minDistance = (int)($starInfo['range'][0] ?? 0);
-    $maxDistance = (int)($starInfo['range'][1] ?? 0);
+    $starSize = (int)round(($starInfo['size'][0] + $starInfo['size'][1]) / 2);
+    [$minDistance, $maxDistance] = GalaxyGenerator::getSystemDistanceRange(
+        GalaxyGenerator::getStarPhysics($starCode, $starSize)
+    );
 
     if ($maxOrbits <= 0) continue;
 
@@ -46,7 +45,7 @@ foreach ($starTypes as $starCode => $starInfo) {
     // Генерация планет
     foreach ($distances as $orbitIndex => $distance) {
         $orbitNum = $orbitIndex + 1;
-        $planet = GalaxyGenerator::generatePlanet($starCode, $distance, false);
+        $planet = GalaxyGenerator::generatePlanet($starCode, $distance, false, $starSize, 1);
 
         $tempMin = $planet['temp_min'] ?? null;
         $tempMax = $planet['temp_max'] ?? null;

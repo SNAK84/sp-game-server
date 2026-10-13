@@ -8,6 +8,7 @@ use SPGame\Core\Defaults;
 
 use SPGame\Game\Services\Lang;
 use SPGame\Game\Services\GalaxyGenerator;
+use SPGame\Game\Services\RepositorySaver;
 
 use Swoole\Table;
 
@@ -37,7 +38,7 @@ class Planets extends BaseRepository
             'fields'       => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'SMALLINT UNSIGNED NOT NULL', 'default' => 0],
             'type'         => ['swoole' => [Table::TYPE_STRING, 32], 'sql' => 'VARCHAR(32) NOT NULL DEFAULT ""', 'default' => ''],
             'image'        => ['swoole' => [Table::TYPE_STRING, 32], 'sql' => 'VARCHAR(32) NOT NULL DEFAULT ""', 'default' => ''],
-            'speed'        => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) NOT NULL', 'default' => 0],
+            'speed'        => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(12,6) NOT NULL DEFAULT 0.0', 'default' => 0.0],
             'distance'     => ['swoole' => [Table::TYPE_INT, 4], 'sql' => 'INT(11) NOT NULL', 'default' => 0],
             'deg'          => ['swoole' => [Table::TYPE_FLOAT, 8], 'sql' => 'DOUBLE(9,6) NOT NULL', 'default' => 0.0],
             'rotation'     => ['swoole' => [Table::TYPE_INT, 1], 'sql' => "TINYINT(1) NOT NULL DEFAULT '0'", 'default' => [Defaults::RAND, 0, 1]],
@@ -64,6 +65,22 @@ class Planets extends BaseRepository
 
     /** @var Table */
     protected static Table $syncTable;
+
+    public static function init(?RepositorySaver $saver = null): void
+    {
+        parent::init($saver);
+
+        // Кеплеровская скорость дальних орбит меньше 1°/ч. Старый INT
+        // обнулял бы её при сохранении в MySQL и ломал движение после restart.
+        $column = Database::getInstance()->fetchOne("SHOW COLUMNS FROM `planets` LIKE 'speed'");
+        $type = strtolower((string)($column['Type'] ?? ''));
+        if ($type !== '' && !str_starts_with($type, 'double') && !str_starts_with($type, 'float') && !str_starts_with($type, 'decimal')) {
+            Database::getInstance()->query(
+                'ALTER TABLE `planets` MODIFY COLUMN `speed` DOUBLE(12,6) NOT NULL DEFAULT 0.0'
+            );
+            Logger::getInstance()->info('Planets.speed migrated to DOUBLE(12,6)');
+        }
+    }
 
 
     public static function findAll(): array

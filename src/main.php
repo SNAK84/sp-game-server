@@ -22,6 +22,7 @@ use SPGame\Game\Repositories\Defenses;
 
 use SPGame\Game\Repositories\Galaxy;
 use SPGame\Game\Repositories\GalaxyOrbits;
+use SPGame\Game\Repositories\OrbitalResourceSites;
 
 use SPGame\Game\Repositories\Queues;
 use SPGame\Game\Repositories\Messages;
@@ -36,6 +37,7 @@ use SPGame\Game\Repositories\Vars;
 use SPGame\Game\Repositories\PlayerQueue;
 
 use SPGame\Game\Services\RepositorySaver;
+use SPGame\Game\Services\GalaxyGenerator;
 
 ini_set('memory_limit', '2G');
 set_time_limit(0);
@@ -73,6 +75,9 @@ try {
 
     Galaxy::init($saver);
     GalaxyOrbits::init($saver);
+    OrbitalResourceSites::init($saver);
+    GalaxyGenerator::ensureAllSpecialOrbits();
+    GalaxyGenerator::reconcilePlanetOrbits();
 
     Fleets::init($saver);
     FleetsShips::init($saver);

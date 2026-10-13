@@ -11,6 +11,7 @@ use SPGame\Game\Repositories\Vars;
 use SPGame\Game\Services\Helpers;
 use SPGame\Game\Services\AccountData;
 use SPGame\Game\Services\QueuesServices;
+use SPGame\Game\Enums\FleetMissionType;
 
 class OverviewPage extends AbstractPage
 {
@@ -88,6 +89,8 @@ class OverviewPage extends AbstractPage
                 'Tech'   => $this->formatQueue($TechsQueue, 'tech'),
                 'Hangar' => $this->formatQueue($HangarQueue, 'hangar'),
             ],
+            'FlyingFleets'  => (new FleetsPage($this->Msg))->buildVisibleFlyingFleetList($AccountData),
+            'FleetMissions' => FleetMissionType::list(),
         ];
     }
 

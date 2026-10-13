@@ -4,6 +4,8 @@ namespace SPGame\Game\Services;
 
 use SPGame\Game\Enums\FleetCommandType;
 use SPGame\Game\Enums\FleetMissionType;
+use SPGame\Game\Space\Coordinate;
+use SPGame\Game\Space\CoordinateType;
 
 /**
  * Генератор цепочек команд для миссий флота.
@@ -16,12 +18,12 @@ class FleetMissionBuilder
      * Построить цепочку команд для миссии
      *
      * @param FleetMissionType $mission
-     * @param array $start ['galaxy'=>, 'system'=>, 'orbit'=>, 'distance'?, 'deg'?]
-     * @param array $target аналогично
+     * @param Coordinate $start физическая начальная координата Fleet.
+     * @param Coordinate $target логическая цель миссии.
      * @param array $options ['return' => bool, 'leave_at_target' => bool, 'final_action' => 'stay'|'land'|'none', ...]
      * @return array список команд вида ['type' => FleetCommandType::..., 'params' => [...]]
      */
-    public static function build(FleetMissionType $mission, array $start, array $target, array $options = []): array
+    public static function build(FleetMissionType $mission, Coordinate $start, Coordinate $target, array $options = []): array
     {
         return match ($mission) {
             FleetMissionType::ATTACK => self::buildAttack($start, $target, $options),
@@ -45,26 +47,42 @@ class FleetMissionBuilder
     //  Утилиты
     // --------------------
 
-    private static function isSameSystem(array $a, array $b): bool
+    private static function getSystem(Coordinate $coordinate): array
     {
-        return ($a['galaxy'] === $b['galaxy']) && ($a['system'] === $b['system']);
+        $position = $coordinate;
+        if ($coordinate->getType() === CoordinateType::FLEET) {
+            $position = $coordinate->getLastKnownPosition();
+        }
+
+        return [
+            'galaxy' => $position->getGalaxy(),
+            'system' => $position->getSystem(),
+        ];
     }
 
-    private static function needSystemJump(array $start, array $target): bool
+    private static function isSameSystem(Coordinate $start, Coordinate $target): bool
     {
-        return $start['system'] !== $target['system'];
+        $startSystem = self::getSystem($start);
+        $targetSystem = self::getSystem($target);
+
+        return $startSystem === $targetSystem;
     }
 
-    private static function needGalaxyJump(array $start, array $target): bool
+    private static function needSystemJump(Coordinate $start, Coordinate $target): bool
     {
-        return $start['galaxy'] !== $target['galaxy'];
+        return self::getSystem($start)['system'] !== self::getSystem($target)['system'];
+    }
+
+    private static function needGalaxyJump(Coordinate $start, Coordinate $target): bool
+    {
+        return self::getSystem($start)['galaxy'] !== self::getSystem($target)['galaxy'];
     }
 
     /**
      * Построить forward-путь (из start -> target).
      * Не включает return (возврат). Возвращает массив команд.
      */
-    private static function buildForwardPath(array $start, array $target): array
+    private static function buildForwardPath(Coordinate $start, Coordinate $target): array
     {
         $cmds = [];
 
@@ -73,22 +91,18 @@ class FleetMissionBuilder
             $cmds[] = [
                 'type' => FleetCommandType::MOVE_IN_SYSTEM,
                 'params' => [
-                    'phase' => 'move_to_target',
                     'target' => $target,
                 ]
             ];
             return $cmds;
         }
 
-        // 1) Вылет к краю стартовой системы
+        // Вылет к краю стартовой системы. Геометрия границы определяется
+        // активатором команды из текущего Fleet состояния.
         $cmds[] = [
             'type' => FleetCommandType::MOVE_IN_SYSTEM,
             'params' => [
-                'phase' => 'exit_system',
-                'to' => [
-                    'galaxy' => $target['galaxy'],
-                    'system' => $target['system'],
-                ]
+                'target' => $target,
             ]
         ];
 
@@ -97,20 +111,18 @@ class FleetMissionBuilder
             $cmds[] = [
                 'type' => FleetCommandType::MOVE_BETWEEN_GALAXIES,
                 'params' => [
-                    'from' => $start['galaxy'],
-                    'to' => $target['galaxy'],
+                    'target' => $target,
+                    // Nova считает galaxy/system единым диагональным переходом.
+                    'destination' => self::getSystem($target),
                 ]
             ];
-        }
-
-        // 3) Межсистемный переход
-        if (self::needSystemJump($start, $target)) {
+        } elseif (self::needSystemJump($start, $target)) {
+            // 3) Межсистемный переход внутри одной галактики
             $cmds[] = [
                 'type' => FleetCommandType::MOVE_BETWEEN_SYSTEMS,
                 'params' => [
-                    'from' => $start['system'],
-                    'to' => $target['system'],
-                    'galaxy' => $target['galaxy']
+                    'target' => $target,
+                    'destination' => self::getSystem($target),
                 ]
             ];
         }
@@ -119,7 +131,6 @@ class FleetMissionBuilder
         $cmds[] = [
             'type' => FleetCommandType::MOVE_IN_SYSTEM,
             'params' => [
-                'phase' => 'approach_target',
                 'target' => $target,
             ]
         ];
@@ -131,7 +142,7 @@ class FleetMissionBuilder
     //  Построение миссий
     // -----------------------
 
-    public static function buildAttack(array $start, array $target, array $options = []): array
+    public static function buildAttack(Coordinate $start, Coordinate $target, array $options = []): array
     {
         $return = $options['return'] ?? true;
         $leaveAtTarget = $options['leave_at_target'] ?? false;
@@ -154,7 +165,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildGroupAttack(array $start, array $target, array $options = []): array
+    public static function buildGroupAttack(Coordinate $start, Coordinate $target, array $options = []): array
     {
         $cmds = self::buildForwardPath($start, $target);
         $cmds[] = ['type' => FleetCommandType::GROUP_ATTACK, 'params' => ['target' => $target]];
@@ -165,7 +176,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildDestroy(array $start, array $target, array $options = []): array
+    public static function buildDestroy(Coordinate $start, Coordinate $target, array $options = []): array
     {
         $cmds = self::buildForwardPath($start, $target);
         $cmds[] = ['type' => FleetCommandType::DESTROY, 'params' => ['target' => $target]];
@@ -176,7 +187,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildTransport(array $start, array $target, array $options = []): array
+    public static function buildTransport(Coordinate $start, Coordinate $target, array $options = []): array
     {
         $return = $options['return'] ?? true;
 
@@ -189,6 +200,9 @@ class FleetMissionBuilder
 
         if ($return) {
             $cmds = array_merge($cmds, self::buildForwardPath($target, $start));
+            // Возвращаем на исходную планету неиспользованное топливо и любой
+            // груз, который не удалось выгрузить у цели.
+            $cmds[] = ['type' => FleetCommandType::UNLOAD, 'params' => ['target' => $start]];
             $cmds[] = ['type' => FleetCommandType::STAY, 'params' => ['at' => $start]];
         } else {
             $cmds[] = ['type' => FleetCommandType::STAY, 'params' => ['at' => $target]];
@@ -196,7 +210,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildColonize(array $start, array $target, array $options = []): array
+    public static function buildColonize(Coordinate $start, Coordinate $target, array $options = []): array
     {
 
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
@@ -215,7 +229,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildRecycle(array $start, array $target, array $options = []): array
+    public static function buildRecycle(Coordinate $start, Coordinate $target, array $options = []): array
     {
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
 
@@ -227,8 +241,11 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildExpedition(array $start, array $target, array $options = []): array
+    public static function buildExpedition(Coordinate $start, Coordinate $target, array $options = []): array
     {
+        if (!self::isSameSystem($start, $target)) {
+            throw new \InvalidArgumentException('Экспедиция может быть назначена только в текущей системе флота.');
+        }
 
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
 
@@ -244,7 +261,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildDefend(array $start, array $target, array $options = []): array
+    public static function buildDefend(Coordinate $start, Coordinate $target, array $options = []): array
     {
         // Защита — часто без возврата, но пусть будет configurable
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
@@ -259,7 +276,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildSpy(array $start, array $target, array $options = []): array
+    public static function buildSpy(Coordinate $start, Coordinate $target, array $options = []): array
     {
 
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
@@ -275,7 +292,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildResearch(array $start, array $target, array $options = []): array
+    public static function buildResearch(Coordinate $start, Coordinate $target, array $options = []): array
     {
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
 
@@ -289,7 +306,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildRelocate(array $start, array $target, array $options = []): array
+    public static function buildRelocate(Coordinate $start, Coordinate $target, array $options = []): array
     {
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
         // Перебазирование: летим и остаёмся
@@ -299,7 +316,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildMerge(array $start, array $target, array $options = []): array
+    public static function buildMerge(Coordinate $start, Coordinate $target, array $options = []): array
     {
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
 
@@ -308,7 +325,7 @@ class FleetMissionBuilder
         return $cmds;
     }
 
-    public static function buildObserve(array $start, array $target, array $options = []): array
+    public static function buildObserve(Coordinate $start, Coordinate $target, array $options = []): array
     {
         $cmds = [['type' => FleetCommandType::LOAD, 'params' => ['target' => $start]]];
         $cmds = array_merge($cmds, self::buildForwardPath($start, $target));

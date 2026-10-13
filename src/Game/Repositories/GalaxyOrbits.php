@@ -16,6 +16,8 @@ class GalaxyOrbits extends BaseRepository
     public const EMPTY         = 0;
     public const ASTEROID_BELT = 1;
     public const GAS_GIANT     = 2;
+    public const SYSTEM_EDGE   = 3;
+    public const EXPEDITION    = 4;
     public const PLANET        = 5;   
 
     /** @var Table Основная таблица */

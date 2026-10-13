@@ -4,6 +4,7 @@ namespace SPGame\Game\Services;
 
 use SPGame\Game\Repositories\Galaxy;
 use SPGame\Game\Repositories\GalaxyOrbits;
+use SPGame\Game\Repositories\OrbitalResourceSites;
 use SPGame\Game\Repositories\Planets;
 use SPGame\Game\Repositories\Config;
 
@@ -11,17 +12,21 @@ use SPGame\Core\Logger;
 
 class GalaxyGenerator
 {
-    const ORBIT_STEP = 700;
-
-    private static array $starTypes = [
-        'O' => ['color' => 'lightblue',   'size' => [25, 30], 'range' => [800, 20000], 'max_orbits' => 15, 'temperature' => 30000],
-        'B' => ['color' => 'deepskyblue', 'size' => [22, 26], 'range' => [700, 16000], 'max_orbits' => 13, 'temperature' => 20000],
-        'A' => ['color' => 'white',       'size' => [18, 23], 'range' => [600, 12000],  'max_orbits' => 11, 'temperature' => 10000],
-        'F' => ['color' => 'beige',       'size' => [16, 20], 'range' => [600, 9000],  'max_orbits' => 9,  'temperature' => 7500],
-        'G' => ['color' => 'yellow',      'size' => [14, 18], 'range' => [600, 7000],  'max_orbits' => 7,  'temperature' => 6000],
-        'K' => ['color' => 'orange',      'size' => [12, 16], 'range' => [600, 6000],  'max_orbits' => 6,  'temperature' => 5000],
-        'M' => ['color' => 'red',         'size' => [10, 14], 'range' => [500, 4000],  'max_orbits' => 5,  'temperature' => 3500],
-    ];
+    /** 1500 игровых единиц соответствуют одной условной астрономической единице. */
+    public const DISTANCE_PER_AU = 1500.0;
+    /** Сжатие реального диапазона светимостей O–M для игрового масштаба. */
+    private const LUMINOSITY_COMPRESSION = 0.25;
+    /** Период земной орбиты при SpeedPlanets=24. */
+    private const BASE_ORBIT_PERIOD_HOURS = 24.0;
+    /** Один внешний шаг равен трети обитаемой дистанции звезды. */
+    private const SPECIAL_ORBIT_STEP_FACTOR = 1.0 / 3.0;
+    /** Служебные дистанции округляются до игровых 50 единиц. */
+    private const SPECIAL_ORBIT_STEP_QUANTUM = 50;
+    private const SPECIAL_ORBIT_MIN_STEP = 100;
+    private const GAS_DEUTERIUM_RATE_PER_HOUR = 900.0;
+    private const BELT_TOTAL_RATE_PER_HOUR = 1200.0;
+    private const RESOURCE_CAPACITY_HOURS_MIN = 168;
+    private const RESOURCE_CAPACITY_HOURS_MAX = 336;
 
     /**
      * Генерация всей системы: звезда + орбиты + гиганты/пояса
@@ -36,12 +41,13 @@ class GalaxyGenerator
             $pool = array_merge($pool, array_fill(0, $w, $type));
         }
         $type = $pool[array_rand($pool)];
-        $star = self::$starTypes[$type];
+        $star = Galaxy::$starTypes[$type];
 
         $starSize = random_int($star['size'][0], $star['size'][1]);
-        $minDistance = random_int($star['range'][0], $star['range'][0] + 400);
-        $maxDistance = random_int($star['range'][1] - 800, $star['range'][1]);
+        $starPhysics = self::getStarPhysics($type, $starSize);
+        [$minDistance, $maxDistance] = self::getSystemDistanceRange($starPhysics);
         $maxOrbits = $star['max_orbits'];
+        $rotation = random_int(0, 1);
 
         $orbits = self::generateOrbits($minDistance, $maxDistance, $maxOrbits);
 
@@ -54,20 +60,21 @@ class GalaxyGenerator
             'min_distance' => $minDistance,
             'max_distance' => $maxDistance,
             'max_orbits' => $maxOrbits,
+            'rotation' => $rotation,
         ];
 
         $Gsystem = Galaxy::castRowToSchema($Gsystem, true);
         Galaxy::add($Gsystem);
 
-        $CountAsteroidBelt = 0;
+        $snowLine = $starPhysics['habitable_center'] * 2.7;
+        $asteroidOrbit = self::selectAsteroidOrbit($orbits, $snowLine);
         $CountGasGiant = 0;
         foreach ($orbits as $orbit) {
             $record = ['galaxy' => $galaxy, 'system' => $system, 'orbit' => $orbit['orbit'], 'distance' => $orbit['distance']];
 
-            if (mt_rand(0, 100) < 50 && $orbit['orbit'] > 2 && $orbit['orbit'] < $maxOrbits - 2 && $CountAsteroidBelt < 1) {
+            if ($asteroidOrbit !== null && $orbit['orbit'] === $asteroidOrbit) {
                 $record['type'] = GalaxyOrbits::ASTEROID_BELT;
-                $CountAsteroidBelt++;
-            } elseif ($orbit['distance'] >= ($maxDistance * 0.6) && mt_rand(0, 100) < 40 && $CountGasGiant < 2) {
+            } elseif ($orbit['distance'] >= $snowLine && mt_rand(0, 100) < 40 && $CountGasGiant < 2) {
                 $record['type'] = GalaxyOrbits::GAS_GIANT;
                 $CountGasGiant++;
             } else {
@@ -77,33 +84,552 @@ class GalaxyGenerator
             GalaxyOrbits::add($record);
         }
 
+        self::ensureSpecialOrbits($Gsystem);
+        self::ensureResourceSitesForSystem($Gsystem);
+
         $logger->info("Система G{$galaxy}:S{$system} создана (звезда {$type}, орбит " . count($orbits) . ")");
 
         return $Gsystem;
     }
 
-    private static function generateOrbits(int $min, int $max, int $count): array
+    /**
+     * Добавить обязательные неподвижные орбиты границы системы и экспедиции.
+     * max_orbits остаётся числом обычных планетных орбит.
+     */
+    public static function ensureSpecialOrbits(array $systemData): void
     {
-        $minGap = self::ORBIT_STEP;
-        $used = [$min, $max];
-        $attempts = 0;
-        while (count($used) < $count && $attempts < 500) {
-            $attempts++;
-            $dist = random_int($min, $max);
-            $ok = true;
-            foreach ($used as $u) {
-                if (abs($u - $dist) < $minGap) {
-                    $ok = false;
-                    break;
+        $galaxy = (int)($systemData['galaxy'] ?? 0);
+        $system = (int)($systemData['system'] ?? 0);
+        $maxOrbits = (int)($systemData['max_orbits'] ?? 0);
+        $maxDistance = (int)($systemData['max_distance'] ?? 0);
+
+        if ($galaxy <= 0 || $system <= 0 || $maxOrbits <= 0 || $maxDistance <= 0) {
+            throw new \LogicException('Невозможно создать служебные орбиты: данные системы неполные.');
+        }
+
+        $specialOrbitStep = self::getSpecialOrbitStep($systemData);
+        $definitions = [
+            GalaxyOrbits::SYSTEM_EDGE => [
+                'orbit' => $maxOrbits + 1,
+                'distance' => $maxDistance + $specialOrbitStep,
+            ],
+            GalaxyOrbits::EXPEDITION => [
+                'orbit' => $maxOrbits + 2,
+                'distance' => $maxDistance + $specialOrbitStep * 2,
+            ],
+        ];
+
+        foreach ($definitions as $type => $definition) {
+            $existing = GalaxyOrbits::findByIndex(
+                'galaxy_system_orbit',
+                [$galaxy, $system, $definition['orbit']]
+            );
+
+            if ($existing) {
+                $row = $existing;
+                if ((int)$row['type'] !== $type) {
+                    Logger::getInstance()->error('Номер служебной орбиты уже занят', [
+                        'galaxy' => $galaxy,
+                        'system' => $system,
+                        'orbit' => $definition['orbit'],
+                        'expected_type' => $type,
+                        'actual_type' => (int)$row['type'],
+                    ]);
+                    continue;
+                }
+
+                if ((int)$row['distance'] !== $definition['distance']) {
+                    $row['distance'] = $definition['distance'];
+                    GalaxyOrbits::update($row);
+                }
+                continue;
+            }
+
+            GalaxyOrbits::add([
+                'galaxy' => $galaxy,
+                'system' => $system,
+                'orbit' => $definition['orbit'],
+                'distance' => $definition['distance'],
+                'type' => $type,
+            ]);
+        }
+    }
+
+    /**
+     * Масштаб внешней зоны системы зависит от физики конкретной звезды.
+     * Для Солнцеподобной G-звезды шаг остаётся около прежних 500 единиц.
+     */
+    private static function getSpecialOrbitStep(array $systemData): int
+    {
+        $starType = (string)($systemData['star_type'] ?? 'G');
+        $starSize = isset($systemData['star_size'])
+            ? (int)$systemData['star_size']
+            : null;
+        $starPhysics = self::getStarPhysics($starType, $starSize);
+        $rawStep = $starPhysics['habitable_center'] * self::SPECIAL_ORBIT_STEP_FACTOR;
+        $roundedStep = (int)round($rawStep / self::SPECIAL_ORBIT_STEP_QUANTUM)
+            * self::SPECIAL_ORBIT_STEP_QUANTUM;
+
+        return max(self::SPECIAL_ORBIT_MIN_STEP, $roundedStep);
+    }
+
+    /** Дозаполнить служебные орбиты всех уже созданных систем при старте. */
+    public static function ensureAllSpecialOrbits(): void
+    {
+        foreach (Galaxy::getAll() ?? [] as $systemData) {
+            self::ensureSpecialOrbits($systemData);
+        }
+    }
+
+    /**
+     * Создать недостающие постоянные ресурсные объекты одной системы.
+     * Повторный вызов безопасен: identity задаётся через (galaxy, system,
+     * orbit, sector), а параметры генерируются детерминированно.
+     */
+    public static function ensureResourceSitesForSystem(array $systemData, ?float $atTime = null): int
+    {
+        $galaxy = (int)($systemData['galaxy'] ?? 0);
+        $system = (int)($systemData['system'] ?? 0);
+        if ($galaxy <= 0 || $system <= 0) {
+            throw new \LogicException('Невозможно создать ресурсные объекты: данные системы неполные.');
+        }
+
+        $atTime ??= microtime(true);
+        $orbits = GalaxyOrbits::findByIndex('galaxy_system', [$galaxy, $system]) ?? [];
+        $added = 0;
+
+        foreach ($orbits as $orbit) {
+            $orbitType = (int)($orbit['type'] ?? GalaxyOrbits::EMPTY);
+            if (!in_array($orbitType, [GalaxyOrbits::GAS_GIANT, GalaxyOrbits::ASTEROID_BELT], true)) {
+                continue;
+            }
+
+            // При восстановлении частично заполненного пояса новые сектора
+            // должны сохранить общую временную точку орбитального движения.
+            $existingOrbitSites = OrbitalResourceSites::findByIndex(
+                'galaxy_system_orbit',
+                [$galaxy, $system, (int)$orbit['orbit']]
+            ) ?? [];
+            $positionTime = $existingOrbitSites === []
+                ? $atTime
+                : (float)$existingOrbitSites[0]['position_time'];
+
+            foreach (self::buildResourceSiteRows($systemData, $orbit, $positionTime) as $site) {
+                $existing = OrbitalResourceSites::findByIndex(
+                    'galaxy_system_orbit_sector',
+                    [$galaxy, $system, (int)$site['orbit'], (int)$site['sector']]
+                );
+                if ($existing !== null) {
+                    if ((int)$existing['site_type'] !== (int)$site['site_type']) {
+                        Logger::getInstance()->warning('Тип существующего орбитального ресурса не совпадает с типом орбиты', [
+                            'galaxy' => $galaxy,
+                            'system' => $system,
+                            'orbit' => (int)$site['orbit'],
+                            'sector' => (int)$site['sector'],
+                            'expected_type' => (int)$site['site_type'],
+                            'actual_type' => (int)$existing['site_type'],
+                        ]);
+                    }
+                    continue;
+                }
+
+                if (OrbitalResourceSites::add($site) !== null) {
+                    $added++;
                 }
             }
-            if ($ok) $used[] = $dist;
         }
-        sort($used);
-        $result = [];
-        foreach ($used as $i => $distance) {
+
+        return $added;
+    }
+
+    /**
+     * Построить устойчивые строки одного газового гиганта или секторов пояса.
+     * Метод не изменяет runtime state и поэтому пригоден для проверки генерации.
+     *
+     * @return array<int,array<string,int|float>>
+     */
+    public static function buildResourceSiteRows(array $systemData, array $orbit, float $atTime): array
+    {
+        $galaxy = (int)($systemData['galaxy'] ?? 0);
+        $system = (int)($systemData['system'] ?? 0);
+        $orbitNumber = (int)($orbit['orbit'] ?? 0);
+        $distance = (int)($orbit['distance'] ?? 0);
+        $orbitType = (int)($orbit['type'] ?? GalaxyOrbits::EMPTY);
+
+        if ($galaxy <= 0 || $system <= 0 || $orbitNumber <= 0 || $distance <= 0 || $atTime <= 0) {
+            throw new \InvalidArgumentException('Некорректные данные для генерации орбитального ресурса.');
+        }
+        if (!in_array($orbitType, [GalaxyOrbits::GAS_GIANT, GalaxyOrbits::ASTEROID_BELT], true)) {
+            return [];
+        }
+
+        $starType = (string)($systemData['star_type'] ?? 'G');
+        $starSize = (int)($systemData['star_size'] ?? 16);
+        $rotation = (int)($systemData['rotation'] ?? 1);
+        $maxDistance = max($distance, (int)($systemData['max_distance'] ?? $distance));
+        $distanceRatio = max(0.0, min(1.0, $distance / $maxDistance));
+        $motion = self::getOrbitMotion($starType, $starSize, $distance);
+        $seed = implode(':', [$galaxy, $system, $orbitNumber, $orbitType]);
+
+        $base = [
+            'galaxy' => $galaxy,
+            'system' => $system,
+            'orbit' => $orbitNumber,
+            'speed' => $motion['speed'],
+            'rotation' => $rotation,
+            'position_time' => $atTime,
+            'resource_update_time' => $atTime,
+            'controller_fleet_id' => 0,
+        ];
+
+        if ($orbitType === GalaxyOrbits::GAS_GIANT) {
+            $quality = self::deterministicFloat($seed, 'quality', 0.75, 1.35);
+            $capacityHours = self::deterministicInt(
+                $seed,
+                'capacity_hours',
+                self::RESOURCE_CAPACITY_HOURS_MIN,
+                self::RESOURCE_CAPACITY_HOURS_MAX
+            );
+            $fillRatio = self::deterministicFloat($seed, 'initial_fill', 0.25, 0.85);
+            $coldFactor = 0.85 + 0.30 * $distanceRatio;
+            $deuteriumRate = round(self::GAS_DEUTERIUM_RATE_PER_HOUR * $quality * $coldFactor, 6);
+            $deuteriumCapacity = round($deuteriumRate * $capacityHours, 6);
+
+            return [[...$base, ...[
+                'site_type' => OrbitalResourceSites::GAS_GIANT,
+                'sector' => 0,
+                'anchor_angle' => self::normalizeAngle(
+                    self::deterministicFloat($seed, 'anchor_angle', 0.0, 360.0)
+                ),
+                'arc_width' => 0.0,
+                'size' => self::deterministicInt($seed, 'size', 45000, 110000),
+                'visual_variant' => self::deterministicInt($seed, 'visual_variant', 1, 6),
+                'ring_variant' => self::deterministicInt($seed, 'ring_variant', 1, 3),
+                'quality' => round($quality, 6),
+                'survey_difficulty' => self::deterministicInt($seed, 'survey_difficulty', 45, 95),
+                'capacity_hours' => $capacityHours,
+                'metal_rate' => 0.0,
+                'crystal_rate' => 0.0,
+                'deuterium_rate' => $deuteriumRate,
+                'metal_capacity' => 0.0,
+                'crystal_capacity' => 0.0,
+                'deuterium_capacity' => $deuteriumCapacity,
+                'metal_stock' => 0.0,
+                'crystal_stock' => 0.0,
+                'deuterium_stock' => round($deuteriumCapacity * $fillRatio, 6),
+            ]]];
+        }
+
+        $sectorCount = max(3, min(7,
+            3
+            + (int)round($distanceRatio * 2.0)
+            + self::deterministicInt($seed, 'sector_count_adjustment', -1, 1)
+        ));
+        $spacing = 360.0 / $sectorCount;
+        $baseAngle = self::deterministicFloat($seed, 'base_angle', 0.0, 360.0);
+        $rows = [];
+
+        for ($sector = 1; $sector <= $sectorCount; $sector++) {
+            $sectorSeed = $seed . ':sector:' . $sector;
+            $angleJitter = self::deterministicFloat($sectorSeed, 'angle_jitter', -0.12, 0.12) * $spacing;
+            $quality = self::deterministicFloat($sectorSeed, 'quality', 0.65, 1.35);
+            $capacityHours = self::deterministicInt(
+                $sectorSeed,
+                'capacity_hours',
+                self::RESOURCE_CAPACITY_HOURS_MIN,
+                self::RESOURCE_CAPACITY_HOURS_MAX
+            );
+            $fillRatio = self::deterministicFloat($sectorSeed, 'initial_fill', 0.20, 0.85);
+            $metalShare = self::deterministicFloat($sectorSeed, 'metal_share', 0.58, 0.78);
+            $totalRate = self::BELT_TOTAL_RATE_PER_HOUR * $quality * (0.90 + 0.20 * $distanceRatio);
+            $metalRate = round($totalRate * $metalShare, 6);
+            $crystalRate = round($totalRate - $metalRate, 6);
+            $metalCapacity = round($metalRate * $capacityHours, 6);
+            $crystalCapacity = round($crystalRate * $capacityHours, 6);
+
+            $rows[] = [...$base, ...[
+                'site_type' => OrbitalResourceSites::ASTEROID_SECTOR,
+                'sector' => $sector,
+                'anchor_angle' => self::normalizeAngle($baseAngle + ($sector - 1) * $spacing + $angleJitter),
+                'arc_width' => round($spacing * self::deterministicFloat($sectorSeed, 'arc_width', 0.34, 0.55), 6),
+                'size' => 0,
+                'visual_variant' => 0,
+                'ring_variant' => 0,
+                'quality' => round($quality, 6),
+                'survey_difficulty' => self::deterministicInt($sectorSeed, 'survey_difficulty', 35, 90),
+                'capacity_hours' => $capacityHours,
+                'metal_rate' => $metalRate,
+                'crystal_rate' => $crystalRate,
+                'deuterium_rate' => 0.0,
+                'metal_capacity' => $metalCapacity,
+                'crystal_capacity' => $crystalCapacity,
+                'deuterium_capacity' => 0.0,
+                'metal_stock' => round($metalCapacity * $fillRatio, 6),
+                'crystal_stock' => round($crystalCapacity * $fillRatio, 6),
+                'deuterium_stock' => 0.0,
+            ]];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Привести существующие планеты к orbital source of truth, не меняя их
+     * текущую видимую позицию и не сдвигая общий resource update_time.
+     */
+    public static function reconcilePlanetOrbits(?float $atTime = null): int
+    {
+        $atTime ??= microtime(true);
+        $speedMultiplier = (float)(Config::getValue('SpeedPlanets') ?? 24.0) / 24.0;
+        $updated = 0;
+
+        foreach (Planets::findAll() as $planet) {
+            $systemRows = Galaxy::findByIndex('galaxy_system', [
+                (int)$planet['galaxy'],
+                (int)$planet['system'],
+            ]);
+            $systemData = $systemRows[0] ?? null;
+            $orbit = GalaxyOrbits::findByIndex('galaxy_system_orbit', [
+                (int)$planet['galaxy'],
+                (int)$planet['system'],
+                (int)$planet['planet'],
+            ]);
+            if (!$systemData || !$orbit) {
+                Logger::getInstance()->warning('Planet orbit reconciliation skipped', [
+                    'planet_id' => (int)($planet['id'] ?? 0),
+                    'galaxy' => (int)($planet['galaxy'] ?? 0),
+                    'system' => (int)($planet['system'] ?? 0),
+                    'orbit' => (int)($planet['planet'] ?? 0),
+                ]);
+                continue;
+            }
+
+            $newMotion = self::getOrbitMotion(
+                (string)$systemData['star_type'],
+                (int)$systemData['star_size'],
+                (int)$orbit['distance']
+            );
+            $newDirection = (int)($systemData['rotation'] ?? 1);
+            $elapsedHours = max(0.0, $atTime - (float)$planet['update_time']) / 3600.0;
+            $oldDirection = (int)$planet['rotation'] === 0 ? -1.0 : 1.0;
+            $newDirectionSign = $newDirection === 0 ? -1.0 : 1.0;
+            $currentAngle = self::normalizeAngle(
+                (float)$planet['deg']
+                + $oldDirection * $elapsedHours * (float)$planet['speed'] * $speedMultiplier
+            );
+            $newAnchorAngle = self::normalizeAngle(
+                $currentAngle
+                - $newDirectionSign * $elapsedHours * $newMotion['speed'] * $speedMultiplier
+            );
+
+            $needsUpdate = (int)$planet['distance'] !== (int)$orbit['distance']
+                || (int)$planet['rotation'] !== $newDirection
+                || abs((float)$planet['speed'] - $newMotion['speed']) > 0.000001;
+            if (!$needsUpdate) {
+                continue;
+            }
+
+            $planet['distance'] = (int)$orbit['distance'];
+            $planet['rotation'] = $newDirection;
+            $planet['speed'] = $newMotion['speed'];
+            $planet['deg'] = $newAnchorAngle;
+            Planets::update($planet);
+            $updated++;
+        }
+
+        if ($updated > 0) {
+            Logger::getInstance()->info('Planet orbit reconciliation completed', ['updated' => $updated]);
+        }
+
+        return $updated;
+    }
+
+    public static function getSpecialOrbit(int $galaxy, int $system, int $type): array
+    {
+        if (!in_array($type, [GalaxyOrbits::SYSTEM_EDGE, GalaxyOrbits::EXPEDITION], true)) {
+            throw new \InvalidArgumentException('Запрошен неизвестный тип служебной орбиты.');
+        }
+
+        $systemData = Galaxy::getSystem($galaxy, $system);
+        if (!$systemData) {
+            throw new \LogicException('Звёздная система не найдена.');
+        }
+
+        $orbitNumber = (int)$systemData['max_orbits']
+            + ($type === GalaxyOrbits::SYSTEM_EDGE ? 1 : 2);
+        $rows = GalaxyOrbits::findByIndex(
+            'galaxy_system_orbit',
+            [$galaxy, $system, $orbitNumber]
+        );
+
+        if (!$rows || (int)$rows['type'] !== $type) {
+            throw new \LogicException('Служебная орбита системы не найдена.');
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Физические параметры конкретной звезды. star_size используется как
+     * положение внутри диапазона спектрального класса, поэтому расчёт можно
+     * полностью восстановить после перезапуска без дополнительных колонок.
+     *
+     * @return array{temperature:float,mass:float,radius:float,real_luminosity:float,game_luminosity:float,habitable_center:float}
+     */
+    public static function getStarPhysics(string $starType, ?int $starSize = null): array
+    {
+        $profile = Galaxy::$starTypes[$starType] ?? Galaxy::$starTypes['G'];
+        $minSize = (int)$profile['size'][0];
+        $maxSize = (int)$profile['size'][1];
+        $starSize ??= (int)round(($minSize + $maxSize) / 2);
+        $starSize = max($minSize, min($maxSize, $starSize));
+        $position = $maxSize > $minSize
+            ? ($starSize - $minSize) / ($maxSize - $minSize)
+            : 0.5;
+
+        $temperature = self::interpolate($profile['temperature'], $position);
+        $mass = self::interpolate($profile['mass'], $position);
+        $radius = self::interpolate($profile['radius'], $position);
+        $realLuminosity = pow($radius, 2) * pow($temperature / 5778.0, 4);
+        $gameLuminosity = pow(max(0.000001, $realLuminosity), self::LUMINOSITY_COMPRESSION);
+
+        return [
+            'temperature' => $temperature,
+            'mass' => $mass,
+            'radius' => $radius,
+            'real_luminosity' => $realLuminosity,
+            'game_luminosity' => $gameLuminosity,
+            'habitable_center' => self::DISTANCE_PER_AU * sqrt($gameLuminosity),
+        ];
+    }
+
+    /** @return array{speed:float,period_hours:float} */
+    public static function getOrbitMotion(string $starType, ?int $starSize, int $distance): array
+    {
+        $starPhysics = self::getStarPhysics($starType, $starSize);
+        $distanceAu = max(0.05, $distance / self::DISTANCE_PER_AU);
+        $periodHours = self::BASE_ORBIT_PERIOD_HOURS
+            * sqrt(pow($distanceAu, 3) / max(0.08, $starPhysics['mass']));
+        $periodHours = max(0.25, $periodHours);
+
+        return [
+            'speed' => round(360.0 / $periodHours, 6),
+            'period_hours' => round($periodHours, 6),
+        ];
+    }
+
+    private static function normalizeAngle(float $angle): float
+    {
+        $angle = fmod($angle, 360.0);
+        return $angle < 0.0 ? $angle + 360.0 : $angle;
+    }
+
+    private static function deterministicFloat(
+        string $seed,
+        string $field,
+        float $min,
+        float $max
+    ): float {
+        if ($max < $min) {
+            throw new \InvalidArgumentException('Максимум детерминированного диапазона меньше минимума.');
+        }
+
+        $value = hexdec(substr(hash('sha256', $seed . ':' . $field), 0, 8));
+        $fraction = $value / 4294967295;
+
+        return $min + ($max - $min) * $fraction;
+    }
+
+    private static function deterministicInt(
+        string $seed,
+        string $field,
+        int $min,
+        int $max
+    ): int {
+        if ($max < $min) {
+            throw new \InvalidArgumentException('Максимум детерминированного диапазона меньше минимума.');
+        }
+
+        $range = $max - $min + 1;
+        $value = $min + (int)floor(self::deterministicFloat($seed, $field, 0.0, 1.0) * $range);
+
+        return min($max, $value);
+    }
+
+    /** @return array{0:int,1:int} */
+    public static function getSystemDistanceRange(array $starPhysics): array
+    {
+        $habitableCenter = max(300.0, (float)$starPhysics['habitable_center']);
+        $minDistance = max(200, (int)round($habitableCenter * self::randomFactor(0.32, 0.42)));
+        $maxDistance = (int)round($habitableCenter * self::randomFactor(4.2, 4.8));
+
+        return [$minDistance, max($minDistance + 1000, $maxDistance)];
+    }
+
+    private static function interpolate(array $range, float $position): float
+    {
+        return (float)$range[0] + ((float)$range[1] - (float)$range[0]) * $position;
+    }
+
+    private static function randomFactor(float $min, float $max): float
+    {
+        return $min + (($max - $min) * random_int(0, 1_000_000) / 1_000_000);
+    }
+
+    /** Выбрать некрайнюю орбиту пояса, ближайшую к снеговой линии. */
+    private static function selectAsteroidOrbit(array $orbits, float $snowLine): ?int
+    {
+        if (count($orbits) < 5 || random_int(0, 100) >= 50) {
+            return null;
+        }
+
+        $candidates = array_slice($orbits, 1, -1);
+        usort(
+            $candidates,
+            static fn(array $a, array $b): int => abs($a['distance'] - $snowLine) <=> abs($b['distance'] - $snowLine)
+        );
+
+        return isset($candidates[0]) ? (int)$candidates[0]['orbit'] : null;
+    }
+
+    /**
+     * Геометрическое распределение орбит с небольшим случайным разбросом.
+     * В отличие от rejection sampling всегда создаёт ровно $count орбит.
+     */
+    private static function generateOrbits(int $min, int $max, int $count): array
+    {
+        if ($count <= 0 || $min <= 0 || $max <= $min) {
+            throw new \InvalidArgumentException('Некорректные параметры генерации орбит.');
+        }
+        if ($count === 1) {
+            return [['orbit' => 1, 'distance' => $min]];
+        }
+        if (($max - $min) < ($count - 1)) {
+            throw new \InvalidArgumentException('Диапазон слишком мал для уникальных орбит.');
+        }
+
+        $segments = $count - 1;
+        $weights = [];
+        for ($i = 0; $i < $segments; $i++) {
+            $weights[] = random_int(850, 1150);
+        }
+        $weightTotal = array_sum($weights);
+        $logMin = log((float)$min);
+        $logSpan = log((float)$max) - $logMin;
+        $weightPassed = 0;
+        $previous = $min;
+        $result = [['orbit' => 1, 'distance' => $min]];
+
+        for ($i = 1; $i < $count - 1; $i++) {
+            $weightPassed += $weights[$i - 1];
+            $distance = (int)round(exp($logMin + $logSpan * ($weightPassed / $weightTotal)));
+            $remaining = $count - 1 - $i;
+            $distance = max($previous + 1, min($max - $remaining, $distance));
             $result[] = ['orbit' => $i + 1, 'distance' => $distance];
+            $previous = $distance;
         }
+
+        $result[] = ['orbit' => $count, 'distance' => $max];
         return $result;
     }
 
@@ -136,7 +662,9 @@ class GalaxyGenerator
 
             $planets = Planets::findByIndex('galaxy_system', [$galaxy, $system]);
             $usedCount = $planets ? count($planets) : 0;
-            $totalOrbits = count($orbits);
+            // Служебные орбиты границы/экспедиции не участвуют в
+            // заселённости планетных орбит.
+            $totalOrbits = $maxOrbits;
 
             // --- правило: если занято более 20%, пропускаем систему ---
             if ($usedCount / max(1, $totalOrbits) > 0.2) {
@@ -258,98 +786,84 @@ class GalaxyGenerator
         }
     }
 
-    public static function generatePlanet(string $starType, int $distance, bool $homeWorld = false): array
-    {
-        // Звёздные параметры
-        $star = self::$starTypes[$starType] ?? self::$starTypes['G'];
-        $starTemp = $star['temperature'];
-        $starMin = $star['range'][0];
-        $starMax = $star['range'][1];
+    public static function generatePlanet(
+        string $starType,
+        int $distance,
+        bool $homeWorld = false,
+        ?int $starSize = null,
+        ?int $orbitDirection = null
+    ): array {
+        $starPhysics = self::getStarPhysics($starType, $starSize);
+        $distanceAu = max(0.05, $distance / self::DISTANCE_PER_AU);
 
-        // --- нормализация расстояния ---
-        $orbitNorm = 0.0;
-        if ($starMax > $starMin) {
-            $orbitNorm = ($distance - $starMin) / max(1, ($starMax - $starMin));
-            $orbitNorm = max(0.0, min(1.0, $orbitNorm));
-        }
+        // Температура равновесия зависит от светимости и обратного квадратного
+        // корня расстояния. Атмосфера и альбедо добавляют небольшой игровой
+        // разброс, не меняя физический порядок орбит.
+        $equilibriumKelvin = 278.0
+            * pow($starPhysics['game_luminosity'], 0.25)
+            / sqrt($distanceAu);
+        $equilibriumCelsius = $equilibriumKelvin - 273.15;
 
-        // --- базовая температура от звезды ---
-        $luminosityFactor = pow($starTemp / 5778, 4); // относительная светимость к Солнцу
-        // базовая температура около 20°C на 1500 ед. у G-звезды
-        $tempBaseC = 20 * pow($luminosityFactor, 0.25) * pow(1500 / max(300, $distance), 0.5);
+        $provisionalType = match (true) {
+            $equilibriumCelsius > 130 => 'res_hot',
+            $equilibriumCelsius < -90 => 'res_ice',
+            $equilibriumCelsius >= -25 && $equilibriumCelsius <= 50 => 'temperate',
+            default => 'res',
+        };
+        $albedoFactor = match ($provisionalType) {
+            'res_hot' => self::randomFactor(0.93, 0.99),
+            'res_ice' => self::randomFactor(0.86, 0.94),
+            'temperate' => self::randomFactor(0.97, 1.0),
+            default => self::randomFactor(0.94, 1.0),
+        };
+        $greenhouse = match ($provisionalType) {
+            'res_hot' => self::randomFactor(20.0, 80.0),
+            'res_ice' => self::randomFactor(-5.0, 10.0),
+            'temperate' => self::randomFactor(8.0, 30.0),
+            default => self::randomFactor(0.0, 25.0),
+        };
+        $meanTemperature = ($equilibriumKelvin * $albedoFactor) - 273.15 + $greenhouse;
 
-        // --- балансная поправка по орбитальной позиции (игровая нелинейность) ---
-        // даёт естественный градиент: ближние орбиты горячие, дальние холодные
-        $heatCurve = 160 - 320 * pow($orbitNorm, 1.0);
-        // orbitNorm=0 → +160°C (вблизи звезды), orbitNorm=1 → ≈ -160°C (дальняя зона)
-
-        // --- комбинируем физику и игровую кривую ---
-        $tempC = ($tempBaseC * 1.9) + ($heatCurve * 1.1);
-
-        // --- защита от крайних значений ---
-        if ($tempC > 400) $tempC = 400;
-        if ($tempC < -200) $tempC = -200;
-
-        // --- добавим небольшой случайный разброс ---
-        $tempMin = round($tempC - random_int(0, 40));
-        $tempMax = round($tempC + random_int(0, 40));
-        $avgTemp = round(($tempMin + $tempMax) / 2, 1);
-
-
-
+        $type = match (true) {
+            $meanTemperature > 150 => 'res_hot',
+            $meanTemperature < -80 => 'res_ice',
+            $meanTemperature >= -20 && $meanTemperature <= 60 => random_int(0, 3) === 0 ? 'water' : 'dirt',
+            default => 'res',
+        };
+        [$minSpread, $maxSpread] = match ($type) {
+            'water' => [8, 25],
+            'dirt' => [12, 35],
+            'res_hot' => [20, 55],
+            'res_ice' => [10, 35],
+            default => [15, 45],
+        };
+        $tempMin = (int)round(max(-220.0, min(450.0, $meanTemperature - random_int($minSpread, $maxSpread))));
+        $tempMax = (int)round(max(-220.0, min(450.0, $meanTemperature + random_int($minSpread, $maxSpread))));
 
         if ($homeWorld) {
-            $type = (mt_rand(0, 1) ? 'dirt' : 'water');
-            $size = 15000 + mt_rand(-2000, 2000);
-            $fields = 160 + mt_rand(-10, 10);
+            $type = random_int(0, 1) === 1 ? 'dirt' : 'water';
+            $size = 15000 + random_int(-2000, 2000);
+            $fields = 160 + random_int(-10, 10);
             $tempMin = -20;
             $tempMax = 40;
         } else {
-            // --- тип планеты по температуре и зоне ---
-            // --- Определяем "зону обитаемости" в зависимости от типа звезды ---
-            $starFactor = $starTemp / 5778; // Сравнение с Солнцем
-            $habitableStart = 1000 * pow($starFactor, 1.7);   // ближняя граница
-            $habitableEnd   = 2500 * pow($starFactor, 1.7);   // дальняя граница
-
-            // --- Классификация по температуре ---
-            if ($avgTemp > 150) {
-                $type = 'res_hot'; // адские жаркие
-            } elseif ($avgTemp < -80) {
-                $type = 'res_ice'; // ледяные
-            } elseif ($avgTemp >= -20 && $avgTemp <= 60) {
-                // зона "комфортных температур" — высокий шанс на обитаемость
-                $type = mt_rand(0, 3) === 0 ? 'water' : 'dirt'; // 25% шанс океанического мира
-                //} elseif ($distance >= $habitableStart && $distance <= $habitableEnd) {
-                // запасной вариант, если температура не идеально подходит, но в зоне обитаемости
-                //    $type = mt_rand(0, 1) ? 'dirt' : 'water';
-            } else {
-                $type = 'res'; // нейтральный скалистый
-            }
-
-
-            $orbitNorm = 0.0;
-            if ($starMax > $starMin) {
-                $orbitNorm = ($distance - $starMin) / max(1, ($starMax - $starMin));
-                $orbitNorm = max(0.0, min(1.0, $orbitNorm));
-            }
-
-            // нелинейное распределение размеров: ближе — чаще мелкие/каменные, дальше — крупнее
-            if ($orbitNorm < 0.25) {
-                $size = random_int(3000, 15000);
-            } elseif ($orbitNorm < 0.6) {
-                $size = random_int(8000, 30000);
-            } else {
-                $size = random_int(15000, 40000);
-            }
-
-            // --- поля ---
+            [$minSize, $maxSize] = match ($type) {
+                'res_hot' => [4500, 14000],
+                'res_ice' => [7000, 26000],
+                'water' => [10000, 22000],
+                'dirt' => [8000, 21000],
+                default => [6000, 24000],
+            };
+            $size = self::triangularRandom($minSize, $maxSize);
             $fields = self::calculateFields($size, $type, $tempMin, $tempMax);
         }
 
-        $deg = rand(0, 359);
-        // Скорость — обратна sqrt(distance) (игровая приближенность)
-        $speed = 300 + round(100000 / max(100, $distance), 4);
-        $rotation = rand(0, 1);
+        $avgTemp = ($tempMin + $tempMax) / 2.0;
+        $deg = random_int(0, 359);
+        $orbitMotion = self::getOrbitMotion($starType, $starSize, $distance);
+        $periodHours = $orbitMotion['period_hours'];
+        $speed = $orbitMotion['speed'];
+        $rotation = $orbitDirection ?? random_int(0, 1);
 
         // --- Гравитация ---
         // Простая модель: g ~ sqrt(size / EarthSize)
@@ -426,6 +940,7 @@ class GalaxyGenerator
             'deg'        => (int)$deg,
             'speed'      => $speed,
             'rotation'   => (int)$rotation,
+            'orbit_period' => round($periodHours, 6),
             'gravity'    => (float)$gravity,
             'atmosphere' => (int)$atm,
             'habitability' => (float)$habitability,
@@ -443,16 +958,10 @@ class GalaxyGenerator
      */
     public static function calculateFields(float $size, string $type, float $tempMin, float $tempMax): int
     {
-        // --- Базовая формула, подобранная под HomeWorld 13–17k ≈ 160 полей ---
-        $A = -22.388296444439163;
-        $k = 0.10906463719810218;
-        $p = 0.7721811772435125;
-
-        // Безопасный диапазон размера
-        $s = max(100, min($size, 200000));
-
-        // Базовое значение от размера
-        $base = $A + $k * pow($s, $p);
+        // Игровое сжатие площади: диаметр важен, но не даёт квадратичного
+        // превосходства большим планетам. 15 000 км соответствуют 160 полям.
+        $s = max(1000.0, min($size, 100000.0));
+        $base = 160.0 * pow($s / 15000.0, 0.75);
 
         // --- Тип планеты ---
         switch ($type) {
@@ -464,8 +973,10 @@ class GalaxyGenerator
                 $typeFactor = 0.90;
                 break;
             case 'res_hot':
+                $typeFactor = 0.78;
+                break;
             case 'res_ice':
-                $typeFactor = 0.75;
+                $typeFactor = 0.82;
                 break;
             case 'gas_giant':
                 $typeFactor = 1.80;
@@ -477,20 +988,19 @@ class GalaxyGenerator
         // --- Температурный множитель ---
         $avgTemp = ($tempMin + $tempMax) / 2.0;
 
-        // Комфортная зона около 20°C, чем дальше — тем меньше эффективность
-        $tempFactor = 1.0 - (abs($avgTemp - 20.0) / 600.0);
-        if ($tempFactor < 0.7) $tempFactor = 0.7;
-        if ($tempFactor > 1.1) $tempFactor = 1.1;
+        // Температура влияет мягко: основной предел задают размер и тип.
+        $tempFactor = 1.0 - (abs($avgTemp - 20.0) / 1200.0);
+        $tempFactor = max(0.85, min(1.0, $tempFactor));
 
         // --- Мягкое сглаживание для гигантов ---
         $fields = $base * $typeFactor * $tempFactor;
 
-        // Мягкая нелинейная коррекция — уменьшает слишком большие числа, не обрезая
-        if ($fields > 400) {
-            $fields = 400 + pow($fields - 400, 0.85);
-        }
+        return max(60, min(350, (int)round($fields)));
+    }
 
-        return (int)round($fields);
+    private static function triangularRandom(int $min, int $max): int
+    {
+        return (int)round((random_int($min, $max) + random_int($min, $max)) / 2);
     }
 
     public static function CreatePlanet(int $userId, string $NamePlanet, bool $HomeWorld = false, ?array $position = null): array
@@ -510,7 +1020,13 @@ class GalaxyGenerator
         $starType = $systemData['star_type'] ?? 'G';
 
         // --- 2. Генерируем физику планеты ---
-        $planetData = self::generatePlanet($starType, $position['distance'], $HomeWorld);
+        $planetData = self::generatePlanet(
+            $starType,
+            (int)$position['distance'],
+            $HomeWorld,
+            (int)($systemData['star_size'] ?? 16),
+            (int)($systemData['rotation'] ?? 1)
+        );
 
         // --- 3. Добавляем общие поля ---
         $planetData['galaxy'] = (int)$position['galaxy'];
@@ -534,9 +1050,9 @@ class GalaxyGenerator
             $planetData['planet'],
         ]);
 
-        if (!empty($orbitData[0])) {
-            $orbitData[0]['type'] = GalaxyOrbits::PLANET;
-            GalaxyOrbits::update($orbitData[0]);
+        if ($orbitData !== null) {
+            $orbitData['type'] = GalaxyOrbits::PLANET;
+            GalaxyOrbits::update($orbitData);
         } else {
             $logger->warning("Не найдена орбита для созданной планеты", [
                 'planet_id' => $planetData['id'] ?? 0,
@@ -591,7 +1107,7 @@ class GalaxyGenerator
             $planet['galaxy'] = $pos['galaxy'];
             $planet['system'] = $pos['system'];
             $planet['planet'] = $pos['orbit'];
-            $distance = $pos['distance'] ?? self::ORBIT_STEP;
+            $distance = $pos['distance'] ?? (int)self::DISTANCE_PER_AU;
 
             $logger->info("normalizeCoordinates: assigned new position", $pos);
         } else {
@@ -613,10 +1129,10 @@ class GalaxyGenerator
                     $planet['galaxy'] = $pos['galaxy'];
                     $planet['system'] = $pos['system'];
                     $planet['planet'] = $pos['orbit'];
-                    $distance = $pos['distance'] ?? self::ORBIT_STEP;
+                    $distance = $pos['distance'] ?? (int)self::DISTANCE_PER_AU;
                 }
             } else {
-                $distance = $orbitData['distance'] ?? self::ORBIT_STEP;
+                $distance = $orbitData['distance'] ?? (int)self::DISTANCE_PER_AU;
             }
         }
 
@@ -633,7 +1149,13 @@ class GalaxyGenerator
             return;
         }
 
-        $totalOrbits = count($orbits);
+        $systemData = Galaxy::getSystem((int)$planet['galaxy'], (int)$planet['system']);
+        $maxOrbits = (int)($systemData['max_orbits'] ?? 0);
+        $ordinaryOrbits = array_values(array_filter(
+            $orbits,
+            static fn(array $row): bool => (int)($row['orbit'] ?? 0) <= $maxOrbits
+        ));
+        $totalOrbits = count($ordinaryOrbits);
 
         // Приводим номер орбиты в допустимый диапазон 1..$totalOrbits
         $requestedOrbit = max(0, (int)($planet['planet'] ?? 0));
@@ -645,7 +1167,7 @@ class GalaxyGenerator
         $foundIndex = null;
         if ($requestedOrbit > 0) {
             // ищем орбиту с полем orbit == $requestedOrbit
-            foreach ($orbits as $idx => $o) {
+            foreach ($ordinaryOrbits as $idx => $o) {
                 if ((int)$o['orbit'] === $requestedOrbit) {
                     $foundIndex = $idx;
                     break;
@@ -656,7 +1178,7 @@ class GalaxyGenerator
         // --- Если орбита не найдена или занята — выбираем случайную пустую ---
         if ($foundIndex === null) {
             $freeOrbits = [];
-            foreach ($orbits as $idx => $o) {
+            foreach ($ordinaryOrbits as $idx => $o) {
                 if (empty($o['planet']) && ($o['type'] ?? 0) == 0) {
                     $freeOrbits[] = $idx;
                 }
@@ -666,18 +1188,22 @@ class GalaxyGenerator
                 $foundIndex = $freeOrbits[array_rand($freeOrbits)];
             } else {
                 // если нет пустых — берём случайную из всех орбит
-                $foundIndex = array_rand($orbits);
+                if ($ordinaryOrbits === []) {
+                    throw new \RuntimeException('normalizeCoordinates: в системе нет обычных орбит');
+                }
+                $foundIndex = array_rand($ordinaryOrbits);
             }
         }
 
-        $orbitData = $orbits[$foundIndex];
+        $orbitData = $ordinaryOrbits[$foundIndex];
         $planet['planet'] = (int)$orbitData['orbit'];
+        $planet['distance'] = (int)$orbitData['distance'];
 
         $logger->info("normalizeCoordinates: planet placed", [
             'galaxy' => $planet['galaxy'],
             'system' => $planet['system'],
             'orbit'  => $planet['planet'],
-            'distance' => $distance,
+            'distance' => $planet['distance'],
         ]);
     }
 
@@ -718,7 +1244,13 @@ class GalaxyGenerator
         }
 
         // Генерируем физику планеты заново
-        $newData = self::generatePlanet($starType, (int)$distance, false);
+        $newData = self::generatePlanet(
+            $starType,
+            (int)$distance,
+            false,
+            (int)($systemData['star_size'] ?? 16),
+            (int)($systemData['rotation'] ?? 1)
+        );
 
         // Обновляем поля планеты (не трогаем id)
         $planet['type'] = $newData['type'];
@@ -730,6 +1262,7 @@ class GalaxyGenerator
         $planet['deg'] = $newData['deg'];
         $planet['speed'] = $newData['speed'];
         $planet['rotation'] = $newData['rotation'];
+        $planet['distance'] = (int)$distance;
 
         // Время обновления
         //$planet['update_time'] = microtime(true);

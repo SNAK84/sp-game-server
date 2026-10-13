@@ -112,7 +112,13 @@ foreach ($allPlanets as &$planet) {
         }
 
         // Генерация свойств планеты
-        $newPhys = GalaxyGenerator::generatePlanet($starType, $distance, $isHomeWorld);
+        $newPhys = GalaxyGenerator::generatePlanet(
+            $starType,
+            $distance,
+            $isHomeWorld,
+            (int)($system['star_size'] ?? 16),
+            (int)($system['rotation'] ?? 1)
+        );
 
         // Обновляем физику планеты
         $planet['type']          = $newPhys['type'];
@@ -121,6 +127,9 @@ foreach ($allPlanets as &$planet) {
         $planet['fields']        = $newPhys['fields'];
         $planet['temp_min']      = $newPhys['temp_min'];
         $planet['temp_max']      = $newPhys['temp_max'];
+        $planet['distance']      = $distance;
+        $planet['speed']         = $newPhys['speed'];
+        $planet['rotation']      = $newPhys['rotation'];
         $planet['gravity']       = $newPhys['gravity'];
         $planet['atmosphere']    = $newPhys['atmosphere'];
         $planet['habitability']  = $newPhys['habitability'];

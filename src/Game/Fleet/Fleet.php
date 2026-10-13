@@ -10,9 +10,17 @@ use SPGame\Game\Repositories\FleetsShips;
 use SPGame\Game\Repositories\Vars;
 use SPGame\Game\Services\FleetsData;
 use SPGame\Game\Services\AccountData;
+use SPGame\Game\Services\FleetMissionService;
+
+use SPGame\Game\Space\Coordinate;
+use SPGame\Game\Space\CoordinateType;
+use SPGame\Game\Space\ObjectType;
 
 final class Fleet
 {
+	public const STATUS_IDLE = 0;
+	public const STATUS_MISSION = 1;
+
 	private const VALID_STATUSES = [0, 1, 2, 3, 4];
 
 	private int $id;
@@ -25,9 +33,11 @@ final class Fleet
 	private bool $dirty = false;
 	private bool $shipsDirty = false;
 
-	private ?FleetPosition $startPosition = null;
-	private ?FleetPosition $currentPosition = null;
-	private ?FleetPosition $endPosition = null;
+	private ?Coordinate $startCoordinate = null;
+	private bool $startCoordinateLoaded = false;
+	private ?Coordinate $currentCoordinate = null;
+	private ?Coordinate $targetCoordinate = null;
+	private bool $targetCoordinateLoaded = false;
 
 	private array $resources = [];
 	public function __construct(int $id)
@@ -54,10 +64,12 @@ final class Fleet
 					$this->changeResources($field, $value);
 				},
 				maxCountProvider: function () use ($ResID): float {
-					return max(
+					return max(0, $this->getFreeCapacity($ResID));
+
+					/*return max(
 						0,
 						$this->getFreeCapacity() + $this->resources[$ResID]->getCount()
-					);
+					);*/
 				}
 			);
 		}
@@ -109,7 +121,19 @@ final class Fleet
 			$this->createShip($shipTypeId, Vars::$resource[$shipTypeId]);
 			$ship = $this->ships[$shipTypeId];
 		}
-		$ship->addCount($count);
+		$ship->setCount($ship->getCount() + $count);
+		$this->markShipsDirty(Vars::$resource[$shipTypeId], 'count', $ship->getCount());
+		return $ship;
+	}
+	/* Установить количество кораблей в флоте */
+	public function setShipCount(int $shipTypeId, int $count): FleetShip
+	{
+		$ship = $this->ships[$shipTypeId] ?? null;
+		if ($ship === null) {
+			$this->createShip($shipTypeId, Vars::$resource[$shipTypeId]);
+			$ship = $this->ships[$shipTypeId];
+		}
+		$ship->setCount($count);
 		$this->markShipsDirty(Vars::$resource[$shipTypeId], 'count', $ship->getCount());
 		return $ship;
 	}
@@ -134,14 +158,6 @@ final class Fleet
 	public function markDirty(): void
 	{
 		$this->dirty = true;
-		FleetsData::getInstance()->markDirty($this->id);
-	}
-
-	/* Пометить позицию флота как изменённую */
-	public function markPositionDirty(string $typePosition, string $field, int|float $value): void
-	{
-		$this->dirty = true;
-		$this->rawData["{$typePosition}_{$field}"] = $value;
 		FleetsData::getInstance()->markDirty($this->id);
 	}
 
@@ -190,109 +206,266 @@ final class Fleet
 	{
 		return $this->rawData['home_planet_id'];
 	}
-	/* Получить ID текущего родителя флота */
-	public function getCurrentParentId(): int
+	public function setHomePlanetId(int $planetId): void
 	{
-		return $this->rawData['current_parent_id'];
+		if ($planetId <= 0) {
+			throw new \InvalidArgumentException('ID домашней планеты Fleet должен быть положительным.');
+		}
+
+		$this->rawData['home_planet_id'] = $planetId;
+		$this->markDirty();
 	}
-	/* Получить тип текущего родителя флота */
-	public function getCurrentParentType(): string
+	public function getStartCoordinate(): ?Coordinate
 	{
-		return $this->rawData['current_parent_type'];
-	}
-	/* Получить расстояние до якоря флота */
-	public function getAnchorDistance(): float
-	{
-		return $this->rawData['anchor_distance'];
+		if (!$this->startCoordinateLoaded) {
+			$this->startCoordinate = $this->readCoordinate('start', allowNull: true, allowFleet: false);
+			$this->startCoordinateLoaded = true;
+		}
+
+		return $this->startCoordinate;
 	}
 
-	/* Координаты старта флота */
-	public function StartPosition(): FleetPosition
+	public function setStartCoordinate(?Coordinate $coordinate): void
 	{
-		if ($this->startPosition === null) {
-			$this->startPosition = new FleetPosition(
-				typePosition: 'start',
-				galaxy: (int)$this->rawData['start_galaxy'],
-				system: (int)$this->rawData['start_system'],
-				orbit: (int)$this->rawData['start_planet'],
-				objectType: (string)$this->rawData['start_type'],
-				distance: (float)$this->rawData['start_distance'],
-				deg: (float)$this->rawData['start_deg'],
-				type: (string)$this->rawData['start_object_type'],
-				onChange: function (string $key, int|float $value): void {
-					$this->markPositionDirty('start', $key, $value);
-				}
-			);
+		if ($coordinate?->getType() === CoordinateType::FLEET) {
+			throw new \InvalidArgumentException('Собственный startCoordinate не может иметь тип FLEET.');
 		}
-		return $this->startPosition;
-	}
-	/* Координаты цели */
-	public function EndPosition(): FleetPosition
-	{
-		if ($this->endPosition === null) {
-			$this->endPosition = new FleetPosition(
-				typePosition: 'end',
-				galaxy: (int)$this->rawData['end_galaxy'],
-				system: (int)$this->rawData['end_system'],
-				orbit: (int)$this->rawData['end_planet'],
-				objectType: (string)$this->rawData['end_type'],
-				distance: (float)$this->rawData['end_distance'],
-				deg: (float)$this->rawData['end_deg'],
-				type: (string)$this->rawData['end_object_type'],
-				onChange: function (string $key, int|float $value): void {
-					$this->markPositionDirty('end', $key, $value);
-				}
-			);
-		}
-		return $this->endPosition;
-	}
-	/* Текущие координаты */
-	public function CurrentPosition(): FleetPosition
-	{
-		if ($this->currentPosition === null) {
-			$this->currentPosition = new FleetPosition(
-				typePosition: 'current',
-				galaxy: (int)$this->rawData['current_galaxy'],
-				system: (int)$this->rawData['current_system'],
-				orbit: (int)$this->rawData['current_planet'],
-				objectType: (string)$this->rawData['current_type'],
-				distance: (float)$this->rawData['current_distance'],
-				deg: (float)$this->rawData['current_deg'],
-				type: (string)$this->rawData['current_object_type'],
-				onChange: function (string $key, int|float $value): void {
-					$this->markPositionDirty('current', $key, $value);
-				}
-			);
-		}
-		return $this->currentPosition;
+		$this->assertStationaryObjectAngle($coordinate, 'startCoordinate');
+
+		$this->startCoordinate = $coordinate;
+		$this->startCoordinateLoaded = true;
+		$this->writeCoordinate('start', $coordinate, allowFleet: false);
+		$this->markDirty();
 	}
 
-	// === Тайминги ===
-	public function getStartTime(): float
+	public function getCurrentCoordinate(): Coordinate
 	{
-		return $this->rawData['start_time'];
-	}
-	public function getEndTime(): float
-	{
-		return $this->rawData['end_time'];
-	}
-	public function getStayTime(): float
-	{
-		return $this->rawData['stay_time'];
+		if ($this->currentCoordinate === null) {
+			$coordinate = $this->readCoordinate('current', allowNull: false, allowFleet: false);
+			if ($coordinate === null) {
+				throw new \LogicException('У Fleet отсутствует обязательный currentCoordinate.');
+			}
+			$this->currentCoordinate = $coordinate;
+		}
+
+		return $this->currentCoordinate;
 	}
 
+	public function getCurrentPositionTime(): float
+	{
+		$positionTime = (float)$this->rawData['current_position_time'];
+		$this->assertTimestamp($positionTime, 'current_position_time');
+		return $positionTime;
+	}
+
+	public function setCurrentCoordinate(Coordinate $coordinate, float $positionTime): void
+	{
+		$this->assertTimestamp($positionTime, 'current_position_time');
+		if ($coordinate->getType() === CoordinateType::FLEET) {
+			throw new \InvalidArgumentException('Собственный currentCoordinate не может иметь тип FLEET.');
+		}
+		$this->assertStationaryObjectAngle($coordinate, 'currentCoordinate');
+
+		$this->currentCoordinate = $coordinate;
+		$this->writeCoordinate('current', $coordinate, allowFleet: false);
+		$this->rawData['current_position_time'] = $positionTime;
+		$this->markDirty();
+	}
+
+	public function getTargetCoordinate(): ?Coordinate
+	{
+		if (!$this->targetCoordinateLoaded) {
+			$this->targetCoordinate = $this->readCoordinate('target', allowNull: true, allowFleet: true);
+			$this->targetCoordinateLoaded = true;
+		}
+
+		return $this->targetCoordinate;
+	}
+
+	public function getTargetSnapshotTime(): ?float
+	{
+		$target = $this->getTargetCoordinate();
+		if ($target?->getType() !== CoordinateType::FLEET) {
+			return null;
+		}
+
+		$snapshotTime = (float)$this->rawData['target_snapshot_time'];
+		$this->assertTimestamp($snapshotTime, 'target_snapshot_time');
+		return $snapshotTime;
+	}
+
+	public function setTargetCoordinate(?Coordinate $coordinate, ?float $targetSnapshotTime = null): void
+	{
+		if ($coordinate?->getType() === CoordinateType::FLEET) {
+			if ($targetSnapshotTime === null) {
+				throw new \InvalidArgumentException('Для target FLEET требуется target_snapshot_time.');
+			}
+			$this->assertTimestamp($targetSnapshotTime, 'target_snapshot_time');
+		} elseif ($targetSnapshotTime !== null) {
+			throw new \InvalidArgumentException('target_snapshot_time допустим только для target FLEET.');
+		}
+		$this->assertStationaryObjectAngle($coordinate, 'targetCoordinate');
+
+		$this->targetCoordinate = $coordinate;
+		$this->targetCoordinateLoaded = true;
+		$this->writeCoordinate('target', $coordinate, allowFleet: true);
+		$this->rawData['target_snapshot_time'] = $targetSnapshotTime ?? 0.0;
+		$this->markDirty();
+	}
+
+	private function readCoordinate(string $prefix, bool $allowNull, bool $allowFleet): ?Coordinate
+	{
+		$typeValue = (int)($this->rawData["{$prefix}_coordinate_type"] ?? 0);
+		if ($typeValue === 0) {
+			if ($allowNull) {
+				return null;
+			}
+			throw new \LogicException("У Fleet отсутствует обязательная {$prefix}Coordinate.");
+		}
+
+		try {
+			$type = CoordinateType::from($typeValue);
+		} catch (\ValueError $exception) {
+			throw new \LogicException("Неизвестный тип {$prefix}Coordinate: {$typeValue}.", 0, $exception);
+		}
+
+		if ($type === CoordinateType::FLEET) {
+			if (!$allowFleet) {
+				throw new \LogicException("{$prefix}Coordinate Fleet не может иметь тип FLEET.");
+			}
+
+			$lastKnownPosition = Coordinate::point(
+				galaxy: (int)$this->rawData["{$prefix}_galaxy"],
+				system: (int)$this->rawData["{$prefix}_system"],
+				distance: (float)$this->rawData["{$prefix}_distance"],
+				angle: (float)$this->rawData["{$prefix}_angle"]
+			);
+
+			return Coordinate::fleet(
+				fleetId: (int)$this->rawData["{$prefix}_fleet_id"],
+				lastKnownPosition: $lastKnownPosition
+			);
+		}
+
+		$objectTypeValue = (int)($this->rawData["{$prefix}_object_type"] ?? 0);
+		$objectType = $type === CoordinateType::OBJECT && $objectTypeValue > 0
+			? ObjectType::from($objectTypeValue)
+			: null;
+
+		return match ($type) {
+			CoordinateType::OBJECT => Coordinate::object(
+				galaxy: (int)$this->rawData["{$prefix}_galaxy"],
+				system: (int)$this->rawData["{$prefix}_system"],
+				orbit: (int)$this->rawData["{$prefix}_orbit"],
+				objectType: $objectType,
+				angle: $objectType === null
+					? (float)$this->rawData["{$prefix}_angle"]
+					: null
+			),
+			CoordinateType::POINT => Coordinate::point(
+				galaxy: (int)$this->rawData["{$prefix}_galaxy"],
+				system: (int)$this->rawData["{$prefix}_system"],
+				distance: (float)$this->rawData["{$prefix}_distance"],
+				angle: (float)$this->rawData["{$prefix}_angle"]
+			),
+			CoordinateType::FLEET => throw new \LogicException('Недопустимый тип координаты.'),
+		};
+	}
+
+	private function writeCoordinate(string $prefix, ?Coordinate $coordinate, bool $allowFleet): void
+	{
+		$this->rawData["{$prefix}_coordinate_type"] = $coordinate?->getType()->value ?? 0;
+		if ($prefix === 'target') {
+			$this->rawData['target_fleet_id'] = 0;
+		}
+		$this->rawData["{$prefix}_galaxy"] = 0;
+		$this->rawData["{$prefix}_system"] = 0;
+		$this->rawData["{$prefix}_orbit"] = 0;
+		$this->rawData["{$prefix}_object_type"] = 0;
+		$this->rawData["{$prefix}_distance"] = 0.0;
+		$this->rawData["{$prefix}_angle"] = 0.0;
+
+		if ($coordinate === null) {
+			return;
+		}
+		if (!$allowFleet && $coordinate->getType() === CoordinateType::FLEET) {
+			throw new \InvalidArgumentException("{$prefix}Coordinate не может иметь тип FLEET.");
+		}
+
+		if ($coordinate->getType() === CoordinateType::FLEET) {
+			$lastKnownPosition = $coordinate->getLastKnownPosition();
+			if ($lastKnownPosition === null || $lastKnownPosition->getType() !== CoordinateType::POINT) {
+				throw new \LogicException('FLEET coordinate должна содержать lastKnownPosition POINT.');
+			}
+			$this->rawData['target_fleet_id'] = $coordinate->getFleetId();
+			$this->rawData["{$prefix}_galaxy"] = $lastKnownPosition->getGalaxy();
+			$this->rawData["{$prefix}_system"] = $lastKnownPosition->getSystem();
+			$this->rawData["{$prefix}_distance"] = $lastKnownPosition->getDistance();
+			$this->rawData["{$prefix}_angle"] = $lastKnownPosition->getAngle();
+			return;
+		}
+
+		$this->rawData["{$prefix}_galaxy"] = $coordinate->getGalaxy();
+		$this->rawData["{$prefix}_system"] = $coordinate->getSystem();
+		$this->rawData["{$prefix}_orbit"] = $coordinate->getOrbit() ?? 0;
+		$this->rawData["{$prefix}_object_type"] = $coordinate->getObjectType()?->value ?? 0;
+		$this->rawData["{$prefix}_distance"] = $coordinate->getDistance() ?? 0.0;
+		$this->rawData["{$prefix}_angle"] = $coordinate->getAngle() ?? 0.0;
+	}
+
+	private function assertTimestamp(float $timestamp, string $field): void
+	{
+		if (!is_finite($timestamp) || $timestamp < 0) {
+			throw new \InvalidArgumentException("{$field} должен быть конечным Unix timestamp.");
+		}
+	}
+
+	private function assertStationaryObjectAngle(?Coordinate $coordinate, string $field): void
+	{
+		if (
+			$coordinate?->getType() === CoordinateType::OBJECT
+			&& $coordinate->getObjectType() === null
+			&& $coordinate->getAngle() === null
+		) {
+			throw new \InvalidArgumentException("{$field}: для неподвижного OBJECT требуется angle Fleet.");
+		}
+	}
 	// === Состояние и поведение ===
 	public function getMission(): int
 	{
 		return $this->rawData['mission'];
 	}
+	public function setMission(int|FleetMissionType $mission): void
+	{
+		$missionId = $mission instanceof FleetMissionType ? $mission->value : $mission;
+		if ($missionId < 0 || ($missionId > 0 && FleetMissionType::tryFrom($missionId) === null)) {
+			throw new \InvalidArgumentException("Неизвестная миссия Fleet: {$missionId}.");
+		}
+
+		$this->rawData['mission'] = $missionId;
+		$this->markDirty();
+	}
 	public function getStatus(): int
 	{
 		return $this->rawData['status'];
 	}
+	public function setStatus(int $status): void
+	{
+		if (!in_array($status, self::VALID_STATUSES, true)) {
+			throw new \InvalidArgumentException("Неизвестный статус Fleet: {$status}.");
+		}
+
+		$this->rawData['status'] = $status;
+		$this->markDirty();
+	}
 	public function isReturn(): bool
 	{
-		return $this->rawData['is_return'];
+		return (bool)$this->rawData['is_return'];
+	}
+	public function setReturn(bool $isReturn): void
+	{
+		$this->rawData['is_return'] = $isReturn ? 1 : 0;
+		$this->markDirty();
 	}
 	public function getSpeed(): float
 	{
@@ -307,6 +480,27 @@ final class Fleet
 	public function getFuelCurrent(): float
 	{
 		return $this->rawData['fuel_current'];
+	}
+	public function setFuelTotal(float $fuel): void
+	{
+		if (!is_finite($fuel) || $fuel < 0.0) {
+			throw new \InvalidArgumentException('Общий запас топлива должен быть конечным неотрицательным числом.');
+		}
+
+		$this->rawData['fuel_total'] = $fuel;
+		$this->markDirty();
+	}
+	public function setFuelCurrent(float $fuel): void
+	{
+		if (!is_finite($fuel) || $fuel < 0.0) {
+			throw new \InvalidArgumentException('Текущий запас топлива должен быть конечным неотрицательным числом.');
+		}
+		if ($fuel > $this->getFuelTotal()) {
+			throw new \InvalidArgumentException('Текущий запас топлива не может превышать общий запас.');
+		}
+
+		$this->rawData['fuel_current'] = $fuel;
+		$this->markDirty();
 	}
 
 	/* Получить все ресурсы флота */
@@ -329,9 +523,21 @@ final class Fleet
 		return $usedCapacity;
 	}
 	/* Получить свободную вместимость флота */
-	public function getFreeCapacity(): float
+	public function getFreeCapacity(?int $excludeResourceId = null): float
 	{
-		return $this->getCapacity() - $this->getUsedCapacity() - $this->getFuelCurrent();
+		$usedCapacity = 0;
+
+		foreach ($this->resources as $resourceId => $resource) {
+			if ($resourceId === $excludeResourceId) {
+				continue;
+			}
+
+			$usedCapacity += $resource->getCount();
+		}
+
+		return $this->getCapacity()
+			- $usedCapacity
+			- $this->getFuelCurrent();
 	}
 
 	// === Статистика боя / эффективности ===
@@ -396,7 +602,7 @@ final class Fleet
 		return $this->ships;
 	}
 	/* Получить общую вместимость флота */
-	public function getCapacity(): int
+	public function getCapacity(): float
 	{
 		$capacity = 0;
 
@@ -427,5 +633,20 @@ final class Fleet
 		}
 
 		return empty($speedList) ? 0 : min($speedList);
+	}
+
+	public function getAvailableMissions(FleetTarget $target, AccountData $accountData): array
+	{
+		return (new FleetMissionService())->getAvailableMissions($this, $target, $accountData);
+	}
+
+	public function getTravelInfo(
+		FleetTarget $target,
+		AccountData $accountData,
+		?float $speedFactor = null,
+		?\SPGame\Game\Enums\FleetMissionType $mission = null
+	): ?array
+	{
+		return (new FleetMissionService())->getTravelInfo($this, $target, $accountData, $speedFactor, $mission);
 	}
 }

@@ -739,14 +739,17 @@ abstract class BaseRepository
 
                 $values = [];
                 $placeholders = [];
+                $actualSyncedIds = [];
 
                 foreach ($chunk as $id) {
                     // получаем строку из локального хранилища
                     $row = static::$table->get((string)$id);
                     if ($row === false || $row === null) {
+                        self::$logger->warning(static::$className . " syncToDatabase: dirty row {$id} is missing from runtime table");
                         continue;
                     }
 
+                    $actualSyncedIds[] = $id;
                     $rowValues = [];
                     foreach ($columns as $col) {
                         $rowValues[] = $row[$col] ?? null;
@@ -782,10 +785,12 @@ abstract class BaseRepository
                         'sql' => $sql,
                         'rows' => count($placeholders)
                     ]);
+                    continue;
                 }
 
-                // Сбрасываем флаг обновления
-                foreach ($chunk as $id) {
+                // Сбрасываем флаг обновления только для строк,
+                // реально вошедших в успешно выполненный SQL.
+                foreach ($actualSyncedIds as $id) {
                     $row = static::$syncTable->get((string)$id);
                     if ($row) {
                         $row['need_update'] = 0;
@@ -820,9 +825,10 @@ abstract class BaseRepository
                         'sql' => $sqlDel,
                         'ids' => $chunkDel
                     ]);
+                    continue;
                 }
 
-                // Удаляем из таблицы после успешного удаления
+                // Удаляем sync markers только после успешного DELETE.
                 foreach ($chunkDel as $id) {
                     static::$syncTable->del((string)$id);
                 }

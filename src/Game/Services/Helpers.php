@@ -155,6 +155,12 @@ class Helpers
         $sendMsg = self::processHangar($targetTime, $AccountData) ? true : $sendMsg;
         Resources::processResources($targetTime, $AccountData);
 
+        // update_time является общей опорной точкой и для ресурсов, и для
+        // последующего расчёта угла Planet на следующем event time.
+        if ((float)$AccountData['Planet']['update_time'] < $targetTime) {
+            $AccountData['Planet']['update_time'] = $targetTime;
+        }
+
         return $sendMsg;
     }
 

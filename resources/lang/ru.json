@@ -423,6 +423,7 @@
       "Transport": {
         "Arrival": "Груз доставлен",
         "Return": "Флот вернулся",
+        "Relocate": "Флот передислоцирован",
         "Loss": "Груз утерян"
       },
       "Expeditions": {
@@ -452,7 +453,11 @@
     },
     "sample": {
       "BuildBuyable": "На {PlanetType} {PlanetName} [{PlanetGalaxy}:{PlanetSystem}:{PlanetPlanet}] недостаточно ресурсов для {queueProcessGen} {ElementId}.\n\nВ наличии:\n{Resources}.\nСтоимость строительства:\n{ResourcesCost}.",
-      "BuildBlocked": "На {PlanetType} {PlanetName} [{PlanetGalaxy}:{PlanetSystem}:{PlanetPlanet}] невозможно {queueAction} {ElementId}, пока идет {queueProcess} {QueueElementId}."
+      "BuildBlocked": "На {PlanetType} {PlanetName} [{PlanetGalaxy}:{PlanetSystem}:{PlanetPlanet}] невозможно {queueAction} {ElementId}, пока идет {queueProcess} {QueueElementId}.",
+      "FleetTransportArrivalOwner": "Флот №{FleetId} достиг объекта {TargetPlanetName} {TargetCoordinate} и доставил груз:\n{Resources}.",
+      "FleetTransportArrivalTarget": "Флот №{FleetId} с объекта {SourcePlanetName} {SourceCoordinate} достиг объекта {TargetPlanetName} {TargetCoordinate} и доставил груз:\n{Resources}.",
+      "FleetReturned": "Флот №{FleetId} вернулся на объект базирования {PlanetName} {PlanetCoordinate}.",
+      "FleetRelocated": "Флот №{FleetId} завершил передислокацию. Новый объект базирования: {PlanetName} {PlanetCoordinate}."
     },
     "from": {
       "Build": {

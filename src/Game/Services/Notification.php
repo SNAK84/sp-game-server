@@ -91,6 +91,114 @@ class Notification
         self::sendSystem($AccountData, $MessageType, $MessageFrom, $MessageSubject, $MessageSample, $Data, $Time);
     }
 
+    /**
+     * Уведомить об успешной доставке ресурсов транспортным Fleet.
+     *
+     * Владелец Fleet получает подтверждение доставки. Владелец целевой
+     * планеты получает отдельное сообщение только если это другой игрок.
+     */
+    public static function sendFleetTransportArrival(
+        AccountData $OwnerAccountData,
+        AccountData $TargetAccountData,
+        int $FleetId,
+        array $SourcePlanet,
+        array $TargetPlanet,
+        array $Resources,
+        float $Time = null
+    ): void {
+        $Time = $Time ?? microtime(true);
+        $Data = [
+            'FleetId' => $FleetId,
+            'SourcePlanetName' => (string)($SourcePlanet['name'] ?? ''),
+            'SourceCoordinate' => self::planetCoordinate($SourcePlanet),
+            'TargetPlanetName' => (string)($TargetPlanet['name'] ?? ''),
+            'TargetCoordinate' => self::planetCoordinate($TargetPlanet),
+            'Resources' => $Resources,
+        ];
+
+        self::sendSystem(
+            $OwnerAccountData,
+            Messages::Type::Transport->value,
+            'from.Transport',
+            'subject.Transport.Arrival',
+            'FleetTransportArrivalOwner',
+            $Data,
+            $Time
+        );
+
+        if ((int)$TargetAccountData['User']['id'] === (int)$OwnerAccountData['User']['id']) {
+            return;
+        }
+
+        self::sendSystem(
+            $TargetAccountData,
+            Messages::Type::Transport->value,
+            'from.Transport',
+            'subject.Transport.Arrival',
+            'FleetTransportArrivalTarget',
+            $Data,
+            $Time
+        );
+    }
+
+    /**
+     * Уведомить владельца о полном завершении возврата Fleet.
+     */
+    public static function sendFleetReturned(
+        AccountData $AccountData,
+        int $FleetId,
+        array $Planet,
+        float $Time = null
+    ): void {
+        self::sendSystem(
+            $AccountData,
+            Messages::Type::Transport->value,
+            'from.Transport',
+            'subject.Transport.Return',
+            'FleetReturned',
+            [
+                'FleetId' => $FleetId,
+                'PlanetName' => (string)($Planet['name'] ?? ''),
+                'PlanetCoordinate' => self::planetCoordinate($Planet),
+            ],
+            $Time
+        );
+    }
+
+    /**
+     * Уведомить владельца об успешной смене объекта базирования Fleet.
+     */
+    public static function sendFleetRelocated(
+        AccountData $AccountData,
+        int $FleetId,
+        array $Planet,
+        float $Time = null
+    ): void {
+        self::sendSystem(
+            $AccountData,
+            Messages::Type::Transport->value,
+            'from.Transport',
+            'subject.Transport.Relocate',
+            'FleetRelocated',
+            [
+                'FleetId' => $FleetId,
+                'PlanetName' => (string)($Planet['name'] ?? ''),
+                'PlanetCoordinate' => self::planetCoordinate($Planet),
+            ],
+            $Time
+        );
+    }
+
+    private static function planetCoordinate(array $Planet): string
+    {
+        return sprintf(
+            '[%d:%d:%d]',
+            (int)($Planet['galaxy'] ?? 0),
+            (int)($Planet['system'] ?? 0),
+            (int)($Planet['planet'] ?? 0)
+        );
+    }
+
     public static function NewMessages(int $userId): int
     {
         $count = Messages::findByIndex("to_read", [$userId, 0]) ?? [];

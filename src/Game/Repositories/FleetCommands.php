@@ -3,7 +3,6 @@
 namespace SPGame\Game\Repositories;
 
 use SPGame\Core\Defaults;
-use SPGame\Core\Logger;
 use SPGame\Game\Services\RepositorySaver;
 use SPGame\Game\Enums\FleetCommandType;
 use Swoole\Table;
@@ -11,8 +10,11 @@ use Swoole\Table;
 /**
  * Репозиторий команд флота (очередь действий).
  *
- * Хранит как запланированные, так и отложенные по событиям команды.
- * Команды выполняются в порядке execute_time или после события trigger_event.
+ * Хранит ожидающие и активированные команды флотов.
+ *
+ * Локальный порядок команд одного Fleet определяется id. execute_time
+ * используется только после активации команды и задаёт глобальный порядок
+ * игровых событий.
  */
 class FleetCommands extends BaseRepository
 {
@@ -45,16 +47,6 @@ class FleetCommands extends BaseRepository
                 'sql' => 'DOUBLE(17,6) NOT NULL DEFAULT 0.0',
                 'default' => 0.0,
             ],
-            'trigger_event' => [
-                'swoole' => [Table::TYPE_STRING, 64],
-                'sql' => 'VARCHAR(64) NOT NULL DEFAULT ""',
-                'default' => '',
-            ],
-            'target_id' => [
-                'swoole' => [Table::TYPE_INT, 8],
-                'sql' => 'BIGINT(20) UNSIGNED NOT NULL DEFAULT 0',
-                'default' => 0,
-            ],
             'params' => [
                 'swoole' => [Table::TYPE_STRING, 512],
                 'sql' => 'TEXT DEFAULT NULL',
@@ -75,7 +67,6 @@ class FleetCommands extends BaseRepository
             ['name' => 'PRIMARY', 'type' => 'PRIMARY', 'fields' => ['id']],
             ['name' => 'idx_fleet', 'type' => 'INDEX', 'fields' => ['fleet_id']],
             ['name' => 'idx_execute_time', 'type' => 'INDEX', 'fields' => ['execute_time']],
-            ['name' => 'idx_trigger_event', 'type' => 'INDEX', 'fields' => ['trigger_event']],
         ],
     ];
 
@@ -83,7 +74,6 @@ class FleetCommands extends BaseRepository
     protected static array $indexes = [
         'fleet_id' => ['key' => ['fleet_id'], 'Unique' => false],
         'execute_time' => ['key' => ['execute_time'], 'Unique' => false],
-        'trigger_event' => ['key' => ['trigger_event'], 'Unique' => false],
     ];
 
     protected static Table $syncTable;
@@ -107,16 +97,13 @@ class FleetCommands extends BaseRepository
     public static function addCommand(
         int $fleetId,
         FleetCommandType $type,
-        array $params = [],
-        float $executeTime = 0.0,
-        string $triggerEvent = ''
+        array $params = []
     ): array {
         $data = [
             'fleet_id' => $fleetId,
             'command_type' => $type->value,
-            'execute_time' => $executeTime,
-            'trigger_event' => $triggerEvent,
-            'params' => json_encode($params, JSON_UNESCAPED_UNICODE),
+            'execute_time' => 0.0,
+            'params' => json_encode($params, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
             'executed' => 0,
             'create_time' => microtime(true),
         ];
@@ -124,14 +111,78 @@ class FleetCommands extends BaseRepository
         $data = self::castRowToSchema($data, true);
         self::add($data);
 
-        Logger::getInstance()->debug("Added fleet command", [
-            'fleet_id' => $fleetId,
-            'command' => $type->getLangKey(),
-            'execute_time' => $executeTime,
-            'trigger' => $triggerEvent,
-        ]);
-
         return $data;
+    }
+
+    /**
+     * Активировать следующую команду и при необходимости сохранить её
+     * рассчитанные command-specific params одним обновлением строки.
+     */
+    public static function activateCommand(
+        int $id,
+        float $executeTime,
+        ?array $params = null
+    ): ?array {
+        if (!is_finite($executeTime) || $executeTime <= 0) {
+            throw new \InvalidArgumentException('execute_time активной команды должен быть положительным timestamp.');
+        }
+
+        $command = self::$table->get((string)$id);
+        if (!$command || $command['executed'] || (float)$command['execute_time'] !== 0.0) {
+            return null;
+        }
+
+        $command['execute_time'] = $executeTime;
+        if ($params !== null) {
+            $command['params'] = json_encode($params, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        }
+
+        self::update($command);
+        return $command;
+    }
+
+    /**
+     * Получить активную невыполненную команду Fleet.
+     */
+    public static function getActiveCommand(int $fleetId): ?array
+    {
+        return self::getActiveCommands($fleetId)[0] ?? null;
+    }
+
+    /**
+     * Получить все ACTIVE-команды Fleet для проверки повреждённого состояния.
+     * В штатном lifecycle список должен содержать максимум одну запись.
+     */
+    public static function getActiveCommands(int $fleetId): array
+    {
+        $active = [];
+
+        foreach (self::$table as $command) {
+            if (
+                (int)$command['fleet_id'] !== $fleetId
+                || $command['executed']
+                || (float)$command['execute_time'] <= 0.0
+            ) {
+                continue;
+            }
+
+            $active[] = $command;
+        }
+
+        usort($active, static fn(array $a, array $b): int => $a['id'] <=> $b['id']);
+        return $active;
+    }
+
+    /**
+     * Получить команду по ID без создания отсутствующей строки.
+     */
+    public static function getCommand(int $id): ?array
+    {
+        if ($id <= 0) {
+            return null;
+        }
+
+        return self::$table->get((string)$id) ?: null;
     }
 
     /**
@@ -142,24 +193,35 @@ class FleetCommands extends BaseRepository
         $list = [];
         foreach (self::$table as $cmd) {
             if ($cmd['execute_time'] > 0 && $cmd['execute_time'] <= $currentTime && !$cmd['executed']) {
-                $list[$cmd['id']] = $cmd;
+                $list[] = $cmd;
             }
         }
+
+        usort($list, static function (array $left, array $right): int {
+            $timeOrder = $left['execute_time'] <=> $right['execute_time'];
+            return $timeOrder !== 0 ? $timeOrder : ($left['id'] <=> $right['id']);
+        });
+
         return $list;
     }
 
     /**
-     * Получить команды, ожидающие указанного события
+     * Получить следующую неактивированную команду флота.
      */
-    public static function getPendingEventCommands(string $eventName): array
+    public static function getNextPendingCommand(int $fleetId): ?array
     {
-        $list = [];
+        $next = null;
         foreach (self::$table as $cmd) {
-            if ($cmd['trigger_event'] === $eventName && !$cmd['executed']) {
-                $list[$cmd['id']] = $cmd;
+            if ((int)$cmd['fleet_id'] !== $fleetId || $cmd['executed'] || (float)$cmd['execute_time'] !== 0.0) {
+                continue;
+            }
+
+            if ($next === null || $cmd['id'] < $next['id']) {
+                $next = $cmd;
             }
         }
-        return $list;
+
+        return $next;
     }
 
     /**
@@ -169,12 +231,31 @@ class FleetCommands extends BaseRepository
     {
         $queue = [];
         foreach (self::$table as $cmd) {
-            if ($cmd['fleet_id'] === $fleetId && !$cmd['executed']) {
-                $queue[$cmd['id']] = $cmd;
+            if ((int)$cmd['fleet_id'] === $fleetId && !$cmd['executed']) {
+                $queue[] = $cmd;
             }
         }
-        usort($queue, fn($a, $b) => $a['execute_time'] <=> $b['execute_time']);
+        usort($queue, static fn(array $a, array $b): int => $a['id'] <=> $b['id']);
         return $queue;
+    }
+
+    /**
+     * Получить полную текущую цепочку команд Fleet, включая выполненные.
+     *
+     * Execution-код должен продолжать использовать getFleetQueue(): этот
+     * метод предназначен для истории и клиентского представления миссии.
+     */
+    public static function getFleetCommandChain(int $fleetId): array
+    {
+        $commands = [];
+        foreach (self::$table as $cmd) {
+            if ((int)$cmd['fleet_id'] === $fleetId) {
+                $commands[] = $cmd;
+            }
+        }
+
+        usort($commands, static fn(array $a, array $b): int => $a['id'] <=> $b['id']);
+        return $commands;
     }
 
     /**
@@ -182,7 +263,7 @@ class FleetCommands extends BaseRepository
      */
     public static function markExecuted(int $id): void
     {
-        $cmd = self::findById($id);
+        $cmd = self::$table->get((string)$id);
         if (!$cmd) {
             return;
         }
@@ -196,7 +277,7 @@ class FleetCommands extends BaseRepository
     public static function clearFleetQueue(int $fleetId): void
     {
         foreach (self::$table as $id => $cmd) {
-            if ($cmd['fleet_id'] === $fleetId) {
+            if ((int)$cmd['fleet_id'] === $fleetId) {
                 self::delete(['id' => $id]);
             }
         }

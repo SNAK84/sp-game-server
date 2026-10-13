@@ -55,7 +55,7 @@ class PageBuilder
         $AccountData = new AccountData($this->aid);
 
         // обработка действий перед построением
-        if (PageActionService::handle($this->Msg, $AccountData, $this->aid)) {
+        if (PageActionService::handle($this->Msg, $AccountData, $this->aid, $response)) {
             $response->setMode("none");
             return $response;
         }

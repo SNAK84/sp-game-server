@@ -25,7 +25,8 @@ class PlayerQueue extends BaseRepository
     public const ActionFleetToOrbit     = "ActionFleetToOrbit";
     public const ActionFleetMoveShip    = "ActionFleetMoveShip";
     public const ActionFleetDisband     = "ActionFleetDisband";
-    /*public const ActionFleetSendMission = "ActionFleetSendMission";
+    public const ActionFleetSendMission = "ActionFleetSendMission";
+    /*
     public const ActionFleetSetCommands = "ActionFleetSetCommands";
     public const ActionFleetDeleteCommand = "ActionFleetDeleteCommand";
     public const ActionFleetGetAvailableMissions = "ActionFleetGetAvailableMissions";*/
