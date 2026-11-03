@@ -1,0 +1,193 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#4 \$type \(string\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Core/Input.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#2 \$min \(float\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Core/Validator.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#2 \$min \(int\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Core/Validator.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#3 \$max \(float\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Core/Validator.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#3 \$max \(int\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Core/Validator.php
+
+		-
+			message: '#^Function is_string invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: src/Core/WSocket.php
+
+		-
+			message: '#^Static method SPGame\\Game\\Repositories\\Config\:\:getValue\(\) invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: src/Game/Pages/GalaxyPage.php
+
+		-
+			message: '#^Variable \$elementIDs might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: src/Game/Pages/HangarPage.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#2 \$planetId \(int\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Game/Repositories/Accounts.php
+
+		-
+			message: '#^Unsafe call to private method SPGame\\Game\\Repositories\\BaseRepository\:\:idRanges\(\) through static\:\:\.$#'
+			identifier: staticClassAccess.privateMethod
+			count: 3
+			path: src/Game/Repositories/BaseRepository.php
+
+		-
+			message: '#^Unsafe call to private method SPGame\\Game\\Repositories\\BaseRepository\:\:removeRuntimeRow\(\) through static\:\:\.$#'
+			identifier: staticClassAccess.privateMethod
+			count: 2
+			path: src/Game/Repositories/BaseRepository.php
+
+		-
+			message: '#^Unsafe call to private method SPGame\\Game\\Repositories\\BaseRepository\:\:restoreRuntimeEntry\(\) through static\:\:\.$#'
+			identifier: staticClassAccess.privateMethod
+			count: 3
+			path: src/Game/Repositories/BaseRepository.php
+
+		-
+			message: '#^Unsafe call to private method SPGame\\Game\\Repositories\\BaseRepository\:\:rollbackRuntimeRow\(\) through static\:\:\.$#'
+			identifier: staticClassAccess.privateMethod
+			count: 2
+			path: src/Game/Repositories/BaseRepository.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#1 \$saver \(SPGame\\Game\\Services\\RepositorySaver\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Game/Repositories/Builds.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#1 \$saver \(SPGame\\Game\\Services\\RepositorySaver\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Game/Repositories/Config.php
+
+		-
+			message: '#^Unsafe call to private method SPGame\\Game\\Repositories\\Galaxy\:\:flushNames\(\) through static\:\:\.$#'
+			identifier: staticClassAccess.privateMethod
+			count: 2
+			path: src/Game/Repositories/Galaxy.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#1 \$saver \(SPGame\\Game\\Services\\RepositorySaver\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Game/Repositories/Techs.php
+
+		-
+			message: '#^Static method SPGame\\Game\\Services\\BuildFunctions\:\:getRestPrice\(\) invoked with 5 parameters, 2\-3 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: src/Game/Services/BuildFunctions.php
+
+		-
+			message: '#^PHPDoc tag @param references unknown parameter\: \$interval$#'
+			identifier: parameter.notFound
+			count: 1
+			path: src/Game/Services/EventLoop.php
+
+		-
+			message: '#^Parameter &\$remaining by\-ref type of method SPGame\\Game\\Services\\FleetCombatService\:\:burst\(\) expects int, \(float\|int\) given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: src/Game/Services/FleetCombatService.php
+
+		-
+			message: '#^Parameter &\$remaining by\-ref type of method SPGame\\Game\\Services\\FleetCombatService\:\:burst\(\) expects int, float\|int given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: src/Game/Services/FleetCombatService.php
+
+		-
+			message: '#^Static method SPGame\\Game\\Repositories\\Config\:\:getValue\(\) invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: src/Game/Services/FleetDefendService.php
+
+		-
+			message: '#^Static method SPGame\\Game\\Repositories\\Config\:\:getValue\(\) invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: src/Game/Services/FleetFlightService.php
+
+		-
+			message: '#^Anonymous function has an unused use \$source\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: src/Game/Services/FleetRendezvousService.php
+
+		-
+			message: '#^Anonymous function has an unused use \$at\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: src/Game/Services/FleetSpaceBattleService.php
+
+		-
+			message: '#^Static method SPGame\\Game\\Repositories\\Config\:\:getValue\(\) invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: src/Game/Services/FleetSurveyService.php
+
+		-
+			message: '#^PHPDoc tag @param references unknown parameter\: \$planetId$#'
+			identifier: parameter.notFound
+			count: 1
+			path: src/Game/Services/GalaxyGenerator.php
+
+		-
+			message: '#^Static method SPGame\\Game\\Repositories\\Config\:\:getValue\(\) invoked with 2 parameters, 1 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: src/Game/Services/Helpers.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#4 \$Time \(float\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 2
+			path: src/Game/Services/Notification.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#5 \$Time \(float\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 1
+			path: src/Game/Services/Notification.php
+
+		-
+			message: '#^Deprecated in PHP 8\.4\: Parameter \#7 \$Time \(float\) is implicitly nullable via default value null\.$#'
+			identifier: parameter.implicitlyNullable
+			count: 2
+			path: src/Game/Services/Notification.php
+
+		-
+			message: '#^Constructor of class SPGame\\Game\\Services\\SystemCoordinate has an unused parameter \$rotation\.$#'
+			identifier: constructor.unusedParameter
+			count: 1
+			path: src/Game/Services/SystemCoordinate.php

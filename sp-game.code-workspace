@@ -1,0 +1,33 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../var/www/spa.snak84.ru"
+		},
+		{
+			"path": "../../var/www/sp.snak84.ru"
+		},
+		{
+			"path": "../../var/www/sp-game.ru"
+		},
+		{
+			"path": "../../var/www/test.sp-game.ru"
+		},
+		{
+			"path": "../sp-game-bot"
+		},
+		{
+			"path": "../nova.snak84.ru"
+		}
+	],
+	"settings": {
+		"intelephense.files.maxSize": 5000000,
+		"ollama.headers": {
+			"Authorization": "Bearer 27bf8e69f8c44748b6de2abf66f574c657765efece3a55158605808c745bd8d4"
+		},
+		"chat.agent.maxRequests": 500,
+		"ollama.endpoint": "https://ol.snak84.ru"
+	}
+}

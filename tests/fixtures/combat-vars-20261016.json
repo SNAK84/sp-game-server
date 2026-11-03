@@ -1,0 +1,672 @@
+{
+  "source": "Read-only vars snapshot 2026-10-16; no account data",
+  "units": [
+    {
+      "id": 202,
+      "unitCost": 4000,
+      "attack": 5,
+      "shield": 10
+    },
+    {
+      "id": 203,
+      "unitCost": 12000,
+      "attack": 5,
+      "shield": 25
+    },
+    {
+      "id": 204,
+      "unitCost": 4000,
+      "attack": 50,
+      "shield": 10
+    },
+    {
+      "id": 205,
+      "unitCost": 10000,
+      "attack": 150,
+      "shield": 25
+    },
+    {
+      "id": 206,
+      "unitCost": 27000,
+      "attack": 400,
+      "shield": 50
+    },
+    {
+      "id": 207,
+      "unitCost": 60000,
+      "attack": 1000,
+      "shield": 200
+    },
+    {
+      "id": 208,
+      "unitCost": 30000,
+      "attack": 50,
+      "shield": 100
+    },
+    {
+      "id": 209,
+      "unitCost": 16000,
+      "attack": 1,
+      "shield": 10
+    },
+    {
+      "id": 210,
+      "unitCost": 1000,
+      "attack": 0,
+      "shield": 0
+    },
+    {
+      "id": 211,
+      "unitCost": 75000,
+      "attack": 1000,
+      "shield": 500
+    },
+    {
+      "id": 212,
+      "unitCost": 2000,
+      "attack": 0,
+      "shield": 0
+    },
+    {
+      "id": 213,
+      "unitCost": 110000,
+      "attack": 2000,
+      "shield": 500
+    },
+    {
+      "id": 214,
+      "unitCost": 9000000,
+      "attack": 200000,
+      "shield": 50000
+    },
+    {
+      "id": 215,
+      "unitCost": 70000,
+      "attack": 700,
+      "shield": 400
+    },
+    {
+      "id": 216,
+      "unitCost": 10000000,
+      "attack": 150000,
+      "shield": 70000
+    },
+    {
+      "id": 217,
+      "unitCost": 55000,
+      "attack": 50,
+      "shield": 120
+    },
+    {
+      "id": 218,
+      "unitCost": 405000000,
+      "attack": 35000000,
+      "shield": 2000000
+    },
+    {
+      "id": 219,
+      "unitCost": 1600000,
+      "attack": 1,
+      "shield": 1000
+    },
+    {
+      "id": 220,
+      "unitCost": 13000000,
+      "attack": 5,
+      "shield": 50000
+    },
+    {
+      "id": 401,
+      "unitCost": 2000,
+      "attack": 80,
+      "shield": 20
+    },
+    {
+      "id": 402,
+      "unitCost": 2000,
+      "attack": 100,
+      "shield": 25
+    },
+    {
+      "id": 403,
+      "unitCost": 8000,
+      "attack": 250,
+      "shield": 100
+    },
+    {
+      "id": 404,
+      "unitCost": 35000,
+      "attack": 1100,
+      "shield": 200
+    },
+    {
+      "id": 405,
+      "unitCost": 8000,
+      "attack": 150,
+      "shield": 500
+    },
+    {
+      "id": 406,
+      "unitCost": 100000,
+      "attack": 3000,
+      "shield": 300
+    },
+    {
+      "id": 407,
+      "unitCost": 20000,
+      "attack": 1,
+      "shield": 2000
+    },
+    {
+      "id": 408,
+      "unitCost": 100000,
+      "attack": 1,
+      "shield": 10000
+    },
+    {
+      "id": 409,
+      "unitCost": 15000000,
+      "attack": 1,
+      "shield": 1000000
+    },
+    {
+      "id": 410,
+      "unitCost": 30000000,
+      "attack": 500000,
+      "shield": 80000
+    },
+    {
+      "id": 411,
+      "unitCost": 7000000000,
+      "attack": 400000000,
+      "shield": 2000000000
+    }
+  ],
+  "rapidfire": [
+    {
+      "elementID": 202,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 202,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 203,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 203,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 204,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 204,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 205,
+      "rapidfireID": 202,
+      "shoots": 3
+    },
+    {
+      "elementID": 205,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 205,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 206,
+      "rapidfireID": 204,
+      "shoots": 6
+    },
+    {
+      "elementID": 206,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 206,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 206,
+      "rapidfireID": 401,
+      "shoots": 10
+    },
+    {
+      "elementID": 207,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 207,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 208,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 208,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 209,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 209,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 211,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 211,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 211,
+      "rapidfireID": 401,
+      "shoots": 20
+    },
+    {
+      "elementID": 211,
+      "rapidfireID": 402,
+      "shoots": 20
+    },
+    {
+      "elementID": 211,
+      "rapidfireID": 403,
+      "shoots": 10
+    },
+    {
+      "elementID": 211,
+      "rapidfireID": 405,
+      "shoots": 10
+    },
+    {
+      "elementID": 213,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 213,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 213,
+      "rapidfireID": 215,
+      "shoots": 2
+    },
+    {
+      "elementID": 213,
+      "rapidfireID": 402,
+      "shoots": 10
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 202,
+      "shoots": 250
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 203,
+      "shoots": 250
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 204,
+      "shoots": 200
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 205,
+      "shoots": 100
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 206,
+      "shoots": 33
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 207,
+      "shoots": 30
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 208,
+      "shoots": 250
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 209,
+      "shoots": 250
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 210,
+      "shoots": 1250
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 211,
+      "shoots": 25
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 212,
+      "shoots": 1250
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 213,
+      "shoots": 5
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 215,
+      "shoots": 15
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 401,
+      "shoots": 200
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 402,
+      "shoots": 200
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 403,
+      "shoots": 100
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 404,
+      "shoots": 50
+    },
+    {
+      "elementID": 214,
+      "rapidfireID": 405,
+      "shoots": 100
+    },
+    {
+      "elementID": 215,
+      "rapidfireID": 202,
+      "shoots": 3
+    },
+    {
+      "elementID": 215,
+      "rapidfireID": 203,
+      "shoots": 3
+    },
+    {
+      "elementID": 215,
+      "rapidfireID": 205,
+      "shoots": 4
+    },
+    {
+      "elementID": 215,
+      "rapidfireID": 206,
+      "shoots": 4
+    },
+    {
+      "elementID": 215,
+      "rapidfireID": 207,
+      "shoots": 10
+    },
+    {
+      "elementID": 215,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 215,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 202,
+      "shoots": 250
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 203,
+      "shoots": 250
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 204,
+      "shoots": 200
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 205,
+      "shoots": 100
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 206,
+      "shoots": 33
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 207,
+      "shoots": 30
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 208,
+      "shoots": 250
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 209,
+      "shoots": 250
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 210,
+      "shoots": 1250
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 211,
+      "shoots": 25
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 212,
+      "shoots": 1250
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 213,
+      "shoots": 5
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 214,
+      "shoots": 1
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 215,
+      "shoots": 15
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 401,
+      "shoots": 400
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 402,
+      "shoots": 200
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 403,
+      "shoots": 100
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 404,
+      "shoots": 50
+    },
+    {
+      "elementID": 216,
+      "rapidfireID": 405,
+      "shoots": 100
+    },
+    {
+      "elementID": 217,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 217,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 202,
+      "shoots": 250
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 203,
+      "shoots": 250
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 204,
+      "shoots": 200
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 205,
+      "shoots": 100
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 206,
+      "shoots": 33
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 207,
+      "shoots": 30
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 208,
+      "shoots": 250
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 209,
+      "shoots": 250
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 210,
+      "shoots": 1250
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 211,
+      "shoots": 25
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 212,
+      "shoots": 1250
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 213,
+      "shoots": 5
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 215,
+      "shoots": 15
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 401,
+      "shoots": 400
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 402,
+      "shoots": 200
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 403,
+      "shoots": 100
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 404,
+      "shoots": 50
+    },
+    {
+      "elementID": 218,
+      "rapidfireID": 405,
+      "shoots": 100
+    },
+    {
+      "elementID": 219,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 219,
+      "rapidfireID": 212,
+      "shoots": 5
+    },
+    {
+      "elementID": 220,
+      "rapidfireID": 210,
+      "shoots": 5
+    },
+    {
+      "elementID": 220,
+      "rapidfireID": 212,
+      "shoots": 5
+    }
+  ]
+}
