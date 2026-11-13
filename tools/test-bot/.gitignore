@@ -1,0 +1,10 @@
+.env
+.env.qa
+__pycache__/
+*.py[cod]
+.pytest_cache/
+data/runs/*
+data/sessions/
+!data/runs/.gitkeep
+data-qa/
+data-qa-foreign/

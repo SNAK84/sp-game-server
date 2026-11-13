@@ -1,0 +1,88 @@
+services:
+  queue-bot-qa:
+    build:
+      context: .
+    container_name: sp_game_qa_bot
+    restart: unless-stopped
+    environment:
+      BOT_API_HOST: 0.0.0.0
+      BOT_API_PORT: 8095
+      GAME_WS_URL: ${QA_GAME_WS_URL:-ws://host.docker.internal:9501/}
+      SP_GAME_LOGIN: ${QA_SP_GAME_LOGIN:-}
+      SP_GAME_PASSWORD: ${QA_SP_GAME_PASSWORD:-}
+      CABINET_API_URL: ${CABINET_API_URL:-https://cabinet.sp-game.ru}
+      SP_GAME_CABINET_EMAIL: ${QA_CABINET_EMAIL:-}
+      GAME_WORLD_ID: ${GAME_WORLD_ID:-sp-game-dev}
+      BOT_API_TOKEN: ${QA_BOT_API_TOKEN:-change-me}
+      BOT_REQUEST_TIMEOUT: ${QA_BOT_REQUEST_TIMEOUT:-15}
+      BOT_MAX_RUN_SECONDS: ${QA_BOT_MAX_RUN_SECONDS:-3600}
+      BOT_LOG_DIR: /app/data/runs
+      BOT_STATE_FILE: /app/data/state.json
+      BOT_RETRY_INITIAL_SECONDS: ${QA_BOT_RETRY_INITIAL_SECONDS:-5}
+      BOT_RETRY_MAX_SECONDS: ${QA_BOT_RETRY_MAX_SECONDS:-300}
+      BOT_RETRY_BEFORE_QUESTION: ${QA_BOT_RETRY_BEFORE_QUESTION:-5}
+      BOT_SUPERVISOR_INTERVAL_SECONDS: ${QA_BOT_SUPERVISOR_INTERVAL_SECONDS:-15}
+      BOT_SUPERVISOR_STARTUP_SECONDS: ${QA_BOT_SUPERVISOR_STARTUP_SECONDS:-45}
+      BOT_SUPERVISOR_FAILURES: ${QA_BOT_SUPERVISOR_FAILURES:-3}
+      BOT_SUPERVISOR_TERMINATE_SECONDS: ${QA_BOT_SUPERVISOR_TERMINATE_SECONDS:-25}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${QA_BOT_API_PORT:-8096}:8095"
+    volumes:
+      - ./data-qa:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c 'import os, urllib.request; request = urllib.request.Request(\"http://127.0.0.1:8095/health\", headers={\"X-Bot-Token\": os.environ[\"BOT_API_TOKEN\"]}); assert urllib.request.urlopen(request, timeout=5).status == 200'",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 30s
+
+  queue-bot-qa-foreign:
+    build:
+      context: .
+    container_name: sp_game_qa_foreign_bot
+    restart: unless-stopped
+    environment:
+      BOT_API_HOST: 0.0.0.0
+      BOT_API_PORT: 8095
+      GAME_WS_URL: ${QA_GAME_WS_URL:-ws://host.docker.internal:9501/}
+      SP_GAME_LOGIN: ${QA_FOREIGN_LOGIN:-}
+      SP_GAME_PASSWORD: ${QA_FOREIGN_PASSWORD:-}
+      CABINET_API_URL: ${CABINET_API_URL:-https://cabinet.sp-game.ru}
+      SP_GAME_CABINET_EMAIL: ${QA_FOREIGN_CABINET_EMAIL:-}
+      GAME_WORLD_ID: ${GAME_WORLD_ID:-sp-game-dev}
+      BOT_API_TOKEN: ${QA_FOREIGN_BOT_API_TOKEN:-change-me}
+      BOT_REQUEST_TIMEOUT: ${QA_BOT_REQUEST_TIMEOUT:-15}
+      BOT_MAX_RUN_SECONDS: ${QA_BOT_MAX_RUN_SECONDS:-3600}
+      BOT_LOG_DIR: /app/data/runs
+      BOT_STATE_FILE: /app/data/state.json
+      BOT_RETRY_INITIAL_SECONDS: ${QA_BOT_RETRY_INITIAL_SECONDS:-5}
+      BOT_RETRY_MAX_SECONDS: ${QA_BOT_RETRY_MAX_SECONDS:-300}
+      BOT_RETRY_BEFORE_QUESTION: ${QA_BOT_RETRY_BEFORE_QUESTION:-5}
+      BOT_SUPERVISOR_INTERVAL_SECONDS: ${QA_BOT_SUPERVISOR_INTERVAL_SECONDS:-15}
+      BOT_SUPERVISOR_STARTUP_SECONDS: ${QA_BOT_SUPERVISOR_STARTUP_SECONDS:-45}
+      BOT_SUPERVISOR_FAILURES: ${QA_BOT_SUPERVISOR_FAILURES:-3}
+      BOT_SUPERVISOR_TERMINATE_SECONDS: ${QA_BOT_SUPERVISOR_TERMINATE_SECONDS:-25}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${QA_FOREIGN_BOT_API_PORT:-8097}:8095"
+    volumes:
+      - ./data-qa-foreign:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c 'import os, urllib.request; request = urllib.request.Request(\"http://127.0.0.1:8095/health\", headers={\"X-Bot-Token\": os.environ[\"BOT_API_TOKEN\"]}); assert urllib.request.urlopen(request, timeout=5).status == 200'",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 30s

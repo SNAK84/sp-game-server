@@ -1,0 +1,1 @@
+"""SP-Game test bot."""
