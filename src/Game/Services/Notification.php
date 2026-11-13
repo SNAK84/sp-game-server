@@ -174,6 +174,7 @@ class Notification
         $actor = \SPGame\Game\Repositories\Users::findExistingById($actorId);
         $recipient = \SPGame\Game\Repositories\Users::findExistingById($recipientId);
         if ($actor === null || $recipient === null) return;
+        if (\SPGame\Game\Repositories\Accounts::findExistingById((int)$recipient['account_id']) === null) return;
         $account = new AccountData((int)$recipient['account_id']);
         self::sendSystem($account, Messages::Type::Players->value, 'from.Friends', 'subject.Friends.' . $event,
             'FriendshipChange', ['PlayerName' => $actor['name'], 'RequestText' => $event === 'request' ? $text : '',

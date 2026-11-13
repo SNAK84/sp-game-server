@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace SPGame\Game\Services;
 
 use SPGame\Core\Logger;
-use SPGame\Game\Repositories\{Friends, Planets, PlayerQueue, Users};
+use SPGame\Game\Repositories\{Accounts, Friends, Planets, PlayerQueue, Users};
 
 final class FriendsService
 {
@@ -18,7 +18,8 @@ final class FriendsService
                 throw new \InvalidArgumentException('Текст заявки должен содержать не более ' . Friends::REQUEST_MAX_LENGTH . ' символов.');
             }
             $text = trim(str_replace(["\r\n", "\r"], "\n", $text));
-            if ($value === $userId || Users::findExistingById($value) === null) {
+            $target = Users::findExistingById($value);
+            if ($value === $userId || $target === null || Accounts::findExistingById((int)$target['account_id']) === null) {
                 throw new \InvalidArgumentException('Нельзя отправить заявку этому игроку.');
             }
             $row = Friends::pair($userId, $value);
@@ -40,6 +41,11 @@ final class FriendsService
             if ($action === 'accept') {
                 if ($row['status'] !== Friends::PENDING || $row['requester_id'] === $userId) {
                     throw new \InvalidArgumentException('Принять заявку может только её получатель.');
+                }
+                $otherId = $row['user_low'] === $userId ? $row['user_high'] : $row['user_low'];
+                $other = Users::findExistingById((int)$otherId);
+                if ($other === null || Accounts::findExistingById((int)$other['account_id']) === null) {
+                    throw new \InvalidArgumentException('Игрок недоступен.');
                 }
                 $row['status'] = Friends::ACCEPTED;
             } elseif ($action === 'remove') {
@@ -64,7 +70,7 @@ final class FriendsService
         }
         foreach ([$row['user_low'], $row['user_high']] as $id) {
             $user = Users::findExistingById($id);
-            if ($user !== null) PlayerQueue::addQueue((int)$user['account_id'], $id,
+            if ($user !== null && Accounts::findExistingById((int)$user['account_id']) !== null) PlayerQueue::addQueue((int)$user['account_id'], $id,
                 (int)$user['current_planet'], PlayerQueue::SendActualeData);
         }
     }

@@ -132,7 +132,7 @@ class Users extends BaseRepository
 
     public static function findByAccount(int $accountId): ?array
     {
-        if (!$accountId) return null;
+        if ($accountId <= 0 || Accounts::findExistingById($accountId) === null) return null;
 
         $User = self::findByIndex('account', $accountId);
         if (!$User) {

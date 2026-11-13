@@ -33,9 +33,11 @@ class AccountData implements ArrayAccess
 
     public function __construct(int $accountId)
     {
+        $account = Accounts::findExistingById($accountId);
+        if ($account === null) throw new \OutOfBoundsException('Учётная запись недоступна.');
         $this->accountId = $accountId;
         $this->FleetsData = FleetsData::getInstance();
-        $this->Account = new Data(Accounts::findById($accountId), $this->AccountDirty);
+        $this->Account = new Data($account, $this->AccountDirty);
         $this->User = new Data(Users::findByAccount($accountId), $this->UserDirty);
         $this->WorkPlanet = $this->User['current_planet'] ?? 0;
         $this->Techs = new Data(Techs::findById($this->User['id'] ?? 0), $this->TechsDirty);

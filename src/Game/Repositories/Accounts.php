@@ -73,6 +73,12 @@ class Accounts extends BaseRepository
     // ==============================
     // Поиск
     // ==============================
+    /** Учётная запись создаётся только явно, не при чтении неизвестного ID. */
+    public static function findById(int $id): ?array
+    {
+        return self::findExistingById($id);
+    }
+
     public static function findByLogin(string $login): ?array
     {
         return self::findByIndex('login', mb_strtolower(trim($login)));
@@ -576,8 +582,10 @@ class Accounts extends BaseRepository
 
     public static function getAccountData(int $accountId, int $planetId = null): array
     {
+        $account = self::findById($accountId);
+        if ($account === null) throw new \OutOfBoundsException('Учётная запись недоступна.');
         $AccountData = [
-            'Account' => self::findById($accountId),
+            'Account' => $account,
             'User' => Users::findByAccount($accountId)
         ];
 
