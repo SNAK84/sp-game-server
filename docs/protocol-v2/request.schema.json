@@ -1,0 +1,2484 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sp-game:protocol:v2:request",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "requestId"
+  ],
+  "properties": {
+    "v": {
+      "const": 2
+    },
+    "requestId": {
+      "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+    },
+    "worldId": {
+      "$ref": "urn:sp-game:protocol:v2:common#/$defs/world"
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "versions"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "versions": {
+              "type": "array",
+              "minItems": 1,
+              "contains": {
+                "const": 2
+              },
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "auth"
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "gameToken"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "gameToken": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{128}$"
+            }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "ping",
+            "logout"
+          ]
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "unsubscribe"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "command.status.get"
+        },
+        "context": {
+          "type": "object",
+          "maxProperties": 0
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "commandId"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "commandId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+            }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "player.planets.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "player.status.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "localization.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lang": {}
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "overview.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "buildings.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "research.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "shipyard.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "defense.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "galaxy.system.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "galaxy": {},
+            "system": {}
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "fleets.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "target": {},
+            "historyPages": {"$ref": "urn:sp-game:protocol:v2:common#/$defs/fleetHistoryPages"}
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "fleet.missions.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "coordinates": {},
+            "speedFactor": {},
+            "missionType": {},
+            "forPlan": {
+              "type": "boolean"
+            },
+            "planReturn": {
+              "type": "boolean"
+            },
+            "origin": {},
+            "duration": {},
+            "mining": {}
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "fleet.navigation.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "galaxy": {},
+            "system": {},
+            "fleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "coordinates": {}
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "fleet.commands.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fleet_id": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "fleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "fleet.missions.catalog.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "messages.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "page": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+            "category": { "type": "integer", "enum": [1, 2, 3, 11, 12, 21, 22, 23, 24, 99] }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "friends.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "information.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "combat.report.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "query"
+        },
+        "name": {
+          "const": "combat.reports.get"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "page": {}
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "planet.select"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "planet.rename"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "building.upgrade"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "building.dismantle"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "building.cancel"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "research.start"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "research.cancel"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "shipyard.build"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "items": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "shipyard.cancel"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "defense.build"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "items": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "defense.cancel"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "phalanx.scan"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "targetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "scanToken": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.create"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "items": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.ships.transfer"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fromFleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "toFleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "shipId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "count": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.disband"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "FleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.rename"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "FleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "Name": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.send"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "missionType": {},
+            "coordinates": {},
+            "speedFactor": {},
+            "fuel": {},
+            "resources": {},
+            "duration": {},
+            "group": {},
+            "refuel": {
+              "type": "boolean"
+            },
+            "contactLoss": {},
+            "mining": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.recall"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.stop"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.resume"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "useCargoFuel": {
+              "type": "boolean"
+            },
+            "fuelMode": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.route.set"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "plan": {
+              "type": "object",
+              "required": ["version", "steps"],
+              "additionalProperties": false,
+              "properties": {
+                "version": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                "steps": {"type": "array", "minItems": 1, "maxItems": 12, "items": {"type": "object"}},
+                "fuel": {"type": "number", "minimum": 0},
+                "resources": {"type": "object"}
+              }
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.sensors.set"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fleetId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "fleet.group.invite"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "groupId": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            "username": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "messages.read"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ReadId": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+              }
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "messages.delete"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "Ids": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+              }
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "friend.request"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "text": {}
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "friend.accept"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "friend.remove"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "combat.report.save"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "context",
+        "data",
+        "serverEpoch",
+        "issuedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "name": {
+          "const": "combat.report.unsave"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          },
+          "required": [
+            "planetId"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "serverEpoch": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+        },
+        "issuedAt": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "player.status.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "player.planets.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "overview.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "buildings.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "research.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "shipyard.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "defense.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "galaxy.system.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "galaxy": {},
+            "system": {}
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "fleets.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "target": {},
+            "historyPages": {"$ref": "urn:sp-game:protocol:v2:common#/$defs/fleetHistoryPages"}
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "messages.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "page": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+            "category": { "type": "integer", "enum": [1, 2, 3, 11, 12, 21, 22, 23, 24, 99] }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "worldId",
+        "name",
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "name": {
+          "const": "friends.get"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false
+}

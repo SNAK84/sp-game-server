@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sp-game:protocol:v2:common",
+  "$defs": {
+    "fleetHistoryPages": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {"pattern": "^[1-9][0-9]{0,18}$"},
+      "additionalProperties": {"type": "integer", "minimum": 1, "maximum": 1000000}
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,19}$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{8}(-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$"
+    },
+    "world": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "epoch": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "time": {
+      "type": "number",
+      "minimum": 0
+    },
+    "commandStatus": {
+      "type": "object",
+      "required": [
+        "commandId",
+        "state",
+        "outcomeDurability",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "commandId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "applied",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "outcomeDurability": {
+          "const": "runtime"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/time"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/time"
+        },
+        "outcome": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "enum": [
+                "not_found",
+                "runtime_changed",
+                "publication_unconfirmed",
+                "execution_unconfirmed"
+              ]
+            },
+            "result": {
+              "type": "object"
+            },
+            "error": {
+              "type": "object",
+              "required": [
+                "code",
+                "message"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "coordinate": {
+      "type": "object",
+      "required": [
+        "galaxy",
+        "system",
+        "orbit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "galaxy": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "system": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "orbit": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "planets": {
+      "type": "object",
+      "required": [
+        "resource",
+        "full",
+        "revision",
+        "observedAt",
+        "context",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "resource": {
+          "const": "player.planets"
+        },
+        "full": {
+          "const": true
+        },
+        "revision": {
+          "$ref": "#/$defs/id"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/time"
+        },
+        "context": {
+          "type": "object",
+          "required": [
+            "playerId",
+            "planetId"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "playerId": {
+              "$ref": "#/$defs/id"
+            },
+            "planetId": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        },
+        "value": {
+          "type": "object",
+          "required": [
+            "playerId",
+            "selectedPlanetId",
+            "mainPlanetId",
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "playerId": {
+              "$ref": "#/$defs/id"
+            },
+            "selectedPlanetId": {
+              "$ref": "#/$defs/id"
+            },
+            "mainPlanetId": {
+              "$ref": "#/$defs/id"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "name",
+                  "objectType",
+                  "image",
+                  "coordinate"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "objectType": {
+                    "enum": [
+                      1,
+                      3
+                    ]
+                  },
+                  "image": {
+                    "type": "string"
+                  },
+                  "coordinate": {
+                    "$ref": "#/$defs/coordinate"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": {
+          "type": "object"
+        }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "resource",
+        "full",
+        "revision",
+        "observedAt",
+        "context",
+        "parameters",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "resource": {
+          "enum": [
+            "player.planets",
+            "player.status",
+            "localization",
+            "overview",
+            "buildings",
+            "research",
+            "shipyard",
+            "defense",
+            "galaxy.system",
+            "fleets",
+            "fleet.missions",
+            "fleet.navigation",
+            "fleet.commands",
+            "fleet.missions.catalog",
+            "messages",
+            "friends",
+            "information",
+            "combat.report",
+            "combat.reports"
+          ]
+        },
+        "full": {
+          "const": true
+        },
+        "revision": {
+          "$ref": "#/$defs/id"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/time"
+        },
+        "context": {
+          "type": "object",
+          "required": [
+            "planetId",
+            "playerId"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "planetId": {
+              "$ref": "#/$defs/id"
+            },
+            "playerId": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        },
+        "parameters": {
+          "type": "object"
+        },
+        "value": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+includes:
+    - phpstan-baseline.neon
+parameters:
+    level: 3
+    paths:
+        - src
+    scanDirectories:
+        - vendor/swoole/ide-helper/src
+    excludePaths:
+        - src/main.php

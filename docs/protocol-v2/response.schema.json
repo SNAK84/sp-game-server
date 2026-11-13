@@ -1,0 +1,432 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sp-game:protocol:v2:response",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "requestId",
+    "worldId",
+    "connectionId",
+    "serverEpoch",
+    "serverTime"
+  ],
+  "properties": {
+    "v": {
+      "const": 2
+    },
+    "requestId": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        }
+      ]
+    },
+    "worldId": {
+      "$ref": "urn:sp-game:protocol:v2:common#/$defs/world"
+    },
+    "connectionId": {
+      "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+    },
+    "serverEpoch": {
+      "$ref": "urn:sp-game:protocol:v2:common#/$defs/epoch"
+    },
+    "serverTime": {
+      "$ref": "urn:sp-game:protocol:v2:common#/$defs/time"
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "version",
+            "capabilities"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "capabilities": {
+              "type": "object",
+              "required": [
+                "authentication",
+                "queries",
+                "commands",
+                "subscriptions",
+                "replay",
+                "snapshotOrdering",
+                "idType"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "authentication": {
+                  "const": "cabinet.gameToken"
+                },
+                "queries": {
+                  "const": [
+                    "player.planets.get",
+                    "player.status.get",
+                    "localization.get",
+                    "overview.get",
+                    "buildings.get",
+                    "research.get",
+                    "shipyard.get",
+                    "defense.get",
+                    "galaxy.system.get",
+                    "fleets.get",
+                    "fleet.missions.get",
+                    "fleet.navigation.get",
+                    "fleet.commands.get",
+                    "fleet.missions.catalog.get",
+                    "messages.get",
+                    "friends.get",
+                    "information.get",
+                    "combat.report.get",
+                    "combat.reports.get",
+                    "command.status.get"
+                  ]
+                },
+                "commands": {
+                  "const": [
+                    "planet.select",
+                    "planet.rename",
+                    "building.upgrade",
+                    "building.dismantle",
+                    "building.cancel",
+                    "research.start",
+                    "research.cancel",
+                    "shipyard.build",
+                    "shipyard.cancel",
+                    "defense.build",
+                    "defense.cancel",
+                    "phalanx.scan",
+                    "fleet.create",
+                    "fleet.ships.transfer",
+                    "fleet.disband",
+                    "fleet.rename",
+                    "fleet.send",
+                    "fleet.recall",
+                    "fleet.stop",
+                    "fleet.resume",
+                    "fleet.route.set",
+                    "fleet.sensors.set",
+                    "fleet.group.invite",
+                    "messages.read",
+                    "messages.delete",
+                    "friend.request",
+                    "friend.accept",
+                    "friend.remove",
+                    "combat.report.save",
+                    "combat.report.unsave"
+                  ]
+                },
+                "subscriptions": {
+                  "const": [
+                    "player.status.get",
+                    "player.planets.get",
+                    "overview.get",
+                    "buildings.get",
+                    "research.get",
+                    "shipyard.get",
+                    "defense.get",
+                    "galaxy.system.get",
+                    "fleets.get",
+                    "messages.get",
+                    "friends.get"
+                  ]
+                },
+                "replay": {
+                  "const": false
+                },
+                "snapshotOrdering": {
+                  "const": "resource.revision"
+                },
+                "idType": {
+                  "const": "decimal-string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "authResult"
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "state",
+            "accountId",
+            "playerId",
+            "sessionId"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "authenticated"
+            },
+            "accountId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+            },
+            "playerId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/id"
+            },
+            "sessionId": {
+              "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "pong"
+        }
+      }
+    },
+    {
+      "required": [
+        "name",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "queryResult"
+        },
+        "name": {
+          "enum": [
+            "player.planets.get",
+            "player.status.get",
+            "localization.get",
+            "overview.get",
+            "buildings.get",
+            "research.get",
+            "shipyard.get",
+            "defense.get",
+            "galaxy.system.get",
+            "fleets.get",
+            "fleet.missions.get",
+            "fleet.navigation.get",
+            "fleet.commands.get",
+            "fleet.missions.catalog.get",
+            "messages.get",
+            "friends.get",
+            "information.get",
+            "combat.report.get",
+            "combat.reports.get"
+          ]
+        },
+        "data": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/snapshot"
+        }
+      }
+    },
+    {
+      "required": [
+        "subscriptionId",
+        "name",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "subscribed",
+            "resource"
+          ]
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        },
+        "name": {
+          "enum": [
+            "player.status.get",
+            "player.planets.get",
+            "overview.get",
+            "buildings.get",
+            "research.get",
+            "shipyard.get",
+            "defense.get",
+            "galaxy.system.get",
+            "fleets.get",
+            "messages.get",
+            "friends.get"
+          ]
+        },
+        "data": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/snapshot"
+        }
+      }
+    },
+    {
+      "required": [
+        "subscriptionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "unsubscribed"
+        },
+        "subscriptionId": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/uuid"
+        }
+      }
+    },
+    {
+      "required": [
+        "name",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "queryResult"
+        },
+        "name": {
+          "const": "command.status.get"
+        },
+        "data": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/commandStatus"
+        }
+      }
+    },
+    {
+      "required": [
+        "name",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "commandAccepted",
+            "commandResult"
+          ]
+        },
+        "name": {
+          "enum": [
+            "planet.select",
+            "planet.rename",
+            "building.upgrade",
+            "building.dismantle",
+            "building.cancel",
+            "research.start",
+            "research.cancel",
+            "shipyard.build",
+            "shipyard.cancel",
+            "defense.build",
+            "defense.cancel",
+            "phalanx.scan",
+            "fleet.create",
+            "fleet.ships.transfer",
+            "fleet.disband",
+            "fleet.rename",
+            "fleet.send",
+            "fleet.recall",
+            "fleet.stop",
+            "fleet.resume",
+            "fleet.route.set",
+            "fleet.sensors.set",
+            "fleet.group.invite",
+            "messages.read",
+            "messages.delete",
+            "friend.request",
+            "friend.accept",
+            "friend.remove",
+            "combat.report.save",
+            "combat.report.unsave"
+          ]
+        },
+        "data": {
+          "$ref": "urn:sp-game:protocol:v2:common#/$defs/commandStatus"
+        }
+      }
+    },
+    {
+      "required": [
+        "name",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "session"
+        },
+        "name": {
+          "enum": [
+            "session.ended",
+            "session.loggedOut"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "state",
+            "message"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "enum": [
+                "ended",
+                "loggedOut"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "fatal",
+            "retryable"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "fatal": {
+              "type": "boolean"
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false
+}
