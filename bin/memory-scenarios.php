@@ -7,6 +7,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use SPGame\Game\Repositories\Messages;
 use SPGame\Game\Repositories\ProtocolSubscriptions;
+use SPGame\Game\Repositories\{BattleReports, ProtocolCommands, RuntimeRecords, SharedBlobStore};
 
 /** Защита самой модели от переполнения при пользовательских коэффициентах. */
 function scenarioRows(float $value): int
@@ -20,7 +21,14 @@ if (in_array('--help', $argv, true)) {
         . "JSON: модель двух профилей из audit-capacity.php, не измерение RSS.\n"
         . "--accounts=100,500,1000,5000,10000,20000 --online=10,25,50,250,500,1000\n"
         . "--bases-per-account=5 --fleets-per-base=1 --active-fraction=0.1\n"
-        . "--commands-per-active=24 --messages-per-day=5\n";
+        . "--commands-per-active=24 --history-commands-per-active=24 --messages-per-day=5\n"
+        . "--commands-per-online-minute=2 --command-hours-per-day=24 --receipt-packed-bytes=384\n"
+        . "--message-overflow-fraction=0.25 --message-overflow-bytes=1024\n"
+        . "--reports-per-account-day=0.1 --saved-reports-per-account=1 --bookmarks-per-account=2\n"
+        . "--report-packed-bytes=8192\n"
+        . "Все коэффициенты — сценарии, не измерения и не игровые лимиты.\n"
+        . "Размеры packed включают служебный префикс после сжатия; saved reports —\n"
+        . "непересекающийся со свежими докладами сохранённый архив.\n";
     exit(0);
 }
 try {
@@ -28,6 +36,12 @@ try {
         'accounts' => '100,500,1000,5000,10000,20000', 'online' => '10,25,50,250,500,1000',
         'bases-per-account' => '5', 'fleets-per-base' => '1', 'active-fraction' => '0.1',
         'commands-per-active' => '24', 'messages-per-day' => '5',
+        'history-commands-per-active' => '24',
+        'commands-per-online-minute' => '2', 'command-hours-per-day' => '24',
+        'receipt-packed-bytes' => '384', 'message-overflow-fraction' => '0.25',
+        'message-overflow-bytes' => '1024', 'reports-per-account-day' => '0.1',
+        'saved-reports-per-account' => '1', 'bookmarks-per-account' => '2',
+        'report-packed-bytes' => '8192',
     ];
     foreach (array_slice($argv, 1) as $argument) {
         if (!preg_match('/^--([a-z-]+)=(.+)$/D', $argument, $match) || !array_key_exists($match[1], $options)) {
@@ -41,13 +55,20 @@ try {
         if (max($options[$key]) > 1000000) throw new InvalidArgumentException('Слишком большой сценарий.');
     }
     if (count($options['accounts']) !== count($options['online'])) throw new InvalidArgumentException('Число сценариев должно совпадать.');
-    foreach (['bases-per-account', 'fleets-per-base', 'active-fraction', 'commands-per-active', 'messages-per-day'] as $key) {
+    foreach (array_diff(array_keys($options), ['accounts', 'online']) as $key) {
         if (!is_numeric($options[$key]) || !is_finite((float)$options[$key]) || (float)$options[$key] < 0 || (float)$options[$key] > 1000000) {
             throw new InvalidArgumentException('Неверный коэффициент ' . $key);
         }
         $options[$key] = (float)$options[$key];
     }
     if ($options['active-fraction'] > 1) throw new InvalidArgumentException('Доля активных флотов должна быть от0 до1.');
+    if ($options['message-overflow-fraction'] > 1 || $options['command-hours-per-day'] > 24
+        || $options['saved-reports-per-account'] > $options['bookmarks-per-account']) {
+        throw new InvalidArgumentException('Неверная доля переполнения, время активности или число закладок.');
+    }
+    foreach (['receipt-packed-bytes', 'message-overflow-bytes', 'report-packed-bytes'] as $key) {
+        if ($options[$key] < 1 || floor($options[$key]) !== $options[$key]) throw new InvalidArgumentException('Нужен целый размер packed в байтах.');
+    }
     if (!extension_loaded('swoole')) throw new RuntimeException('Запустите команду в игровом контейнере с Swoole.');
 
     // Используем реальные схемы аудитора; формулу native allocation здесь не дублируем.
@@ -63,12 +84,23 @@ try {
         if (!$inventory['modelApplicable']) throw new RuntimeException('Native-модель не сверена с установленной версией Swoole/архитектурой.');
         $budgets = [];
         foreach ($inventory['repositories'] as $repository) $budgets[$repository['class']] = $repository['layout']['mainBuckets'];
-        foreach (['Connect', 'ProtocolSubscriptions'] as $name) $budgets[$name] = $inventory['extraTables'][$name]['buckets'];
+        foreach (['Connect', 'ProtocolSubscriptions', 'MessageBodiesOverflow',
+            'ProtocolCommandsBodies', 'BattleReportsBodies'] as $name) {
+            $budgets[$name] = $inventory['extraTables'][$name]['buckets'];
+        }
+        foreach (['ProtocolCommands', 'BattleReports', 'BattleReportSaves'] as $name) {
+            $budgets[$name] = $inventory['extraTables'][$name . 'Rows']['buckets'];
+        }
         $profiles[$profile] = ['sharedAllocationModelBytes' => $inventory['totalSharedAllocationModelBytes'], 'selectedBudgets' => $budgets];
     }
     // Неизменённые закрытые константы читаем без init() и выделения таблиц.
     $subscriptions = (int)(new ReflectionClass(ProtocolSubscriptions::class))->getConstant('PER_CONNECTION');
     $days = Messages::RETENTION_SECONDS / 86400;
+    $reportDays = BattleReports::RETENTION_SECONDS / 86400;
+    $receiptDays = ProtocolCommands::RETENTION / 86400;
+    $messageInline = (int)(new ReflectionClass(Messages::class))->getConstant('INLINE_BYTES');
+    $runtimeInline = RuntimeRecords::columns()['inline'][1];
+    $blocks = static fn(float $bytes, int $inline): int => $bytes <= $inline ? 0 : scenarioRows($bytes / SharedBlobStore::BLOCK_BYTES);
     $scenarios = [];
     foreach ($options['accounts'] as $index => $accounts) {
         $online = $options['online'][$index];
@@ -76,11 +108,26 @@ try {
         $bases = scenarioRows($accounts * $options['bases-per-account']);
         $fleets = scenarioRows($bases * $options['fleets-per-base']);
         $active = scenarioRows($fleets * $options['active-fraction']);
+        $futureCommands = scenarioRows($active * $options['commands-per-active']);
+        $historyCommands = scenarioRows($active * $options['history-commands-per-active']);
+        $messages = scenarioRows($accounts * $options['messages-per-day'] * $days);
+        $overflowMessages = $options['message-overflow-bytes'] <= $messageInline
+            ? 0 : scenarioRows($messages * $options['message-overflow-fraction']);
+        $receipts = scenarioRows($online * $options['commands-per-online-minute'] * 60 * $options['command-hours-per-day'] * $receiptDays);
+        $recentReports = scenarioRows($accounts * $options['reports-per-account-day'] * $reportDays);
+        $savedReports = scenarioRows($accounts * $options['saved-reports-per-account']);
+        $reports = scenarioRows((float)$recentReports + $savedReports);
         $rows = ['Accounts' => $accounts, 'Users' => $accounts, 'Techs' => $accounts, 'UserResources' => $accounts,
             'Planets' => $bases, 'PlanetResources' => $bases, 'Builds' => $bases, 'Ships' => $bases, 'Defenses' => $bases,
             'Fleets' => $fleets, 'FleetsShips' => $fleets,
-            'FleetCommands' => scenarioRows($active * $options['commands-per-active']),
-            'Messages' => scenarioRows($accounts * $options['messages-per-day'] * $days),
+            'FleetCommands' => scenarioRows((float)$futureCommands + $historyCommands),
+            'Messages' => $messages,
+            'MessageBodiesOverflow' => scenarioRows($overflowMessages * $blocks($options['message-overflow-bytes'], $messageInline)),
+            'ProtocolCommands' => $receipts,
+            'ProtocolCommandsBodies' => scenarioRows($receipts * $blocks($options['receipt-packed-bytes'], $runtimeInline)),
+            'BattleReports' => $reports,
+            'BattleReportsBodies' => scenarioRows($reports * $blocks($options['report-packed-bytes'], $runtimeInline)),
+            'BattleReportSaves' => scenarioRows($accounts * $options['bookmarks-per-account']),
             'Connect' => $online, 'ProtocolSubscriptions' => $online * $subscriptions];
         $estimates = [];
         foreach ($profiles as $profile => $inventory) {
@@ -96,14 +143,22 @@ try {
                 'selectedBudgetsFit' => $exceeded === []];
         }
         $scenarios[] = ['accounts' => $accounts, 'online' => $online, 'activeFleets' => $active,
+            'demandBreakdown' => ['futureCommands' => $futureCommands, 'historyCommands' => $historyCommands,
+                'overflowMessages' => $overflowMessages, 'recentReports' => $recentReports, 'savedReports' => $savedReports],
             'estimatedSelectedRows' => $rows, 'profiles' => $estimates];
     }
     echo json_encode(['generatedAtUtc' => gmdate(DATE_ATOM), 'modelNotRss' => true, 'loadTestPerformed' => false,
-        'assumptions' => $options + ['retentionDays' => $days, 'subscriptionsPerOnline' => $subscriptions],
+        'assumptions' => $options + ['retentionDays' => $days, 'reportRetentionDays' => $reportDays,
+            'receiptRetentionDays' => $receiptDays, 'subscriptionsPerOnline' => $subscriptions,
+            'messageInlineBytes' => $messageInline, 'runtimeInlineBytes' => $runtimeInline,
+            'blockBytes' => SharedBlobStore::BLOCK_BYTES],
         'limitations' => [
             'Table выделены целиком при старте; онлайн и заполнение не меняют размер профиля.',
-            'Коэффициенты сценария не измерены; история завершённых команд и пики сверх них не включены.',
-            'Проверены только перечисленные бюджеты, не все индексы, blob-блоки, очереди, доклады и квитанции.',
+            'Коэффициенты сценария не измерены; история команд учитывается только для активных флотов, не дольше последнего STAY.',
+            'Ритм команд постоянен в заданные часы: это не измеренный средний онлайн и не все accepted за пределами TTL.',
+            'Сохранённые доклады добавлены отдельно от свежих без пересечения; их бессрочный архив не ограничен числом аккаунтов.',
+            'Размеры packed и доля overflow заданы явно, не получены из маленькой выборки dev; компрессия не гарантируется.',
+            'Проверены только перечисленные бюджеты; прочие индексы, журналы добычи, очереди, mailbox, tombstones и запас для обновления тел вне модели.',
             'PHP heap, COW, сокеты, снимки, ОС, БД и другие сервисы требуют отдельного запаса.',
             'Это не доказательство CPU/tick SLO или готовности мира20K/1000.',
         ], 'profiles' => $profiles, 'scenarios' => $scenarios],
