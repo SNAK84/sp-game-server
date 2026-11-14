@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-use SPGame\Game\Repositories\{Accounts, Users, Planets, Techs, Friends, Messages, PlayerQueue};
+use SPGame\Game\Repositories\{Accounts, Users, Planets, Techs, Friends, Messages, PlayerQueue,
+    Builds, Ships, Defenses, EntitySettings, Queues, GalaxyOrbits, PlanetResources, UserResources};
 use SPGame\Game\Services\{AccountData, FriendsService, Notification};
 
 /** До запуска сети/saver основного dev. Только чтение/отклоняемые действия;
@@ -12,10 +13,11 @@ return static function (string $path): void {
     $qa = Accounts::findByLogin('qaown_260924');
     $actor = $qa === null ? null : Users::findByIndex('account', (string)$qa['id']);
     $orphan = Users::findExistingById(2);
-    if ($actor === null || (int)($orphan['account_id'] ?? 0) !== 9
-        || Accounts::findExistingById(9) !== null) throw new LogicException('Не подтверждены QA и исходный B046.');
+    if ($actor === null || ($orphan !== null && (int)$orphan['account_id'] !== 9)
+        || Accounts::findExistingById(9) !== null) throw new LogicException('Не подтверждены QA и отсутствие account9.');
     $repositories = [Accounts::class, Users::class, Planets::class, Techs::class,
-        Friends::class, Messages::class, PlayerQueue::class];
+        Friends::class, Messages::class, PlayerQueue::class, Builds::class, Ships::class,
+        Defenses::class, EntitySettings::class, Queues::class, PlanetResources::class, UserResources::class];
     $snapshot = static function () use ($repositories): array {
         $state = [];
         foreach ($repositories as $repository) {
@@ -31,6 +33,20 @@ return static function (string $path): void {
         if (!$ok) throw new RuntimeException('B077: ' . $label);
         ++$checks;
     };
+    if ($orphan === null) {
+        foreach ([Planets::class, Builds::class, Ships::class, Defenses::class, PlanetResources::class] as $repository) {
+            $check($repository::findExistingById(12) === null, 'Удалённая планета/её данные не восстановлены.');
+        }
+        $check(Techs::findExistingById(2) === null, 'Технологии удалённого игрока не восстановлены.');
+        $check(UserResources::findExistingById(2) === null, 'Нет балансов удалённого игрока.');
+        $check(array_filter(EntitySettings::getAll() ?? [], static fn(array $r): bool => (int)$r['planet_id'] === 12) === [],
+            'Нет настроек удалённой планеты.');
+        $check(array_filter(Queues::getAll() ?? [], static fn(array $r): bool => (int)$r['user_id'] === 2 || (int)$r['planet_id'] === 12) === [],
+            'Нет старых очередей B046.');
+        $orbit = GalaxyOrbits::findByIndex('galaxy_system_orbit', [1, 1, 4]);
+        $check($orbit !== null && (int)$orbit['type'] === GalaxyOrbits::EMPTY
+            && (int)$orbit['distance'] === 3107, 'Орбита B046 свободна, её геометрия прежняя.');
+    }
     foreach ([0, -1, 9, 2147483646] as $id) {
         $check(Accounts::findExistingById($id) === null, 'Тестовый ID действительно отсутствует.');
         $check(Accounts::findById($id) === null, 'Чтение аккаунта не создаёт default-строку.');
@@ -53,7 +69,7 @@ return static function (string $path): void {
         throw new LogicException('Принята заявка игроку без аккаунта.');
     } catch (InvalidArgumentException) { ++$checks; }
     Notification::sendFriendshipChange((int)$actor['id'], 2, 'request', 'B077');
-    $check(Users::findExistingById(2) === $orphan, 'Исходный Player9 не изменён.');
+    $check(Users::findExistingById(2) === $orphan, 'Состояние B046 не изменено проверкой.');
     $valid = new AccountData((int)$qa['id']);
     $check((int)$valid['User']['id'] === (int)$actor['id'], 'Существующий QA загружается штатно.');
     $check(Accounts::findById((int)$qa['id']) === $qa, 'Обычный read существующей identity прежний.');
@@ -61,6 +77,7 @@ return static function (string $path): void {
     $check($snapshot() === $before, 'Все строки и dirty markers проверенных репозиториев неизменны.');
     $check(Accounts::findExistingById(9) === null, 'Фантомный аккаунт B046 не создан.');
     file_put_contents($path, json_encode(['ok' => true, 'checks' => $checks,
-        'orphanUserUnchanged' => true, 'rowsAndDirtyMarkersUnchanged' => true], JSON_THROW_ON_ERROR), LOCK_EX);
+        'orphanDeleted' => $orphan === null, 'orphanUserUnchanged' => true,
+        'rowsAndDirtyMarkersUnchanged' => true], JSON_THROW_ON_ERROR), LOCK_EX);
     chmod($path, 0600);
 };

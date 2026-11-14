@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """B077: основной dev, обычный v2, только два QA и SELECT диагностика.
 
-Отрицательные запросы к игроку B046 не исправляют его владельца и не создают
-identity. При свободной паре QA проверяется обычная дружба request/accept/remove.
+Отрицательные запросы не создают identity и не восстанавливают удалённого B046.
+При свободной паре QA проверяется обычная дружба request/accept/remove.
 """
 import argparse
 import json
@@ -41,7 +41,10 @@ def main():
     parser.parse_args()
     before = orphan_state()
     assert not before['missingAccounts'] and not before['phantomPlayers']
-    assert before['orphan']['account_id'] == 9 and before['planet']['owner_id'] == 2
+    if before['orphan'] is None:
+        assert before['planet'] is None, 'После удаления B046 осталась его планета.'
+    else:
+        assert before['orphan']['account_id'] == 9 and before['planet']['owner_id'] == 2
     owner = peer = None
     fixture_id = None
     checks = 0
