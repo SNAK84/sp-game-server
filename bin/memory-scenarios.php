@@ -23,6 +23,7 @@ if (in_array('--help', $argv, true)) {
         . "--bases-per-account=5 --fleets-per-base=1 --active-fraction=0.1\n"
         . "--commands-per-active=24 --history-commands-per-active=24 --messages-per-day=5\n"
         . "--commands-per-online-minute=2 --command-hours-per-day=24 --receipt-packed-bytes=384\n"
+        . "--pending-commands-per-online=1 (отдельно от суточных terminal-квитанций)\n"
         . "--message-overflow-fraction=0.25 --message-overflow-bytes=1024\n"
         . "--reports-per-account-day=0.1 --saved-reports-per-account=1 --bookmarks-per-account=2\n"
         . "--report-packed-bytes=8192\n"
@@ -38,6 +39,7 @@ try {
         'commands-per-active' => '24', 'messages-per-day' => '5',
         'history-commands-per-active' => '24',
         'commands-per-online-minute' => '2', 'command-hours-per-day' => '24',
+        'pending-commands-per-online' => '1',
         'receipt-packed-bytes' => '384', 'message-overflow-fraction' => '0.25',
         'message-overflow-bytes' => '1024', 'reports-per-account-day' => '0.1',
         'saved-reports-per-account' => '1', 'bookmarks-per-account' => '2',
@@ -102,6 +104,8 @@ try {
     $messageInline = (int)(new ReflectionClass(Messages::class))->getConstant('INLINE_BYTES');
     $runtimeInline = RuntimeRecords::columns()['inline'][1];
     $blocks = static fn(float $bytes, int $inline): int => $bytes <= $inline ? 0 : scenarioRows($bytes / SharedBlobStore::BLOCK_BYTES);
+    $completionReserve = ProtocolCommands::MAX_RECORD_BYTES + 1;
+    $completionBlocks = (int)ceil($completionReserve / SharedBlobStore::BLOCK_BYTES);
     $scenarios = [];
     foreach ($options['accounts'] as $index => $accounts) {
         $online = $options['online'][$index];
@@ -115,6 +119,7 @@ try {
         $overflowMessages = $options['message-overflow-bytes'] <= $messageInline
             ? 0 : scenarioRows($messages * $options['message-overflow-fraction']);
         $receipts = scenarioRows($online * $options['commands-per-online-minute'] * 60 * $options['command-hours-per-day'] * $receiptDays);
+        $pendingReceipts = scenarioRows($online * $options['pending-commands-per-online']);
         $recentReports = scenarioRows($accounts * $options['reports-per-account-day'] * $reportDays);
         $savedReports = scenarioRows($accounts * $options['saved-reports-per-account']);
         $reports = scenarioRows((float)$recentReports + $savedReports);
@@ -124,8 +129,9 @@ try {
             'FleetCommands' => scenarioRows((float)$futureCommands + $historyCommands),
             'Messages' => $messages,
             'MessageBodiesOverflow' => scenarioRows($overflowMessages * $blocks($options['message-overflow-bytes'], $messageInline)),
-            'ProtocolCommands' => $receipts,
-            'ProtocolCommandsBodies' => scenarioRows($receipts * $blocks($options['receipt-packed-bytes'], $runtimeInline)),
+            'ProtocolCommands' => scenarioRows((float)$receipts + $pendingReceipts),
+            'ProtocolCommandsBodies' => scenarioRows($receipts * $blocks($options['receipt-packed-bytes'], $runtimeInline)
+                + $pendingReceipts * $completionBlocks),
             'BattleReports' => $reports,
             'BattleReportsBodies' => scenarioRows($reports * $blocks($options['report-packed-bytes'], $runtimeInline)),
             'BattleReportSaves' => scenarioRows($accounts * $options['bookmarks-per-account']),
@@ -149,7 +155,9 @@ try {
         }
         $scenarios[] = ['accounts' => $accounts, 'online' => $online, 'activeFleets' => $active,
             'demandBreakdown' => ['futureCommands' => $futureCommands, 'historyCommands' => $historyCommands,
-                'overflowMessages' => $overflowMessages, 'recentReports' => $recentReports, 'savedReports' => $savedReports],
+                'overflowMessages' => $overflowMessages, 'recentReports' => $recentReports, 'savedReports' => $savedReports,
+                'terminalReceipts' => $receipts, 'pendingReceipts' => $pendingReceipts,
+                'pendingReceiptBlocks' => $pendingReceipts * $completionBlocks],
             'estimatedSelectedRows' => $rows, 'profiles' => $estimates];
     }
     echo json_encode(['generatedAtUtc' => gmdate(DATE_ATOM), 'modelNotRss' => true, 'loadTestPerformed' => false,
@@ -157,13 +165,14 @@ try {
             'receiptRetentionDays' => $receiptDays, 'subscriptionsPerOnline' => $subscriptions,
             'messageInlineBytes' => $messageInline, 'runtimeInlineBytes' => $runtimeInline,
             'blockBytes' => SharedBlobStore::BLOCK_BYTES, 'targetMaxFill' => RuntimeCapacity::TARGET_MAX_FILL],
+        'completionReservation' => ['bytesPerPending' => $completionReserve, 'blocksPerPending' => $completionBlocks],
         'limitations' => [
             'Table выделены целиком при старте; онлайн и заполнение не меняют размер профиля.',
             'Коэффициенты сценария не измерены; история команд учитывается только для активных флотов, не дольше последнего STAY.',
-            'Ритм команд постоянен в заданные часы: это не измеренный средний онлайн и не все accepted за пределами TTL.',
+            'Ритм terminal-команд постоянен в заданные часы; backlog accepted задан отдельно, это не измеренные частоты и не все возможные accepted за пределами TTL.',
             'Сохранённые доклады добавлены отдельно от свежих без пересечения; их бессрочный архив не ограничен числом аккаунтов.',
             'Размеры packed и доля overflow заданы явно, не получены из маленькой выборки dev; компрессия не гарантируется.',
-            'Проверены только перечисленные бюджеты; прочие индексы, журналы добычи, очереди, mailbox, tombstones и запас для обновления тел вне модели.',
+            'Учтён физический резерв завершения accepted; прочие индексы, журналы добычи, очереди, mailbox, tombstones и обновления других типов тел вне модели.',
             'idealFullPassCalls очистки не учитывает time-budget hits, lag, ошибки и ожидание ACK: это не гарантия освобождения памяти за заданное время.',
             'PHP heap, COW, сокеты, снимки, ОС, БД и другие сервисы требуют отдельного запаса.',
             'Это не доказательство CPU/tick SLO или готовности мира20K/1000.',

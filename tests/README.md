@@ -22,6 +22,20 @@ GameProtocolV2::initialize и до сети/saver, не создаёт мир/Ta
 ошибку и временное исчерпание логического row-бюджета с восстановлением.
 Все строки/блоки/dirty и PlayerQueue прежние. Это не full-blob fault test.
 
+После4Г read-only модель учитывает pending backlog отдельно от terminal-истории:
+--pending-commands-per-online=1,17 зарезервированных блоков на accepted,
+включая случаи inline terminal и нарушения20% резерва при большом backlog.
+79 проверок PASS. Основной `ProtocolCompletionMainWorldProbe.php` вызывается
+вручную только после GameProtocolV2::initialize, **до сети и saver**.
+Это не отдельный мир: заполняет существующий native blob-пул своими ключами,
+создаёт только квитанции QA без игровых действий; finally удаляет свои ключи/
+квитанции и проверяет неизменность исходных строк/блоков/dirty/PlayerQueue.
+39 проверок PASS: физический резерв, отказ17-блочных аллокаций и нового reserve,
+дубликат, ACK pending, rollback publish, terminal/fallback/inline и освобождение.
+Запуск с expectProtected=false предназначен только для отрицательного
+воспроизведения старого кода(6 проверок). Нельзя вызывать probe через отдельный
+PHP init мира или включать его в обычный runtime. Временный bootstrap-hook удалять.
+
 ## B045: нулевые значения Environment
 
 ```bash

@@ -11,6 +11,7 @@ final class ProtocolCommands
 {
     public const RETENTION = 86400;
     public const MAX_AGE = 300;
+    public const MAX_RECORD_BYTES = 16384;
     private static RuntimeRecords $records;
 
     public static function init(?RepositorySaver $saver = null): void
@@ -36,7 +37,7 @@ final class ProtocolCommands
         if ($db->fetchOne("SHOW INDEX FROM protocol_commands WHERE Key_name='state_epoch'") === null) {
             $db->query('ALTER TABLE protocol_commands ADD INDEX state_epoch (state,epoch,created_at)');
         }
-        self::$records = new RuntimeRecords('ProtocolCommands', 16384);
+        self::$records = new RuntimeRecords('ProtocolCommands', self::MAX_RECORD_BYTES);
         $cursor = ['', 0, ''];
         do {
             $rows = $db->fetchAll('SELECT * FROM protocol_commands WHERE (expires_at>? OR state=?) AND (world_id,player_id,request_id)>(?,?,?) ORDER BY world_id,player_id,request_id LIMIT 512', [microtime(true), 'accepted', ...$cursor]);
@@ -85,8 +86,16 @@ final class ProtocolCommands
             $key = self::key($row['world_id'], (int)$row['player_id'], $row['request_id']);
             $before = self::$records->get($key) ?? throw new \RuntimeException('Потерян исход команды.');
             if ($before['state'] !== 'accepted' || !hash_equals($before['claim'], $row['claim'])) return $before;
-            $after = array_replace($before, ['state' => $state, 'outcome' => json_encode($outcome, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)]);
-            self::$records->put($key, $after);
+            try {
+                $after = array_replace($before, ['state' => $state, 'outcome' => json_encode($outcome, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)]);
+                self::$records->put($key, $after);
+            } catch (\JsonException|\OverflowException) {
+                // Не оставляем accepted навсегда из-за слишком большого или
+                // некодируемого результата. Действие могло выполниться: replay
+                // запрещён, клиент сверяет состояние обычным query.
+                $after = array_replace($before, ['state' => 'unknown', 'outcome' => '{"reason":"outcome_unavailable"}']);
+                self::$records->put($key, $after);
+            }
             return $after;
         });
     }

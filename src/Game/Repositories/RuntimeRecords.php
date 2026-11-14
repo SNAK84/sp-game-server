@@ -41,6 +41,7 @@ final class RuntimeRecords
     public static function columns(): array
     {
         return ['key' => [Table::TYPE_STRING, 192], 'body_id' => [Table::TYPE_INT, 8],
+            'body_capacity' => [Table::TYPE_INT, 8],
             'body_size' => [Table::TYPE_INT, 8], 'version' => [Table::TYPE_INT, 8],
             'deleted' => [Table::TYPE_INT, 8], 'dirty_since' => [Table::TYPE_FLOAT, 8],
             'inline' => [Table::TYPE_STRING, 256], 'expires_at' => [Table::TYPE_FLOAT, 8]];
@@ -132,8 +133,12 @@ final class RuntimeRecords
                 }
             }
             if ($slot === null) throw new \OverflowException('Нет свободной shared-ячейки.');
-            $inline = strlen($payload) <= 256;
-            $row = ['key' => $key, 'body_id' => $inline ? 0 : $this->bodies->put($payload),
+            // Резервируем худший размер terminal-квитанции до PlayerQueue.
+            // Завершение переиспользует уже занятые блоки, даже если пул заполнен.
+            $reserve = $this->name === 'ProtocolCommands' && $value['state'] === 'accepted' ? $this->maxBytes + 1 : 0;
+            $inline = $reserve === 0 && strlen($payload) <= 256;
+            $capacity = $inline ? 0 : max(strlen($payload), $reserve);
+            $row = ['key' => $key, 'body_id' => 0, 'body_capacity' => $capacity,
                 'body_size' => strlen($payload), 'version' => $this->sequence->add(1), 'deleted' => 0,
                 'dirty_since' => $dirty ? (($found[1]['dirty_since'] ?? 0) ?: microtime(true)) : 0.0,
                 'inline' => $inline ? $payload : '',
@@ -143,18 +148,20 @@ final class RuntimeRecords
                     ? (float)$value['created_at'] + ProtocolCommands::MAX_AGE : (float)$value['expires_at'])
                     : ($this->name === 'BattleReports' && (int)$value['ready'] === 1 && (int)$value['saved_count'] === 0 ? (float)$value['expires_at'] : 0.0)];
             $oldMarker = $this->dirty->get((string)$slot);
-            try {
-                if (!$this->rows->set((string)$slot, $row) || $this->rows->get((string)$slot) !== $row) throw new \OverflowException('Не записана shared-ячейка.');
-                if (!$this->keys->set($this->hash($key), ['slot' => $slot]) || $this->keys->get($this->hash($key)) !== ['slot' => $slot]) throw new \OverflowException('Не записан shared-индекс.');
-                if ($dirty && (!$this->dirty->set((string)$slot, ['version' => $row['version']]) || $this->dirty->get((string)$slot) !== ['version' => $row['version']])) throw new \OverflowException('Не записан shared dirty-marker.');
-            } catch (\Throwable $error) {
-                if ($found === null) { $this->rows->del((string)$slot); $this->keys->del($this->hash($key)); }
-                elseif (!$this->rows->set((string)$slot, $found[1])) throw new \RuntimeException('CRITICAL: не восстановлена shared-запись.', 0, $error);
-                if ($oldMarker === false) $this->dirty->del((string)$slot); else $this->dirty->set((string)$slot, $oldMarker);
-                $this->bodies->release($row['body_id'], $row['body_size']);
-                throw $error;
-            }
-            if ($found !== null) $this->bodies->release($found[1]['body_id'], $found[1]['body_size']);
+            $this->bodies->replace($payload, $capacity, $found[1]['body_id'] ?? 0, $found[1]['body_capacity'] ?? 0,
+                function (int $bodyId) use ($row, $slot, $key, $dirty, $found, $oldMarker): void {
+                    $row['body_id'] = $bodyId;
+                    try {
+                        if (!$this->rows->set((string)$slot, $row) || $this->rows->get((string)$slot) !== $row) throw new \OverflowException('Не записана shared-ячейка.');
+                        if (!$this->keys->set($this->hash($key), ['slot' => $slot]) || $this->keys->get($this->hash($key)) !== ['slot' => $slot]) throw new \OverflowException('Не записан shared-индекс.');
+                        if ($dirty && (!$this->dirty->set((string)$slot, ['version' => $row['version']]) || $this->dirty->get((string)$slot) !== ['version' => $row['version']])) throw new \OverflowException('Не записан shared dirty-marker.');
+                    } catch (\Throwable $error) {
+                        if ($found === null) { $this->rows->del((string)$slot); $this->keys->del($this->hash($key)); }
+                        elseif (!$this->rows->set((string)$slot, $found[1])) throw new \RuntimeException('CRITICAL: не восстановлена shared-запись.', 0, $error);
+                        if ($oldMarker === false) $this->dirty->del((string)$slot); else $this->dirty->set((string)$slot, $oldMarker);
+                        throw $error;
+                    }
+                });
         });
     }
 
@@ -263,7 +270,7 @@ final class RuntimeRecords
                 if ($row === false || $row['version'] !== $saved['version'] || $row['key'] !== $saved['key']) continue;
                 if ($row['deleted']) {
                     if (!$this->keys->del($this->hash($row['key'])) || !$this->rows->del((string)$slot)) throw new \RuntimeException('Не подтверждено shared-удаление.');
-                    $this->bodies->release($row['body_id'], $row['body_size']);
+                    $this->bodies->release($row['body_id'], $row['body_capacity']);
                 } elseif (!$this->rows->set((string)$slot, ['dirty_since' => 0.0])) throw new \RuntimeException('Не подтверждена shared-запись.');
                 if (!$this->dirty->del((string)$slot)) throw new \RuntimeException('Не подтверждён shared dirty-marker.');
             }

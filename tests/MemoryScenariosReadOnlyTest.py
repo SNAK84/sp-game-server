@@ -31,8 +31,11 @@ def main():
     check(demand['FleetCommands'] == 480000, 'Учтены24 будущих и24 выполненных команды каждого активного флота.')
     check(scene['demandBreakdown']['futureCommands'] == 240000, 'Будущие команды выделены отдельно.')
     check(scene['demandBreakdown']['historyCommands'] == 240000, 'Выполненная история не потеряна.')
-    check(demand['ProtocolCommands'] == 2880000, '24 часа по2 команды/минуту на1000 онлайн.')
-    check(demand['ProtocolCommandsBodies'] == demand['ProtocolCommands'], 'Каждая packed-квитанция384B занимает один блок.')
+    check(demand['ProtocolCommands'] == 2881000, '2880000 terminal за24ч плюс1000 pending.')
+    check(demand['ProtocolCommandsBodies'] == 2897000, '2880000 terminal-блоков плюс17000 резервных pending-блоков.')
+    check(scene['demandBreakdown']['terminalReceipts'] == 2880000 and scene['demandBreakdown']['pendingReceipts'] == 1000,
+          'Backlog не скрыт в суточной истории.')
+    check(base['completionReservation'] == {'bytesPerPending': 16385, 'blocksPerPending': 17}, 'Физический резерв читается из констант.')
     check(demand['MessageBodiesOverflow'] == 175000, 'Четверть700000 писем по одному блоку.')
     check(demand['BattleReports'] == 34000, '14000 свежих плюс20000 отдельно сохранённых докладов.')
     check(demand['BattleReportsBodies'] == 272000, 'Каждый доклад8192B занимает8 блоков.')
@@ -75,11 +78,12 @@ def main():
         result = model('--accounts=20000', '--online=1000', '--receipt-packed-bytes=' + str(size),
                        '--message-overflow-bytes=' + str(size), '--report-packed-bytes=' + str(size))
         rows = result['scenarios'][0]['estimatedSelectedRows']
-        check(rows['ProtocolCommandsBodies'] == (2880000 if spills else 0), 'Граница inline квитанций.')
+        check(rows['ProtocolCommandsBodies'] == (2880000 if spills else 0) + 17000, 'Inline terminal не отменяет резерв pending.')
         check(rows['MessageBodiesOverflow'] == (175000 if spills else 0), 'Граница inline почты.')
         check(rows['BattleReportsBodies'] == (34000 if spills else 0), 'Граница inline докладов.')
 
     rounded = model('--accounts=1', '--online=1', '--commands-per-online-minute=0.0001', '--messages-per-day=1',
+                    '--pending-commands-per-online=0',
                     '--message-overflow-fraction=0.333', '--message-overflow-bytes=1025',
                     '--receipt-packed-bytes=1025', '--report-packed-bytes=1025',
                     '--reports-per-account-day=0.01', '--saved-reports-per-account=0', '--bookmarks-per-account=0')
@@ -87,6 +91,12 @@ def main():
     check(rows['ProtocolCommands'] == 1 and rows['ProtocolCommandsBodies'] == 2, 'Округление сначала записей, затем блоков каждой записи.')
     check(rows['MessageBodiesOverflow'] == 6, 'Три письма1025B требуют6 блоков, не3/4.')
     check(rows['BattleReports'] == 1 and rows['BattleReportsBodies'] == 2, 'Дробная частота докладов округлена вверх.')
+
+    pending = model('--accounts=20000', '--online=1000', '--commands-per-online-minute=0',
+                    '--pending-commands-per-online=200')['scenarios'][0]
+    check(pending['estimatedSelectedRows']['ProtocolCommandsBodies'] == 3400000, '200000 pending требуют3400000 блоков.')
+    check(pending['profiles']['target']['selectedBudgetsFit'] and not pending['profiles']['target']['selectedReserveFit'],
+          'Большой backlog помещается, но честно нарушает20% резерв.')
 
     zero = model('--accounts=0', '--online=0')
     check(all(n == 0 for n in zero['scenarios'][0]['estimatedSelectedRows'].values()), 'Пустой сценарий не создаёт спрос.')
