@@ -7,7 +7,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use SPGame\Game\Repositories\Messages;
 use SPGame\Game\Repositories\ProtocolSubscriptions;
-use SPGame\Game\Repositories\{BattleReports, ProtocolCommands, RuntimeRecords, SharedBlobStore};
+use SPGame\Game\Repositories\{BattleReports, ProtocolCommands, RuntimeCapacity, RuntimeRecords, SharedBlobStore};
 
 /** Защита самой модели от переполнения при пользовательских коэффициентах. */
 function scenarioRows(float $value): int
@@ -133,14 +133,18 @@ try {
         foreach ($profiles as $profile => $inventory) {
             $utilization = [];
             $exceeded = [];
+            $reserveShortfalls = [];
             foreach ($rows as $name => $count) {
                 $budget = $inventory['selectedBudgets'][$name];
                 $utilization[$name] = round(100 * $count / $budget, 2);
                 if ($count > $budget) $exceeded[$name] = ['rows' => $count, 'budget' => $budget];
+                $safeRows = (int)floor($budget * RuntimeCapacity::TARGET_MAX_FILL);
+                if ($count > $safeRows) $reserveShortfalls[$name] = ['rows' => $count, 'budget' => $budget, 'safeRows' => $safeRows];
             }
             $estimates[$profile] = ['sharedAllocationModelBytes' => $inventory['sharedAllocationModelBytes'],
                 'selectedUtilizationPercent' => $utilization, 'exceededBudgets' => (object)$exceeded,
-                'selectedBudgetsFit' => $exceeded === []];
+                'selectedBudgetsFit' => $exceeded === [],
+                'selectedReserveFit' => $reserveShortfalls === [], 'insufficientReserveBudgets' => (object)$reserveShortfalls];
         }
         $scenarios[] = ['accounts' => $accounts, 'online' => $online, 'activeFleets' => $active,
             'demandBreakdown' => ['futureCommands' => $futureCommands, 'historyCommands' => $historyCommands,
@@ -151,7 +155,7 @@ try {
         'assumptions' => $options + ['retentionDays' => $days, 'reportRetentionDays' => $reportDays,
             'receiptRetentionDays' => $receiptDays, 'subscriptionsPerOnline' => $subscriptions,
             'messageInlineBytes' => $messageInline, 'runtimeInlineBytes' => $runtimeInline,
-            'blockBytes' => SharedBlobStore::BLOCK_BYTES],
+            'blockBytes' => SharedBlobStore::BLOCK_BYTES, 'targetMaxFill' => RuntimeCapacity::TARGET_MAX_FILL],
         'limitations' => [
             'Table выделены целиком при старте; онлайн и заполнение не меняют размер профиля.',
             'Коэффициенты сценария не измерены; история команд учитывается только для активных флотов, не дольше последнего STAY.',

@@ -8,12 +8,17 @@ use SPGame\Core\{Environment, Logger};
 /** Бюджеты хранения, не технологические лимиты игрового баланса. */
 final class RuntimeCapacity
 {
+    /** Не более80% заполнения выбранных бюджетов в расчётном target-сценарии. */
+    public const TARGET_MAX_FILL = 0.80;
+
     public const TARGET = [
         'Accounts' => 32768, 'Users' => 32768, 'Techs' => 32768, 'UserResources' => 32768,
         'Planets' => 131072, 'PlanetResources' => 131072, 'Builds' => 131072,
         'Ships' => 131072, 'Defenses' => 131072, 'EntitySettings' => 1048576,
-        'Fleets' => 131072, 'FleetsShips' => 131072, 'FleetCommands' => 65536,
+        // Сценарий20K/1K:480000 команд с историей плюс минимум20% свободных мест.
+        'Fleets' => 131072, 'FleetsShips' => 131072, 'FleetCommands' => 1048576,
         'Queues' => 131072, 'Friends' => 131072, 'Messages' => 1048576,
+        'MessageBodiesOverflow' => 262144, 'ProtocolSubscriptions' => 16384,
         'Galaxy' => 8192, 'GalaxyOrbits' => 262144,
         'ResourceSurveys' => 131072, 'SurveyResults' => 32768,
         'SensorContacts' => 32768,
@@ -42,7 +47,7 @@ final class RuntimeCapacity
     /** До создания первой Table: SQL-вместимость и консервативная проверка RAM. */
     public static function preflight(): void
     {
-        $process = proc_open([PHP_BINARY, dirname(__DIR__, 3) . '/bin/audit-capacity.php', '--sql-counts'],
+        $process = proc_open([PHP_BINARY, dirname(__DIR__, 3) . '/bin/audit-capacity.php', '--' . self::profile(), '--sql-counts'],
             [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         if (!is_resource($process)) throw new \RuntimeException('Не запущена проверка ёмкости.');
         $output = stream_get_contents($pipes[1]);

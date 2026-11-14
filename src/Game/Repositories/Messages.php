@@ -106,7 +106,10 @@ class Messages extends BaseRepository
             'expiry_minute' => [Table::TYPE_INT, 8]];
     }
 
-    public static function overflowBuckets(): int { return max(1024, intdiv(static::runtimeLayout()['mainBuckets'], 8)); }
+    public static function overflowBuckets(): int
+    {
+        return RuntimeCapacity::budget('MessageBodiesOverflow', max(1024, intdiv(static::runtimeLayout()['mainBuckets'], 8)));
+    }
 
     public static function init(?RepositorySaver $saver = null): void
     {

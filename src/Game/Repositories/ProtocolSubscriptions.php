@@ -11,18 +11,20 @@ final class ProtocolSubscriptions
     private const PER_CONNECTION = 8;
     private static Table $table;
     /** Очередь только authority-процесса: ключ слота => время первого dirty.
-     * Повторный dirty не меняет порядок; не более CAPACITY ключей, без копий DTO.
+     * Повторный dirty не меняет порядок; не более capacity() ключей, без копий DTO.
      * Подписки не переживают процесс/соединение, поэтому сохранять очередь не нужно.
      */
     private static array $pending = [];
     private static array $retryAt = [];
+
+    public static function capacity(): int { return RuntimeCapacity::budget('ProtocolSubscriptions', self::CAPACITY); }
 
     public static function init(): void
     {
         self::$pending = self::$retryAt = [];
         // 1000 клиентов по 8 подписок; collision pool не должен уменьшать
         // эту вместимость при неблагоприятном распределении ключей.
-        self::$table = new Table(self::CAPACITY, 1.0);
+        self::$table = new Table(self::capacity(), 1.0);
         foreach (['connection' => 32, 'id' => 36, 'name' => 64, 'parameters' => 2048, 'revision' => 20] as $key => $size) {
             self::$table->column($key, Table::TYPE_STRING, $size);
         }
@@ -62,7 +64,7 @@ final class ProtocolSubscriptions
         $key = null;
         foreach ($existing as $candidate => $row) if ($row['id'] === $id) { $key = $candidate; break; }
         if ($key === null) {
-            if (count($existing) >= self::PER_CONNECTION || self::$table->count() >= self::CAPACITY) throw new \DomainException('subscription.limit');
+            if (count($existing) >= self::PER_CONNECTION || self::$table->count() >= self::capacity()) throw new \DomainException('subscription.limit');
             for ($slot = 0; $slot < self::PER_CONNECTION; ++$slot) {
                 $candidate = self::slotKey($connection, $slot);
                 if (!self::$table->exists($candidate)) { $key = $candidate; break; }

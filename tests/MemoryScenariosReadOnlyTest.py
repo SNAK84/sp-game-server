@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """B047: расчёт в текущем dev-контейнере, без Table/init, игровых команд и SQL-write."""
 import json
+import math
 import subprocess
 
 
@@ -37,12 +38,28 @@ def main():
     check(demand['BattleReportsBodies'] == 272000, 'Каждый доклад8192B занимает8 блоков.')
     check(demand['BattleReportSaves'] == 40000, 'Две закладки на аккаунт.')
     check(demand['ProtocolSubscriptions'] == 8000, 'Контракт8 подписок на соединение прежний.')
+    check(base['assumptions']['targetMaxFill'] == 0.8, 'Целевой свободный резерв20%.')
     for profile in base['profiles']:
         budgets = base['profiles'][profile]['selectedBudgets']
         expected = {name: {'rows': count, 'budget': budgets[name]} for name, count in demand.items()
                     if count > budgets[name]}
         check(scene['profiles'][profile]['exceededBudgets'] == expected, 'Все превышения выведены точно: ' + profile)
         check(scene['profiles'][profile]['selectedBudgetsFit'] == (not expected), 'Нет ложного fit: ' + profile)
+        reserve = {name: {'rows': count, 'budget': budgets[name], 'safeRows': math.floor(budgets[name] * .8)}
+                   for name, count in demand.items() if count > math.floor(budgets[name] * .8)}
+        check(scene['profiles'][profile]['insufficientReserveBudgets'] == reserve, 'Точно показаны дефициты резерва: ' + profile)
+        check(scene['profiles'][profile]['selectedReserveFit'] == (not reserve), 'Заполнение и резерв — разные проверки: ' + profile)
+    check(scene['profiles']['target']['selectedReserveFit'], 'Базовый20K/1K проходит выбранные target-бюджеты с резервом.')
+    dev = base['profiles']['development']['selectedBudgets']
+    for name, expected in {'FleetCommands': 16384, 'ProtocolCommands': 16384,
+                           'ProtocolCommandsBodies': 16384, 'MessageBodiesOverflow': 1024,
+                           'BattleReportsBodies': 32768, 'ProtocolSubscriptions': 8192}.items():
+        check(dev[name] == expected, 'Development-бюджет не увеличен: ' + name)
+    for history, reserve_ok in ((83, True), (84, False)):
+        result = model('--accounts=20000', '--online=1000', '--commands-per-active=0',
+                       '--history-commands-per-active=' + str(history))['scenarios'][0]['profiles']['target']
+        check(result['selectedBudgetsFit'], '830000/840000 ещё помещаются в target.')
+        check(result['selectedReserveFit'] == reserve_ok, '840000 уже нарушают резерв1М-таблицы.')
 
     inline = base['assumptions']['runtimeInlineBytes']
     check(inline == base['assumptions']['messageInlineBytes'], 'Порог сообщений и RuntimeRecords актуален.')
@@ -87,8 +104,32 @@ def main():
 
     help_result = run('--help')
     check(help_result.returncode == 0 and '--receipt-packed-bytes' in help_result.stdout, 'Справка содержит новые коэффициенты.')
+
+    # Меняется только process-local env-map диагностики. Файл .env и профиль
+    # работающего main не затрагиваются; preflight проверяет до первой Table.
+    guard_code = r'''
+require 'vendor/autoload.php'; SPGame\Core\Environment::init('.env');
+$model=json_decode(stream_get_contents(STDIN),true,16,JSON_THROW_ON_ERROR)['bytes'];
+$physical=0;
+if(preg_match('/MemTotal:\s+(\d+) kB/',file_get_contents('/proc/meminfo'),$m))$physical=(int)$m[1]*1024;
+$limit=@file_get_contents('/sys/fs/cgroup/memory.max');
+if(is_string($limit)&&ctype_digit(trim($limit)))$physical=$physical>0?min($physical,(int)trim($limit)):(int)trim($limit);
+if($physical<=0||$model<=$physical*.7){echo json_encode(['checked'=>false,'physical'=>$physical]);exit;}
+$property=new ReflectionProperty(SPGame\Core\Environment::class,'env');
+$property->setValue(null,array_replace($property->getValue(),['SP_GAME_CAPACITY_PROFILE'=>'target']));
+try{SPGame\Game\Repositories\RuntimeCapacity::preflight();throw new LogicException('Target guard не сработал.');}
+catch(OverflowException $e){if(!str_contains($e->getMessage(),'модель Table'))throw $e;}
+echo json_encode(['checked'=>true,'targetRejectedBeforeAllocation'=>true,'physical'=>$physical]);
+'''
+    result = subprocess.run(['docker', 'exec', '-i', 'swoole_app', 'php', '-r', guard_code],
+                            input=json.dumps({'bytes': base['profiles']['target']['sharedAllocationModelBytes']}),
+                            text=True, capture_output=True, timeout=30)
+    check(result.returncode == 0, 'Проверка guard завершилась без аллокации target.')
+    guard = json.loads(result.stdout)
+    check(not guard['checked'] or guard['targetRejectedBeforeAllocation'], 'На малом хосте target запрещён до Table.')
     print('READ_ONLY_MEMORY_SCENARIOS_OK', json.dumps({'checks': checks, 'gameWorldCreated': False,
-                                                    'profileChanged': False, 'loadTestPerformed': False}))
+                                                    'profileChanged': False, 'loadTestPerformed': False,
+                                                    'targetGuardChecked': guard['checked']}))
 
 
 if __name__ == '__main__':

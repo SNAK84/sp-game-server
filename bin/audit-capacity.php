@@ -93,7 +93,7 @@ usort($repositories, static fn(array $a, array $b): int => strcmp($a['class'], $
 $extra = [
     'Connect' => memoryModel(2048, array_merge(array_fill(0, 11, [Table::TYPE_INT, 8]),
         [[Table::TYPE_STRING, 45], [Table::TYPE_STRING, 32], [Table::TYPE_STRING, 36]]), 1),
-    'ProtocolSubscriptions' => memoryModel(8192, array_merge(array_fill(0, 3, [Table::TYPE_INT, 8]),
+    'ProtocolSubscriptions' => memoryModel(\SPGame\Game\Repositories\ProtocolSubscriptions::capacity(), array_merge(array_fill(0, 3, [Table::TYPE_INT, 8]),
         array_map(static fn(int $size): array => [Table::TYPE_STRING, $size], [32, 36, 64, 2048, 20])), 1),
     'ProtocolResources' => memoryModel(16384, [[Table::TYPE_STRING, 64], [Table::TYPE_INT, 8], [Table::TYPE_FLOAT, 8]], 1),
     'PlayerQueuePayloads' => memoryModel(1024, array_merge(array_fill(0, 5, [Table::TYPE_INT, 8]),

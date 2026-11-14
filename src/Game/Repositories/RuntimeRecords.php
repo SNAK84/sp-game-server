@@ -9,9 +9,11 @@ use Swoole\{Table, Atomic\Long};
 final class RuntimeRecords
 {
     public const SPECS = [
-        'ProtocolCommands' => [16384, 16384, 1048576, 262144],
+        // development rows/blocks, target rows/blocks. Рост только target:
+        // 2,88млн суточных квитанций,272000 блоков докладов и свободный резерв.
+        'ProtocolCommands' => [16384, 16384, 4194304, 4194304],
         'MiningCheckpoints' => [1024, 32768, 8192, 131072],
-        'BattleReports' => [4096, 32768, 65536, 262144],
+        'BattleReports' => [4096, 32768, 65536, 524288],
         'BattleReportSaves' => [4096, 1024, 262144, 32768],
     ];
     private Table $rows;
