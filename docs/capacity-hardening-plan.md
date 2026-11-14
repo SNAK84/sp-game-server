@@ -1743,6 +1743,43 @@ Python compile/diff-check PASS.
 само по себе не доказывает уборку/ACK и сохранение запаса при долгой нагрузке.
 RAM-first, периодический/финальный MySQL-снимок30с и текущий dev сохранены.
 
+### 4В — порции и наблюдаемость TTL-очистки(14.11.2026)
+
+RuntimeRecords::sweepBudget масштабирует порции к цели полного круга за300
+вызовов: ProtocolCommands development512/target13982, BattleReports128/219.
+Существующий EventLoop вызывает уборку раз в секунду. На каждую порцию добавлен
+time-budget2мс между записями; callback не прерывается, курсор не теряется при
+time hit/исключении. Фактическое время полного круга измеряется отдельно;
+300 вызовов — идеальная оценка без time hits/lag, не гарантия освобождения.
+
+RuntimeMetrics:две гистограммы времени, Scanned/Deleted/BudgetSteps/PassSeconds/
+BudgetHits для квитанций и докладов, общий cleanupErrors.58 ключей в прежних64
+слотах. EventLoop перехватывает ошибки отдельно по ProtocolCommands,
+BattleReports и Messages, чтобы один сбой не отменял другие категории.
+SQL в authority, Table, TTL24ч/7дней и рабочие бюджеты не менялись.
+
+Read-only модель75 PASS, включая экспорт реальных cleanupPolicies.
+MainWorldProbe32 PASS на экземпляре основного мира: count/time/курсор/кольцо,
+ошибка callback, full-row admission и доступность дубликата. Полные строки,
+блоки и dirty-маркеры прежние, PlayerQueue не пополнялась. Позиция обхода и
+диагностические метрики восстановлены, новых Table/fixture нет.
+Первый probe вызван слишком рано(до init ProtocolCommands), bootstrap завершён
+с Error; metadata в private `.secrets/qa-cleanup.nk7PzQ/failure.json`.
+После переноса вызова за GameProtocolV2::initialize получен32 PASS в probe.json.
+Временные вызовы main/WSocket удалены, хэши обоих файлов совпали с исходными.
+PHP lint/PHPStan(включая CLI/probe)/Python compile/diff-check PASS.
+Финальный полный v2 baseline217/restart PASS:151 ответ/99 запросов,
+два queue round-trip, QA-имена восстановлены. На обычном dev после restart
+полный круг квитанций≈51с, докладов≈47с; свежий snapshot, cleanupErrors,
+lastErrorAt и runtimeSqlRejected=0. Это не target-нагрузочная приёмка.
+
+Следующий этап4Г: ресурсный admission completion при заполнении blob-пула.
+Кодовая сверка: RuntimeRecords::put выделяет новое тело до release старого;
+резерв блоков для уже accepted-команды отсутствует. Full-row отказ до publish
+проверен, но это не доказывает успешное завершение/unknown при полном пуле.
+Не объявлять потерю/повтор экономического действия воспроизведёнными без
+точечного main-теста. Общий snapshot и прочие очереди/mailbox остаются далее.
+
 Ближайшее продолжение: уточнять рабочие плотности, проверить оставшиеся
 бюджеты/переменные аллокации и убрать подтверждённые узкие места. По мере
 изменений обновлять модель и проверять поведение на основном dev. Код сохранять

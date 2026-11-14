@@ -14,6 +14,14 @@ python3 tests/MemoryScenariosReadOnlyTest.py
 рабочий .env/main; при достаточной RAM отрицательная проверка guard пропускается.
 Это не нагрузочная приёмка; [сценарии и допущения](../docs/memory-scenarios.md).
 
+После4В также проверяет реальные cleanupPolicies: цель300 вызовов/круг,
+time-budget2мс и прежние порции development512/128. Main-only
+`RuntimeCleanupMainWorldProbe.php` вызывается только после
+GameProtocolV2::initialize и до сети/saver, не создаёт мир/Table/fixture.
+Проверяет существующее хранилище, callbacks без удаления, count/time/курсор/
+ошибку и временное исчерпание логического row-бюджета с восстановлением.
+Все строки/блоки/dirty и PlayerQueue прежние. Это не full-blob fault test.
+
 ## B045: нулевые значения Environment
 
 ```bash

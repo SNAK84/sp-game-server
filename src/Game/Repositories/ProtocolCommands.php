@@ -98,7 +98,7 @@ final class ProtocolCommands
         self::$records->sweep(static function (array $row) use ($now): bool {
             if ($row['state'] === 'accepted') { self::reconcilePending($row); return false; }
             return $row['expires_at'] < $now;
-        }, 512, $now);
+        }, RuntimeRecords::sweepBudget('ProtocolCommands', 512), $now);
     }
 
     /** Только под world EX либо при startup после restore PlayerQueue. */

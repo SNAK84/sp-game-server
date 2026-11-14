@@ -9,7 +9,8 @@ use Swoole\Table;
 final class RuntimeMetrics
 {
     private static ?Table $table = null;
-    private const KEYS = ['world.tick', 'world.lag', 'ws.request', 'repository.flush', 'protocol.push', 'sensor.scan'];
+    private const KEYS = ['world.tick', 'world.lag', 'ws.request', 'repository.flush', 'protocol.push', 'sensor.scan',
+        'storage.receiptsCleanup', 'storage.reportsCleanup'];
     private const GAUGES = ['world.lockMisses', 'world.lastPassAt', 'world.authorityPid', 'ws.authorityPid', 'storage.pendingRows',
         'storage.oldestDirtySeconds', 'storage.snapshotRows', 'storage.lastSavedAt',
         'storage.lastErrorAt', 'storage.workerPid', 'storage.workerHeartbeat', 'storage.saveIntervalSeconds', 'storage.runtimeSqlRejected',
@@ -18,7 +19,11 @@ final class RuntimeMetrics
         'sensor.scanLastSteps', 'sensor.scanPending', 'sensor.scanLastMs', 'sensor.scanMaxSteps',
         'sensor.scanBudgetMs', 'sensor.scanBudgetHits', 'sensor.scanOversized', 'sensor.scanPeakBytes', 'sensor.scanMaxBytes',
         'protocol.pushAttempts', 'protocol.pushSent', 'protocol.pushPending', 'protocol.pushLastBatch',
-        'protocol.pushBudgetHits', 'protocol.pushOldestSeconds', 'protocol.pushMaxPerPass', 'protocol.pushBudgetMs'];
+        'protocol.pushBudgetHits', 'protocol.pushOldestSeconds', 'protocol.pushMaxPerPass', 'protocol.pushBudgetMs',
+        'storage.receiptsCleanupScanned', 'storage.receiptsCleanupDeleted', 'storage.receiptsCleanupBudgetSteps',
+        'storage.receiptsCleanupPassSeconds', 'storage.receiptsCleanupBudgetHits',
+        'storage.reportsCleanupScanned', 'storage.reportsCleanupDeleted', 'storage.reportsCleanupBudgetSteps',
+        'storage.reportsCleanupPassSeconds', 'storage.reportsCleanupBudgetHits', 'storage.cleanupErrors'];
 
     public static function init(): void
     {

@@ -159,7 +159,8 @@ final class BattleReports
     public static function deleteExpired(?float $now = null): void
     {
         $now = floor($now ?? microtime(true));
-        self::$reports->sweep(static fn(array $row): bool => (int)$row['ready'] === 1 && (int)$row['saved_count'] === 0 && $row['expires_at'] <= $now, 128, $now);
+        self::$reports->sweep(static fn(array $row): bool => (int)$row['ready'] === 1 && (int)$row['saved_count'] === 0 && $row['expires_at'] <= $now,
+            RuntimeRecords::sweepBudget('BattleReports', 128), $now);
     }
 
     public static function saveGuardKey(): string { return 'BattleReports:save'; }

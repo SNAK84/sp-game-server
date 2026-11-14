@@ -2,6 +2,8 @@
 
 namespace SPGame\Game\Services;
 
+use SPGame\Core\RuntimeMetrics;
+
 use SPGame\Core\Logger;
 use SPGame\Core\Message;
 use SPGame\Core\WSocket;
@@ -114,16 +116,24 @@ class EventLoop
         $now = microtime(true);
         if ($now >= $this->nextStorageCleanup) {
             $this->nextStorageCleanup = $now + 1.0;
-            try {
-                \SPGame\Game\Repositories\ProtocolCommands::cleanup($now);
-                \SPGame\Game\Repositories\BattleReports::deleteExpired($now);
-                foreach (\SPGame\Game\Repositories\Messages::purgeExpired($now) as $ownerId) {
-                    $user = Users::findExistingById((int)$ownerId);
-                    if ($user !== null) PlayerQueue::addQueue((int)$user['account_id'], (int)$ownerId,
-                        (int)$user['current_planet'], PlayerQueue::ActionMessagesNew);
+            $cleaners = [
+                'ProtocolCommands' => static fn() => \SPGame\Game\Repositories\ProtocolCommands::cleanup($now),
+                'BattleReports' => static fn() => \SPGame\Game\Repositories\BattleReports::deleteExpired($now),
+                'Messages' => static function () use ($now): void {
+                    foreach (\SPGame\Game\Repositories\Messages::purgeExpired($now) as $ownerId) {
+                        $user = Users::findExistingById((int)$ownerId);
+                        if ($user !== null) PlayerQueue::addQueue((int)$user['account_id'], (int)$ownerId,
+                            (int)$user['current_planet'], PlayerQueue::ActionMessagesNew);
+                    }
+                },
+            ];
+            foreach ($cleaners as $repository => $clean) {
+                try { $clean(); }
+                catch (\Throwable $error) {
+                    RuntimeMetrics::increment('storage.cleanupErrors');
+                    $this->logger->warning('Очистка временных данных отложена',
+                        ['repository' => $repository, 'exception' => $error::class]);
                 }
-            } catch (\Throwable $error) {
-                $this->logger->warning('Очистка временных данных отложена', ['exception' => $error::class]);
             }
         }
 

@@ -4,10 +4,14 @@ declare(strict_types=1);
 namespace SPGame\Game\Repositories;
 
 use Swoole\{Table, Atomic\Long};
+use SPGame\Core\RuntimeMetrics;
 
 /** Ограниченные shared-записи для журналов с составными/строковыми SQL-ключами. */
 final class RuntimeRecords
 {
+    /** Одна порция в секунду; это цель полного обхода, не гарантия при time hits/lag. */
+    public const SWEEP_TARGET_CALLS = 300;
+    public const SWEEP_BUDGET_MS = 2.0;
     public const SPECS = [
         // development rows/blocks, target rows/blocks. Рост только target:
         // 2,88млн суточных квитанций,272000 блоков докладов и свободный резерв.
@@ -23,6 +27,8 @@ final class RuntimeRecords
     private Long $sequence;
     private Long $allocation;
     private int $sweep = 0;
+    private int $sweepPassStartedNs = 0;
+    private float $sweepLastPassSeconds = 0.0;
     private int $capacity;
 
     public static function layout(string $name): array
@@ -38,6 +44,13 @@ final class RuntimeRecords
             'body_size' => [Table::TYPE_INT, 8], 'version' => [Table::TYPE_INT, 8],
             'deleted' => [Table::TYPE_INT, 8], 'dirty_since' => [Table::TYPE_FLOAT, 8],
             'inline' => [Table::TYPE_STRING, 256], 'expires_at' => [Table::TYPE_FLOAT, 8]];
+    }
+
+    public static function sweepBudget(string $name, int $minimum): int
+    {
+        if ($minimum <= 0) throw new \InvalidArgumentException('Некорректная порция очистки.');
+        $capacity = self::layout($name)['rows'];
+        return min($capacity, max($minimum, (int)ceil($capacity / self::SWEEP_TARGET_CALLS)));
     }
 
     public function __construct(private readonly string $name, private readonly int $maxBytes)
@@ -171,15 +184,59 @@ final class RuntimeRecords
         }
     }
 
-    /** Кольцевой bounded sweep, не O(N) с пропуском всех прежних ключей. */
-    public function sweep(callable $expired, int $budget = 512, ?float $now = null): void
+    /** Ограничены число слотов и время между записями; начатый callback не прерываем. */
+    public function sweep(callable $expired, int $budget = 512, ?float $now = null, float $budgetMs = self::SWEEP_BUDGET_MS): array
     {
+        if ($budget <= 0 || !is_finite($budgetMs) || $budgetMs <= 0) throw new \InvalidArgumentException('Некорректный бюджет очистки.');
         $now ??= microtime(true);
-        $this->guard(function () use ($expired, $budget, $now): void {
-            for ($i = 0; $i < min($budget, $this->capacity); ++$i) {
-                $row = $this->rows->get((string)($this->sweep++ % $this->capacity));
-                if ($row !== false && !$row['deleted'] && $row['expires_at'] > 0 && $row['expires_at'] <= $now && $expired($this->decode($row))) $this->delete($row['key']);
+        return $this->guard(function () use ($expired, $budget, $now, $budgetMs): array {
+            $started = hrtime(true);
+            if ($this->sweepPassStartedNs === 0) $this->sweepPassStartedNs = $started;
+            $result = ['scanned' => 0, 'deleted' => 0, 'timeBudgetHit' => false, 'passes' => 0];
+            try {
+                for ($i = 0; $i < min($budget, $this->capacity); ++$i) {
+                    if ($i > 0 && (hrtime(true) - $started) / 1000000 >= $budgetMs) {
+                        $result['timeBudgetHit'] = true;
+                        break;
+                    }
+                    // Продвигаемся и при исключении: один повреждённый слот не
+                    // удерживает все последующие порции на той же записи.
+                    $slot = $this->sweep++ % $this->capacity;
+                    ++$result['scanned'];
+                    try {
+                        $row = $this->rows->get((string)$slot);
+                        if ($row !== false && !$row['deleted'] && $row['expires_at'] > 0
+                            && $row['expires_at'] <= $now && $expired($this->decode($row))) {
+                            $this->delete($row['key']);
+                            ++$result['deleted'];
+                        }
+                    } finally {
+                        if ($this->sweep % $this->capacity === 0) {
+                            $passFinished = hrtime(true);
+                            $this->sweepLastPassSeconds = ($passFinished - $this->sweepPassStartedNs) / 1000000000;
+                            $this->sweepPassStartedNs = $passFinished;
+                            ++$result['passes'];
+                        }
+                    }
+                }
+            } finally {
+                $result['elapsedMs'] = (hrtime(true) - $started) / 1000000;
+                $result['lastPassSeconds'] = $this->sweepLastPassSeconds;
+                $metric = match ($this->name) {
+                    'ProtocolCommands' => 'storage.receiptsCleanup',
+                    'BattleReports' => 'storage.reportsCleanup',
+                    default => null,
+                };
+                if ($metric !== null) {
+                    RuntimeMetrics::observe($metric, $result['elapsedMs']);
+                    RuntimeMetrics::gauge($metric . 'Scanned', (float)$result['scanned']);
+                    RuntimeMetrics::gauge($metric . 'Deleted', (float)$result['deleted']);
+                    RuntimeMetrics::gauge($metric . 'BudgetSteps', (float)$budget);
+                    RuntimeMetrics::gauge($metric . 'PassSeconds', $this->sweepLastPassSeconds);
+                    if ($result['timeBudgetHit']) RuntimeMetrics::increment($metric . 'BudgetHits');
+                }
             }
+            return $result;
         });
     }
 

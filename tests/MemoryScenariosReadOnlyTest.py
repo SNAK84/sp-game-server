@@ -49,6 +49,14 @@ def main():
                    for name, count in demand.items() if count > math.floor(budgets[name] * .8)}
         check(scene['profiles'][profile]['insufficientReserveBudgets'] == reserve, 'Точно показаны дефициты резерва: ' + profile)
         check(scene['profiles'][profile]['selectedReserveFit'] == (not reserve), 'Заполнение и резерв — разные проверки: ' + profile)
+        for name, minimum in (('ProtocolCommands', 512), ('BattleReports', 128)):
+            policy = base['profiles'][profile]['cleanupPolicies'][name]
+            check(policy['maxStepsPerCall'] == min(policy['capacity'], max(minimum, math.ceil(policy['capacity'] / 300))),
+                  'Порция очистки соответствует реальному профилю: ' + profile + '/' + name)
+            check(policy['idealFullPassCalls'] <= 300 and policy['budgetMs'] == 2,
+                  'Порции ограничены временем, идеальный обход не более300 вызовов.')
+            if profile == 'development':
+                check(policy['maxStepsPerCall'] == minimum, 'Порция очистки development прежняя.')
     check(scene['profiles']['target']['selectedReserveFit'], 'Базовый20K/1K проходит выбранные target-бюджеты с резервом.')
     dev = base['profiles']['development']['selectedBudgets']
     for name, expected in {'FleetCommands': 16384, 'ProtocolCommands': 16384,

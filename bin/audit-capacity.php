@@ -126,10 +126,19 @@ foreach (\SPGame\Game\Repositories\RuntimeRecords::SPECS as $name => $unused) {
     }
 }
 $extra['MiningPending'] = memoryModel(\SPGame\Game\Repositories\RuntimeRecords::layout('MiningCheckpoints')['rows'], [[Table::TYPE_INT, 8]], 1.0);
+$cleanupPolicies = [];
+foreach (['ProtocolCommands' => 512, 'BattleReports' => 128] as $name => $minimum) {
+    $capacity = \SPGame\Game\Repositories\RuntimeRecords::layout($name)['rows'];
+    $steps = \SPGame\Game\Repositories\RuntimeRecords::sweepBudget($name, $minimum);
+    $cleanupPolicies[$name] = ['capacity' => $capacity, 'maxStepsPerCall' => $steps,
+        'idealFullPassCalls' => (int)ceil($capacity / $steps),
+        'budgetMs' => \SPGame\Game\Repositories\RuntimeRecords::SWEEP_BUDGET_MS];
+}
 $result = ['php' => PHP_VERSION, 'swoole' => phpversion('swoole'),
     'profile' => \SPGame\Game\Repositories\RuntimeCapacity::profile(),
     'modelApplicable' => phpversion('swoole') === '5.1.6' && PHP_INT_SIZE === 8,
     'modelNotRss' => true, 'repositories' => $repositories, 'extraTables' => $extra, 'runtimeStores' => $runtimeStores,
+    'cleanupPolicies' => $cleanupPolicies,
     'totalSharedAllocationModelBytes' => array_sum(array_column($repositories, 'totalAllocationModelBytes'))
         + array_sum(array_column($extra, 'sharedAllocationModelBytes'))];
 if (in_array('--probe', $argv, true)) {

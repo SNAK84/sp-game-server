@@ -91,7 +91,8 @@ try {
         foreach (['ProtocolCommands', 'BattleReports', 'BattleReportSaves'] as $name) {
             $budgets[$name] = $inventory['extraTables'][$name . 'Rows']['buckets'];
         }
-        $profiles[$profile] = ['sharedAllocationModelBytes' => $inventory['totalSharedAllocationModelBytes'], 'selectedBudgets' => $budgets];
+        $profiles[$profile] = ['sharedAllocationModelBytes' => $inventory['totalSharedAllocationModelBytes'],
+            'selectedBudgets' => $budgets, 'cleanupPolicies' => $inventory['cleanupPolicies']];
     }
     // Неизменённые закрытые константы читаем без init() и выделения таблиц.
     $subscriptions = (int)(new ReflectionClass(ProtocolSubscriptions::class))->getConstant('PER_CONNECTION');
@@ -163,6 +164,7 @@ try {
             'Сохранённые доклады добавлены отдельно от свежих без пересечения; их бессрочный архив не ограничен числом аккаунтов.',
             'Размеры packed и доля overflow заданы явно, не получены из маленькой выборки dev; компрессия не гарантируется.',
             'Проверены только перечисленные бюджеты; прочие индексы, журналы добычи, очереди, mailbox, tombstones и запас для обновления тел вне модели.',
+            'idealFullPassCalls очистки не учитывает time-budget hits, lag, ошибки и ожидание ACK: это не гарантия освобождения памяти за заданное время.',
             'PHP heap, COW, сокеты, снимки, ОС, БД и другие сервисы требуют отдельного запаса.',
             'Это не доказательство CPU/tick SLO или готовности мира20K/1000.',
         ], 'profiles' => $profiles, 'scenarios' => $scenarios],
