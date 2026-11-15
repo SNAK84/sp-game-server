@@ -1070,6 +1070,20 @@
 
 ## B047 — ёмкости runtime/sync/connect не соответствуют20 000/1 000
 
+- Уточнение15.11.2026/4Д: общий снимок хранит packed-строки вместо широких
+  PHP-массивов. Base writer распаковывает только SQL-партию100, без полного
+  array_filter/array_chunk; очередь обходится без getAll. SQL/wire/одна
+  транзакция/COMMIT→generation ACK/RAM-first/30с сохранены. Бюджет128MiB
+  проверяет peak-delta на границах, не только current после capture;
+  это не жёсткий RSS/OOM-предел. Codec имеет предел entry64MiB.
+  Добавлены5 gauges(всего63 в прежних64), snapshotRows исправлен для докладов.
+  Основной probe58 PASS; QA/marker/очередь/метрики восстановлены, SQL rollback,
+  hook снят. Синтетический wide3984 строки уже превысил8MiB; packed8192 —
+  пик3685344B. Это не измерение полного target. Модель83 PASS, native ёмкости
+  прежние. Live SQL timeout/rollback/retry и восстановление QA PASS(35 запросов,
+  max214,01мс). Pending PlayerQueue/штатный restart PASS; baseline217/restart
+  PASS(финальный повтор152 ответа/99 запросов,2 queue round-trip), PHPStan PASS.
+  B047 открыт: далее4Е очереди/mailbox и worst-case backlog/SLO.
 - Уточнение14.11.2026/4Г: воспроизведён отказ finish при нехватке native-блоков,
   квитанция оставалась accepted. Теперь до PlayerQueue физически резервируются
   17 блоков, завершение переиспользует их; лишние освобождаются после публикации

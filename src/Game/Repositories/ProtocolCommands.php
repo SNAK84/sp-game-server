@@ -122,13 +122,14 @@ final class ProtocolCommands
     {
         RepositoryGuard::run(self::saveGuardKey(), static fn() => Database::getInstance()->executeAffected('DELETE FROM protocol_commands WHERE expires_at<? AND state<>? ORDER BY expires_at LIMIT 2048', [$now, 'accepted']));
     }
-    public static function captureSaveSnapshot(): array { return self::$records->snapshot(); }
+    public static function captureSaveSnapshot(bool $compact = false): array { return self::$records->snapshot($compact); }
     public static function acknowledgeSaveSnapshot(array $snapshot): void { self::$records->acknowledge($snapshot); }
     public static function syncStats(float $now): array { return self::$records->stats($now); }
 
     public static function writeSaveSnapshot(array $snapshot, Database $db): void
     {
         foreach ($snapshot as $entry) {
+            $entry = RepositorySaver::unpackSnapshotEntry($entry);
             $row = self::$records->snapshotValue($entry);
             if ($entry['deleted']) $db->query('DELETE FROM protocol_commands WHERE world_id=? AND player_id=? AND request_id=?',
                 [$row['world_id'], $row['player_id'], $row['request_id']]);

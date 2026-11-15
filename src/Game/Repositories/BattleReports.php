@@ -168,7 +168,7 @@ final class BattleReports
     {
         RepositoryGuard::run(self::saveGuardKey(), static fn() => self::db()->executeAffected('DELETE FROM battle_reports WHERE ready=1 AND saved_count=0 AND expires_at<=? ORDER BY expires_at LIMIT 100', [(int)$now]));
     }
-    public static function captureSaveSnapshot(): array { return ['reports' => self::$reports->snapshot(), 'saves' => self::$saves->snapshot()]; }
+    public static function captureSaveSnapshot(bool $compact = false): array { return ['reports' => self::$reports->snapshot($compact), 'saves' => self::$saves->snapshot($compact)]; }
     public static function acknowledgeSaveSnapshot(array $snapshot): void { self::$reports->acknowledge($snapshot['reports']); self::$saves->acknowledge($snapshot['saves']); }
     public static function syncStats(float $now): array
     {
@@ -179,7 +179,9 @@ final class BattleReports
     public static function writeSaveSnapshot(array $snapshot, Database $db): void
     {
         $reports = self::$reportsTable; $saves = self::$savesTable;
-        foreach ($snapshot['reports'] as $entry) if (!$entry['deleted']) {
+        foreach ($snapshot['reports'] as $saved) {
+            $entry = RepositorySaver::unpackSnapshotEntry($saved);
+            if ($entry['deleted']) continue;
             $row = self::$reports->snapshotValue($entry);
             $fields = ['id','version','created_at','expires_at','ready','saved_count','summary','payload'];
             $db->query("INSERT INTO `$reports` (" . implode(',', $fields) . ') VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE '
@@ -187,12 +189,16 @@ final class BattleReports
                 array_map(static fn(string $f) => is_float($row[$f]) ? json_encode($row[$f], JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR) : $row[$f], $fields));
         }
         foreach ($snapshot['saves'] as $entry) {
+            $entry = RepositorySaver::unpackSnapshotEntry($entry);
             $row = self::$saves->snapshotValue($entry);
             if ($entry['deleted']) $db->query("DELETE FROM `$saves` WHERE report_id=? AND user_id=?", [$row['report_id'], $row['user_id']]);
             else $db->query("INSERT INTO `$saves` (report_id,user_id,saved_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE saved_at=VALUES(saved_at)",
                 [$row['report_id'], $row['user_id'], json_encode((float)$row['saved_at'], JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR)]);
         }
-        foreach ($snapshot['reports'] as $entry) if ($entry['deleted']) $db->query("DELETE FROM `$reports` WHERE id=?", [self::$reports->snapshotValue($entry)['id']]);
+        foreach ($snapshot['reports'] as $saved) {
+            $entry = RepositorySaver::unpackSnapshotEntry($saved);
+            if ($entry['deleted']) $db->query("DELETE FROM `$reports` WHERE id=?", [self::$reports->snapshotValue($entry)['id']]);
+        }
     }
 
     private static function requireUser(int $userId): void

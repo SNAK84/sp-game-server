@@ -1813,9 +1813,70 @@ guard target≥49,917682GiB. Target не выделялся; бюджеты не
 Полный живой v2 baseline217/restart PASS:151 ответ/99 запросов JSON Schema,
 2 queue round-trip, QA-имена восстановлены. PHP lint/PHPStan/compile PASS.
 
-Ближайший этап4Д: ограничение и пик общего snapshot, затем прочие очереди/
-mailbox/admission. Сроки реального TTL/ACK, произвольный backlog и CPU/SLO
-20K/1K не объявляются подтверждёнными. B047 остаётся открыт.
+Следующим после4Г был этап4Д, описанный ниже. Сроки реального TTL/ACK,
+произвольный backlog и CPU/SLO20K/1K не объявляются подтверждёнными.
+
+### 4Д — компактный RAM-снимок и пиковый бюджет(15.11.2026)
+
+Старый capture удерживал широкие PHP-массивы каждой dirty-строки, а writer
+создавал array_filter/array_chunk всего снимка. Лимит128MiB проверял текущую
+память capture, не временный пик сериализации/SQL. Это могло постоянно
+отклонять полный снимок при росте мира, даже когда native Table ещё вмещали данные.
+
+Основной saver теперь вызывает captureSaveSnapshot(true): каждая строка —
+внутренняя packed-string(serialize + deflate1, либо raw если сжатие невыгодно).
+Снимок всё ещё целиком в RAM, без spool-файлов или отдельного мира. Строки
+распаковываются по ограниченной SQL-партии(100 по умолчанию), без полного списка
+всех updates/deletes; порядок updates→deletes сохранён. Shared-журналы и доклады
+распаковываются по одной записи, группа reports/saves и FK-порядок прежние.
+PlayerQueue обходится напрямую по Table, без предварительного getAll;
+компактный RAM-envelope распаковывается обратно в прежний JSON перед SQL.
+Публичный wire, SQL-схемы и SQL-форматы, world barrier, одна транзакция,
+COMMIT→generation ACK и интервал30с не менялись. Старые plain-array вызовы
+диагностик поддерживаются через необязательный compact=false.
+
+Бюджет проверяет PHP peak-delta с reset в начале каждой попытки: capture,
+codec, SQL-декодирование и перед COMMIT. Это проверки на границах, не запрет
+аллокации внутри PHP/zlib/PDO, не лимит RSS/всех процессов и не замена memory_limit.
+При превышении — rollback/без ACK, dirty и последний успешный SQL-снимок остаются.
+После COMMIT бюджетный guard не прерывает ACK: транзакцию уже не откатить,
+но фактический пик ACK включён в snapshotPeakBytes.
+Лимит отдельного внутреннего entry64MiB; реальный бюджет попытки прежний128MiB.
+Новые gauges: snapshotBytes/PeakBytes/LimitBytes/BudgetHits/CaptureMs. Всего63
+ключа в прежних64 слотах, новых Table нет. Исправлен подсчёт snapshotRows:
+считаются строки reports+saves, а не две пустые группы BattleReports.
+Read-only экспортёры показывают настоящий snapshotPolicy, не прогноз RSS.
+
+Основной SnapshotMemoryMainWorldProbe58 PASS: codec/типы/точность/битые строки,
+plain↔packed всех зарегистрированных репозиториев, stale generation ACK Base/
+Shared, большая PlayerQueue с остатком TTL, отказ настоящего save при тестовом
+лимите1B без SQL/ACK, реальные writers планеты/очереди/доклада/закладки в
+полностью откатываемой SQL-транзакции. QA-планета/marker/очередь восстановлены,
+временная квитанция удалена, синтетические метрики восстановлены. Probe шёл
+после GameProtocolV2::initialize и до сети/saver, временный WSocket-hook снят.
+
+Сравнение на синтетических копиях одной реальной QA-схемы Planets, без
+игровых строк/Table: wide достиг8MiB на3984 строках(пик8390376B), packed8192
+строки заняли пик3685344B. Это не замер настоящего100K-планетного snapshot,
+не линейный коэффициент аккаунта и не CPU/SLO20K/1K.
+Read-only модель83 PASS; native-модели development/target не изменились.
+BackgroundSaverLive: искусственный SQL timeout,35 запросов игры, максимум
+214,01мс, dirty12 сохранён, частичного COMMIT нет; retry и восстановление QA-имён
+PASS. В начале работ были два старых PDO-сбоя; свежие успешные снимки уже шли,
+это не выдавалось за дефект нового codec.
+RamQueueRestartLive PASS: настоящий pending сохранён, штатный restart,
+старый epoch отвечает unknown, QA-имя восстановлено, runtimeSqlRejected0.
+Полный v2 baseline217/restart PASS:151 ответ/99 запросов JSON Schema,
+два queue round-trip, QA-имена восстановлены. PHP lint/PHPStan/compile PASS.
+Повтор после последней правки границы COMMIT/ACK:217/restart PASS,
+152 ответа/99 запросов,2 queue round-trip, QA-имена восстановлены.
+На обычном dev snapshotRows6, snapshotBytes29168B/peak440480B при бюджете128MiB,
+BudgetHits0; это наблюдение малого мира, не измерение target.
+
+Далее4Е: бюджеты и admission остальных очередей/mailbox. Большой packed-backlog,
+времена world-capture/SQL/TTL и PHP heap всего target ещё не подтверждены;
+если packed-снимок целиком превышает заданный бюджет, отказ остаётся явным,
+он не превращается в несогласованные частичные commits. B047 остаётся открыт.
 
 Ближайшее продолжение: уточнять рабочие плотности, проверить оставшиеся
 бюджеты/переменные аллокации и убрать подтверждённые узкие места. По мере

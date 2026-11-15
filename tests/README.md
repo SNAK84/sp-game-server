@@ -36,6 +36,20 @@ GameProtocolV2::initialize и до сети/saver, не создаёт мир/Ta
 воспроизведения старого кода(6 проверок). Нельзя вызывать probe через отдельный
 PHP init мира или включать его в обычный runtime. Временный bootstrap-hook удалять.
 
+После4Д модель проверяет snapshotPolicy(83 PASS). Main-only
+`SnapshotMemoryMainWorldProbe.php` принимает уже существующий RepositorySaver,
+вызывается после GameProtocolV2::initialize и до сети/saver.58 PASS: codec,
+plain/packed репозиториев, generation ACK, большой payload/TTL PlayerQueue,
+отказ save по тестовому бюджету1B без SQL/ACK. SQL writers проверяются только
+в откатываемой транзакции. Временные QA-планета/marker/событие/квитанция и
+диагностические метрики восстанавливаются. Отдельный мир/Table не создаются.
+Синтетические PHP-копии одной реальной схемы сравниваются при8MiB(3984 wide
+с отказом против8192 packed с пиком3685344B); это не full-target workload.
+Временный bootstrap-hook после выполнения удалён, .env не меняется.
+`BackgroundSaverLiveTest.py --execute` проверяет timeout/rollback/retry этого
+compact saver через обычные команды QA. Штатный restart/очередь проверяются
+`RamQueueRestartLiveTest.py --execute`, только при отсутствии других клиентов.
+
 ## B045: нулевые значения Environment
 
 ```bash

@@ -43,6 +43,11 @@ def main():
     check(demand['ProtocolSubscriptions'] == 8000, 'Контракт8 подписок на соединение прежний.')
     check(base['assumptions']['targetMaxFill'] == 0.8, 'Целевой свободный резерв20%.')
     for profile in base['profiles']:
+        snapshot = base['profiles'][profile]['snapshotPolicy']
+        check(snapshot['maxBytes'] >= 8 * 1048576 and snapshot['entryMaxBytes'] == 64 * 1048576,
+              'Настоящий бюджет снимка и предел entry экспортированы: ' + profile)
+        check(snapshot['sqlBatchRows'] == 100 and snapshot['format'] == 'packed-entry'
+              and snapshot['budget'] == 'php-peak-delta-at-boundaries', 'SQL-партия и границы контроля памяти указаны явно.')
         budgets = base['profiles'][profile]['selectedBudgets']
         expected = {name: {'rows': count, 'budget': budgets[name]} for name, count in demand.items()
                     if count > budgets[name]}

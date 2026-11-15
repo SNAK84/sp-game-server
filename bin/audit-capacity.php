@@ -135,6 +135,10 @@ foreach (['ProtocolCommands' => 512, 'BattleReports' => 128] as $name => $minimu
         'budgetMs' => \SPGame\Game\Repositories\RuntimeRecords::SWEEP_BUDGET_MS];
 }
 $result = ['php' => PHP_VERSION, 'swoole' => phpversion('swoole'),
+    'snapshotPolicy' => ['maxBytes' => \SPGame\Game\Services\RepositorySaver::configuredSnapshotMaxBytes(),
+        'entryMaxBytes' => \SPGame\Game\Services\RepositorySaver::SNAPSHOT_ENTRY_MAX_BYTES,
+        'sqlBatchRows' => (new ReflectionMethod(\SPGame\Game\Repositories\BaseRepository::class, 'writeSaveSnapshot'))->getParameters()[2]->getDefaultValue(),
+        'format' => 'packed-entry', 'budget' => 'php-peak-delta-at-boundaries'],
     'profile' => \SPGame\Game\Repositories\RuntimeCapacity::profile(),
     'modelApplicable' => phpversion('swoole') === '5.1.6' && PHP_INT_SIZE === 8,
     'modelNotRss' => true, 'repositories' => $repositories, 'extraTables' => $extra, 'runtimeStores' => $runtimeStores,

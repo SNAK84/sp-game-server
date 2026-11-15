@@ -13,6 +13,8 @@ final class RuntimeMetrics
         'storage.receiptsCleanup', 'storage.reportsCleanup'];
     private const GAUGES = ['world.lockMisses', 'world.lastPassAt', 'world.authorityPid', 'ws.authorityPid', 'storage.pendingRows',
         'storage.oldestDirtySeconds', 'storage.snapshotRows', 'storage.lastSavedAt',
+        'storage.snapshotBytes', 'storage.snapshotPeakBytes', 'storage.snapshotLimitBytes',
+        'storage.snapshotBudgetHits', 'storage.snapshotCaptureMs',
         'storage.lastErrorAt', 'storage.workerPid', 'storage.workerHeartbeat', 'storage.saveIntervalSeconds', 'storage.runtimeSqlRejected',
         'storage.snapshotLockMisses', 'sensor.sourceCandidates', 'sensor.targetCandidates', 'sensor.scanSystems',
         'sensor.cacheViewers', 'sensor.cacheCapacity', 'sensor.cacheRejected', 'sensor.cacheOversized', 'sensor.cacheExpired',

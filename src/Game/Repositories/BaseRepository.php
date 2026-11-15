@@ -1254,10 +1254,10 @@ abstract class BaseRepository
     public static function saveGuardKey(): string { return static::$className . ':save'; }
 
     /** Вызывается под world barrier; возвращает логические строки, не ссылки в Table. */
-    public static function captureSaveSnapshot(): array
+    public static function captureSaveSnapshot(bool $compact = false): array
     {
         if (static::$tableName === '') return [];
-        return static::guarded(static function (): array {
+        return static::guarded(static function () use ($compact): array {
             $snapshot = [];
             foreach (static::$syncTable as $key => $marker) {
                 $id = (int)$key;
@@ -1265,7 +1265,8 @@ abstract class BaseRepository
                 if (empty($marker['need_update']) && empty($marker['need_delete'])) continue;
                 $row = empty($marker['need_delete']) ? static::findExistingById($id) : null;
                 if (empty($marker['need_delete']) && $row === null) throw new \RuntimeException('Отсутствует dirty-строка ' . static::$className);
-                $snapshot[$id] = ['marker' => $marker, 'row' => $row];
+                $entry = ['marker' => $marker, 'row' => $row];
+                $snapshot[$id] = $compact ? RepositorySaver::packSnapshotEntry($entry) : $entry;
                 RepositorySaver::assertSnapshotBudget();
             }
             return $snapshot;
@@ -1278,8 +1279,19 @@ abstract class BaseRepository
         if ($snapshot === []) return;
         $columns = array_keys(array_filter(static::$tableSchema['columns'], static fn(array $definition): bool => !empty($definition['sql'])));
         if ($columns === []) throw new \LogicException('Нет SQL-колонок snapshot.');
-        $updates = array_filter($snapshot, static fn(array $entry): bool => $entry['row'] !== null);
-        foreach (array_chunk($updates, max(1, $batchSize), true) as $chunk) {
+        // Не создаём списки всех updates/deletes и array_chunk всего снимка.
+        // Распаковываем только одну ограниченную SQL-партию; порядок прежний.
+        $chunks = static function (bool $deleting) use ($snapshot, $batchSize): \Generator {
+            $chunk = [];
+            foreach ($snapshot as $id => $saved) {
+                $entry = RepositorySaver::unpackSnapshotEntry($saved);
+                if (($entry['row'] === null) !== $deleting) continue;
+                $chunk[$id] = $entry;
+                if (count($chunk) >= max(1, $batchSize)) { yield $chunk; $chunk = []; }
+            }
+            if ($chunk !== []) yield $chunk;
+        };
+        foreach ($chunks(false) as $chunk) {
             $values = []; $placeholders = [];
             foreach ($chunk as $entry) {
                 foreach ($columns as $column) {
@@ -1293,16 +1305,17 @@ abstract class BaseRepository
             $db->query('INSERT INTO `' . static::$tableName . '` (`' . implode('`,`', $columns) . '`) VALUES '
                 . implode(',', $placeholders) . ' ON DUPLICATE KEY UPDATE '
                 . implode(',', array_map(static fn(string $column): string => '`' . $column . '`=VALUES(`' . $column . '`)', $columns)), $values);
+            unset($values, $placeholders, $chunk);
         }
-        $deletes = array_filter($snapshot, static fn(array $entry): bool => $entry['row'] === null);
-        foreach (array_chunk(array_keys($deletes), max(1, $batchSize)) as $ids) {
+        foreach ($chunks(true) as $chunk) {
             $clauses = []; $values = [];
-            foreach ($ids as $id) {
+            foreach (array_keys($chunk) as $id) {
                 $identity = static::sqlDeletionIdentity((int)$id);
                 $clauses[] = '(' . implode(' AND ', array_map(static fn(string $field): string => '`' . $field . '`=?', array_keys($identity))) . ')';
                 array_push($values, ...array_values($identity));
             }
             $db->query('DELETE FROM `' . static::$tableName . '` WHERE ' . implode(' OR ', $clauses), $values);
+            unset($values, $clauses, $chunk);
         }
     }
 
@@ -1311,7 +1324,10 @@ abstract class BaseRepository
     /** Только после успешного COMMIT; новая generation остаётся dirty. */
     public static function acknowledgeSaveSnapshot(array $snapshot): void
     {
-        foreach ($snapshot as $id => $entry) static::acknowledgeSync((int)$id, $entry['marker'], $entry['row']);
+        foreach ($snapshot as $id => $saved) {
+            $entry = RepositorySaver::unpackSnapshotEntry($saved);
+            static::acknowledgeSync((int)$id, $entry['marker'], $entry['row']);
+        }
     }
 
     /** Синхронизация всех изменений в MySQL; только помеченные ID (dirty tracking). */

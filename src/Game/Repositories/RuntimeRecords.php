@@ -104,7 +104,13 @@ final class RuntimeRecords
     }
 
     /** Распаковка ровно одной SQL-записи уже вне world lock, не всей истории. */
-    public function snapshotValue(array $entry): array { return $this->decodePacked($entry['packed']); }
+    public function snapshotValue(array|string $entry): array
+    {
+        $entry = \SPGame\Game\Services\RepositorySaver::unpackSnapshotEntry($entry);
+        $value = $this->decodePacked($entry['packed']);
+        \SPGame\Game\Services\RepositorySaver::assertSnapshotBudget();
+        return $value;
+    }
 
     public function get(string $key): ?array
     {
@@ -247,15 +253,16 @@ final class RuntimeRecords
         });
     }
 
-    public function snapshot(): array
+    public function snapshot(bool $compact = false): array
     {
-        return $this->guard(function (): array {
+        return $this->guard(function () use ($compact): array {
             $snapshot = [];
             foreach ($this->dirty as $slot => $marker) {
                 $row = $this->rows->get((string)$slot);
                 if ($row === false || $row['version'] !== $marker['version'] || $row['dirty_since'] <= 0) throw new \RuntimeException('Повреждён shared dirty-индекс.');
-                $snapshot[$slot] = ['key' => $row['key'], 'version' => $row['version'],
+                $entry = ['key' => $row['key'], 'version' => $row['version'],
                     'deleted' => (bool)$row['deleted'], 'packed' => $this->packed($row)];
+                $snapshot[$slot] = $compact ? \SPGame\Game\Services\RepositorySaver::packSnapshotEntry($entry) : $entry;
                 \SPGame\Game\Services\RepositorySaver::assertSnapshotBudget();
             }
             return $snapshot;
@@ -265,7 +272,8 @@ final class RuntimeRecords
     public function acknowledge(array $snapshot): void
     {
         $this->guard(function () use ($snapshot): void {
-            foreach ($snapshot as $slot => $saved) {
+            foreach ($snapshot as $slot => $entry) {
+                $saved = \SPGame\Game\Services\RepositorySaver::unpackSnapshotEntry($entry);
                 $row = $this->rows->get((string)$slot);
                 if ($row === false || $row['version'] !== $saved['version'] || $row['key'] !== $saved['key']) continue;
                 if ($row['deleted']) {

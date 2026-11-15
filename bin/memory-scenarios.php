@@ -94,7 +94,7 @@ try {
             $budgets[$name] = $inventory['extraTables'][$name . 'Rows']['buckets'];
         }
         $profiles[$profile] = ['sharedAllocationModelBytes' => $inventory['totalSharedAllocationModelBytes'],
-            'selectedBudgets' => $budgets, 'cleanupPolicies' => $inventory['cleanupPolicies']];
+            'selectedBudgets' => $budgets, 'cleanupPolicies' => $inventory['cleanupPolicies'], 'snapshotPolicy' => $inventory['snapshotPolicy']];
     }
     // Неизменённые закрытые константы читаем без init() и выделения таблиц.
     $subscriptions = (int)(new ReflectionClass(ProtocolSubscriptions::class))->getConstant('PER_CONNECTION');

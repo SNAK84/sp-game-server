@@ -382,7 +382,7 @@ final class MiningCheckpoints
     }
 
     public static function saveGuardKey(): string { return 'MiningCheckpoints:save'; }
-    public static function captureSaveSnapshot(): array { return self::$records->snapshot(); }
+    public static function captureSaveSnapshot(bool $compact = false): array { return self::$records->snapshot($compact); }
     public static function acknowledgeSaveSnapshot(array $snapshot): void { self::$records->acknowledge($snapshot); }
     public static function syncStats(float $now): array { return self::$records->stats($now); }
 

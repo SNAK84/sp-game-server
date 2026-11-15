@@ -163,10 +163,10 @@ class PlayerQueue extends BaseRepository
     }
 
     /** Захват под тем же world EX, что игровые строки и квитанции команд. */
-    public static function captureRestartSnapshot(): array
+    public static function captureRestartSnapshot(bool $compact = false): array
     {
         $events = [];
-        foreach (self::getAll() as $row) {
+        foreach (static::$table as $row) {
             if ((int)$row['ready'] !== 1) continue;
             $event = self::decodeEvent($row);
             if ($event === null) throw new \RuntimeException('Не удалось сохранить повреждённое событие PlayerQueue.');
@@ -179,7 +179,7 @@ class PlayerQueue extends BaseRepository
             }
             $json = json_encode($event, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
             self::decodeRestartEvent($json, (int)$event['id']);
-            $events[(int)$event['id']] = $json;
+            $events[(int)$event['id']] = $compact ? RepositorySaver::packSnapshotEntry(['json' => $json]) : $json;
             RepositorySaver::assertSnapshotBudget();
         }
         return $events;
@@ -189,7 +189,11 @@ class PlayerQueue extends BaseRepository
     public static function writeRestartSnapshot(array $events, Database $db): void
     {
         $db->query('DELETE FROM player_queue_restart');
-        foreach ($events as $id => $json) $db->query('INSERT INTO player_queue_restart (id,event_data) VALUES (?,?)', [$id, $json]);
+        foreach ($events as $id => $saved) {
+            $json = str_starts_with($saved, '{') ? $saved : (RepositorySaver::unpackSnapshotEntry($saved)['json'] ?? null);
+            if (!is_string($json)) throw new \UnexpectedValueException('Неверное событие компактного снимка.');
+            $db->query('INSERT INTO player_queue_restart (id,event_data) VALUES (?,?)', [$id, $json]);
+        }
     }
 
     /** До запуска workers. Ошибка восстановления запрещает запуск сервера. */
