@@ -10,7 +10,7 @@ use SPGame\Game\Repositories\SpaceBattles;
 use SPGame\Game\Repositories\PlayerQueue;
 use SPGame\Game\Repositories\Queues;
 use SPGame\Game\Repositories\Users;
-use Swoole\Table;
+use SPGame\Game\Repositories\WorkerMailbox;
 
 /**
  * Координатор раундов: gameplay меняет только игровой цикл, TaskWorker только считает.
@@ -20,8 +20,9 @@ final class FleetBattleService
 {
     public const ROUND_SECONDS = 1.0;
     public const JOB_TIMEOUT = 60.0;
+    public const MAILBOX_CAPACITY = 32;
     private const MAX_ATTEMPTS = 3;
-    private static ?Table $results = null;
+    private static ?WorkerMailbox $results = null;
     private static ?\Closure $dispatch = null;
     private static int $workerLimit = 2;
 
@@ -31,9 +32,7 @@ final class FleetBattleService
         if ($workers < 1 || $workers > 8) throw new \InvalidArgumentException('Число боевых процессов должно быть от 1 до 8.');
         self::$dispatch = \Closure::fromCallable($dispatch);
         self::$workerLimit = $workers;
-        self::$results = new Table(32);
-        self::$results->column('payload', Table::TYPE_STRING, PlanetBattles::MAX_STATE_BYTES);
-        if (!self::$results->create()) throw new \RuntimeException('Не удалось создать mailbox боевых процессов.');
+        self::$results = new WorkerMailbox(self::MAILBOX_CAPACITY, PlanetBattles::MAX_STATE_BYTES);
     }
 
     /** Backend API: группы уже подготовлены с технологиями/опытом на момент вступления. */
@@ -145,9 +144,9 @@ final class FleetBattleService
                 if ($state['phase'] !== 'running') continue;
                 $job = $state['job'];
                 if ($job !== null) {
-                    $reply = self::$results->get($job['token']);
-                    if ($reply !== false) {
-                        $reply = json_decode($reply['payload'], true, 512, JSON_THROW_ON_ERROR);
+                    $reply = self::$results->read($job['token']);
+                    if ($reply !== null) {
+                        $reply = json_decode($reply, true, 512, JSON_THROW_ON_ERROR);
                         if (isset($reply['error'])) throw new \RuntimeException($reply['error']);
                         if (count($reply['combat']['rounds'] ?? []) !== $job['round']) {
                             throw new \LogicException('Боевой процесс вернул неверный номер раунда.');
@@ -157,7 +156,7 @@ final class FleetBattleService
                         $state['attempts'] = 0;
                         if (FleetCombatService::isFinished($state['combat'])) $state['phase'] = 'finished';
                         $repository::store($planetId, $state);
-                        self::$results->del($job['token']);
+                        self::$results->release($job['token']);
                         --$busy;
                         if ($state['phase'] !== 'running') {
                             self::noteProgress($state, $changedOwners);
@@ -165,6 +164,7 @@ final class FleetBattleService
                         }
                     } else {
                         if ($now < $job['submittedAt'] + self::JOB_TIMEOUT) continue;
+                        self::$results->release($job['token']);
                         $state['job'] = null;
                         --$busy;
                         Logger::getInstance()->error('Истёк срок расчёта раунда боя', ['scope' => $repository, 'battleKey' => $planetId, 'round' => $job['round']]);
@@ -176,21 +176,29 @@ final class FleetBattleService
                 }
                 $round = count($state['combat']['rounds']) + 1;
                 if ($now < $state['startedAt'] + $round * self::ROUND_SECONDS || $busy >= self::$workerLimit) continue;
-                $waiting = [];
-                foreach ($state['pending'] as $pending) {
-                    if ($pending['round'] <= $round && ($pending['arrivedAt'] ?? 0) <= $now) {
-                        $state['combat'] = FleetCombatService::addReinforcements($state['combat'], $pending['side'], $pending['groups']);
-                    } else $waiting[] = $pending;
-                }
-                $state['pending'] = $waiting;
-                $state['job'] = ['token' => bin2hex(random_bytes(16)), 'round' => $round, 'submittedAt' => $now];
-                ++$state['attempts'];
-                // Сначала snapshot фиксируется в runtime, потом доставляется чистому вычислителю.
-                $repository::store($planetId, $state);
-                ++$busy;
-                if (!(self::$dispatch)(['kind' => 'combat_round', 'token' => $state['job']['token'],
-                    'combat' => $state['combat'], 'seed' => hash_hmac('sha256', (string)$round, $state['seed'])])) {
-                    throw new \RuntimeException('Не удалось передать раунд боевому процессу.');
+                $token = bin2hex(random_bytes(16));
+                // Заполненный mailbox — backpressure, а не неудачный раунд.
+                if (!self::$results->reserve($token)) continue;
+                try {
+                    $waiting = [];
+                    foreach ($state['pending'] as $pending) {
+                        if ($pending['round'] <= $round && ($pending['arrivedAt'] ?? 0) <= $now) {
+                            $state['combat'] = FleetCombatService::addReinforcements($state['combat'], $pending['side'], $pending['groups']);
+                        } else $waiting[] = $pending;
+                    }
+                    $state['pending'] = $waiting;
+                    $state['job'] = ['token' => $token, 'round' => $round, 'submittedAt' => $now];
+                    ++$state['attempts'];
+                    // Сначала snapshot фиксируется в runtime, потом доставляется чистому вычислителю.
+                    $repository::store($planetId, $state);
+                    ++$busy;
+                    if (!(self::$dispatch)(['kind' => 'combat_round', 'token' => $token,
+                        'combat' => $state['combat'], 'seed' => hash_hmac('sha256', (string)$round, $state['seed'])])) {
+                        throw new \RuntimeException('Не удалось передать раунд боевому процессу.');
+                    }
+                } catch (\Throwable $error) {
+                    self::$results->release($token);
+                    throw $error;
                 }
                 self::noteProgress($state, $changedOwners);
             } catch (\Throwable $error) {
@@ -222,9 +230,7 @@ final class FleetBattleService
             $state = $entry['state'];
             if ($state['job'] !== null && $state['phase'] === 'running') $tokens[$state['job']['token']] = true;
         }
-        foreach (self::$results as $token => $_) {
-            if (!isset($tokens[$token])) self::$results->del((string)$token);
-        }
+        self::$results->retain($tokens);
         // Доставка остаётся в EventLoop; поиск аккаунтов не относится к расчёту
         // раунда и не должен переводить сам бой в failed при ошибке уведомления.
         $accounts = [];
@@ -262,10 +268,8 @@ final class FleetBattleService
         } catch (\Throwable $error) {
             $encoded = json_encode(['error' => substr($error->getMessage(), 0, 512)], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
         }
-        if (self::$results === null || !self::$results->set($task['token'], ['payload' => $encoded])
-            || self::$results->get($task['token'])['payload'] !== $encoded) {
-            throw new \RuntimeException('Не удалось передать результат боевого процесса.');
-        }
+        if (self::$results === null) throw new \LogicException('Mailbox боевых процессов не инициализирован.');
+        self::$results->publish($task['token'], $encoded);
     }
 
     /** Вызывать ТОЛЬКО после успешного, идемпотентного gameplay commit адаптера ATTACK. */

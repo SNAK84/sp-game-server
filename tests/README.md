@@ -50,6 +50,20 @@ plain/packed репозиториев, generation ACK, большой payload/TT
 compact saver через обычные команды QA. Штатный restart/очередь проверяются
 `RamQueueRestartLiveTest.py --execute`, только при отсутствии других клиентов.
 
+После4Е1 модель проверяет также реальные constants/policy mailbox и большого
+payload(91 PASS). Main-only `WorkerMailboxMainWorldProbe.php` вызывается после
+обоих initializeWorkers, до Server::start/saver.45 PASS на основном dev:
+full admission,256KiB в полном mailbox, duplicate/conflict/oversize, закрытый
+token, retain/release. Дочерний чистый вычислитель вызывает обе executeTask
+через существующие shared Table/mutex; нового мира/Table/SQL-write нет.
+QA-checkpoint координатора проверяет full wait, подкрепление следующего раунда,
+timeout/retry с прежним seed и ровно одним результатом, fail-closed dispatch.
+Checkpoint/dirty/PlayerQueue восстановлены. Full v2 baseline217/restart PASS:
+151 ответ/99 запросов,2 queue round-trip, QA-имена восстановлены.
+Это не измерение нагрузочного pool;
+временный bootstrap-hook удалён. Сгенерированные timeout/dispatch-failure
+в логах probe ожидаемы. Бюджет1024 больших payload пока не увеличен.
+
 ## B045: нулевые значения Environment
 
 ```bash

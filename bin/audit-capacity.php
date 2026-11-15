@@ -7,6 +7,8 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use SPGame\Core\{Database, Environment};
 use SPGame\Game\Repositories\BaseRepository;
+use SPGame\Game\Repositories\{PlayerQueuePayloads, PlanetBattles, FleetExpeditions, WorkerMailbox};
+use SPGame\Game\Services\{FleetBattleService, FleetExpeditionService};
 use Swoole\Table;
 
 Environment::init(__DIR__ . '/../.env');
@@ -96,14 +98,16 @@ $extra = [
     'ProtocolSubscriptions' => memoryModel(\SPGame\Game\Repositories\ProtocolSubscriptions::capacity(), array_merge(array_fill(0, 3, [Table::TYPE_INT, 8]),
         array_map(static fn(int $size): array => [Table::TYPE_STRING, $size], [32, 36, 64, 2048, 20])), 1),
     'ProtocolResources' => memoryModel(16384, [[Table::TYPE_STRING, 64], [Table::TYPE_INT, 8], [Table::TYPE_FLOAT, 8]], 1),
-    'PlayerQueuePayloads' => memoryModel(1024, array_merge(array_fill(0, 5, [Table::TYPE_INT, 8]),
-        [[Table::TYPE_STRING, 32], [Table::TYPE_STRING, 16384]]), 1),
-    'PlayerQueuePayloadAccounts' => memoryModel(1024, [[Table::TYPE_INT, 8]], 1),
+    'PlayerQueuePayloads' => memoryModel(PlayerQueuePayloads::MAX_PENDING, array_merge(array_fill(0, 4, [Table::TYPE_INT, 4]),
+        [[Table::TYPE_FLOAT], [Table::TYPE_STRING, 32], [Table::TYPE_STRING, PlayerQueuePayloads::MAX_BYTES]]), 1),
+    'PlayerQueuePayloadAccounts' => memoryModel(PlayerQueuePayloads::MAX_PENDING, [[Table::TYPE_INT, 4]], 1),
     'PhalanxScans' => memoryModel(1024, [[Table::TYPE_FLOAT, 8], [Table::TYPE_STRING, 16384]], 1),
     'SensorContacts' => memoryModel(\SPGame\Game\Repositories\SensorContacts::capacity(),
         [[Table::TYPE_FLOAT, 8], [Table::TYPE_STRING, \SPGame\Game\Repositories\SensorContacts::MAX_BYTES]], 1),
-    'CombatMailbox' => memoryModel(32, [[Table::TYPE_STRING, 262144]]),
-    'ExpeditionMailbox' => memoryModel(16, [[Table::TYPE_STRING, 262144]]),
+    'CombatMailbox' => memoryModel(FleetBattleService::MAILBOX_CAPACITY,
+        [[Table::TYPE_STRING, PlanetBattles::MAX_STATE_BYTES]], WorkerMailbox::CONFLICT),
+    'ExpeditionMailbox' => memoryModel(FleetExpeditionService::MAILBOX_CAPACITY,
+        [[Table::TYPE_STRING, FleetExpeditions::MAX_BYTES]], WorkerMailbox::CONFLICT),
     'MessageBodiesOverflow' => memoryModel(\SPGame\Game\Repositories\Messages::overflowBuckets(),
         [[Table::TYPE_STRING, \SPGame\Game\Repositories\SharedBlobStore::BLOCK_BYTES]], 1.0),
     'RuntimeMetrics' => memoryModel(64, array_fill(0, 21, [Table::TYPE_INT, 8]), 1.0),
@@ -135,6 +139,13 @@ foreach (['ProtocolCommands' => 512, 'BattleReports' => 128] as $name => $minimu
         'budgetMs' => \SPGame\Game\Repositories\RuntimeRecords::SWEEP_BUDGET_MS];
 }
 $result = ['php' => PHP_VERSION, 'swoole' => phpversion('swoole'),
+    'workerMailboxPolicy' => ['reserveBeforeDispatch' => true, 'lateReplyCreatesRow' => false,
+        'conflict' => WorkerMailbox::CONFLICT,
+        'CombatMailbox' => ['slots' => FleetBattleService::MAILBOX_CAPACITY, 'maxBytes' => PlanetBattles::MAX_STATE_BYTES],
+        'ExpeditionMailbox' => ['slots' => FleetExpeditionService::MAILBOX_CAPACITY, 'maxBytes' => FleetExpeditions::MAX_BYTES,
+            'workerLimit' => FleetExpeditionService::WORKER_LIMIT]],
+    'playerQueuePayloadPolicy' => ['slots' => PlayerQueuePayloads::MAX_PENDING, 'maxBytes' => PlayerQueuePayloads::MAX_BYTES,
+        'perAccount' => PlayerQueuePayloads::MAX_PER_ACCOUNT, 'ttlSeconds' => PlayerQueuePayloads::TTL_SECONDS],
     'snapshotPolicy' => ['maxBytes' => \SPGame\Game\Services\RepositorySaver::configuredSnapshotMaxBytes(),
         'entryMaxBytes' => \SPGame\Game\Services\RepositorySaver::SNAPSHOT_ENTRY_MAX_BYTES,
         'sqlBatchRows' => (new ReflectionMethod(\SPGame\Game\Repositories\BaseRepository::class, 'writeSaveSnapshot'))->getParameters()[2]->getDefaultValue(),

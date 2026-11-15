@@ -43,6 +43,13 @@ def main():
     check(demand['ProtocolSubscriptions'] == 8000, 'Контракт8 подписок на соединение прежний.')
     check(base['assumptions']['targetMaxFill'] == 0.8, 'Целевой свободный резерв20%.')
     for profile in base['profiles']:
+        mailbox = base['profiles'][profile]['workerMailboxPolicy']
+        check(mailbox['reserveBeforeDispatch'] and not mailbox['lateReplyCreatesRow'], 'Mailbox публикуется только в резерв: ' + profile)
+        check(mailbox['CombatMailbox'] == {'slots': 32, 'maxBytes': 262144}, 'Бюджет боевого mailbox прежний: ' + profile)
+        check(mailbox['ExpeditionMailbox'] == {'slots': 16, 'maxBytes': 262144, 'workerLimit': 2}
+              and mailbox['conflict'] == .2, 'Бюджет экспедиционного mailbox прежний: ' + profile)
+        check(base['profiles'][profile]['playerQueuePayloadPolicy'] == {
+            'slots': 1024, 'maxBytes': 16384, 'perAccount': 4, 'ttlSeconds': 120}, 'Лимиты payload прочитаны из кода: ' + profile)
         snapshot = base['profiles'][profile]['snapshotPolicy']
         check(snapshot['maxBytes'] >= 8 * 1048576 and snapshot['entryMaxBytes'] == 64 * 1048576,
               'Настоящий бюджет снимка и предел entry экспортированы: ' + profile)

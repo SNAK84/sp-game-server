@@ -94,6 +94,7 @@ try {
             $budgets[$name] = $inventory['extraTables'][$name . 'Rows']['buckets'];
         }
         $profiles[$profile] = ['sharedAllocationModelBytes' => $inventory['totalSharedAllocationModelBytes'],
+            'workerMailboxPolicy' => $inventory['workerMailboxPolicy'], 'playerQueuePayloadPolicy' => $inventory['playerQueuePayloadPolicy'],
             'selectedBudgets' => $budgets, 'cleanupPolicies' => $inventory['cleanupPolicies'], 'snapshotPolicy' => $inventory['snapshotPolicy']];
     }
     // Неизменённые закрытые константы читаем без init() и выделения таблиц.

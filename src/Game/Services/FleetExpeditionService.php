@@ -10,12 +10,14 @@ use SPGame\Game\Enums\{FleetCommandType as Command, FleetMissionType as Mission}
 use SPGame\Game\Fleet\Fleet;
 use SPGame\Game\Repositories\{BattleReports, Config, FleetCommands, FleetExpeditions as States, Fleets, FleetsShips, GalaxyOrbits, Messages, UserResources, Vars};
 use SPGame\Game\Space\{Coordinate, CoordinateType};
-use Swoole\Table;
+use SPGame\Game\Repositories\WorkerMailbox;
 
 /** Экспедиция: событие за каждый час, общий отчёт и локальный runtime commit. */
 final class FleetExpeditionService
 {
-	private static ?Table $mailbox = null;
+	public const MAILBOX_CAPACITY = 16;
+	public const WORKER_LIMIT = 2;
+	private static ?WorkerMailbox $mailbox = null;
 	private static ?\Closure $dispatch = null;
 	private static ?\Closure $clock = null;
 
@@ -290,6 +292,7 @@ final class FleetExpeditionService
 				$state['phase'] = 'failed';
 				$state['error'] = substr($error->getMessage(), 0, 512);
 				States::store($fleet->getId(), $state);
+				if (isset($state['job']['token'])) self::$mailbox?->release($state['job']['token']);
 				Logger::getInstance()->error('Экспедиционный бой остановлен без применения потерь', ['fleetId' => $fleet->getId(), 'message' => $error->getMessage()]);
 				return true;
 			}
@@ -556,9 +559,7 @@ final class FleetExpeditionService
 	{
 		self::$dispatch = \Closure::fromCallable($dispatch);
 		self::$clock = $clock === null ? null : \Closure::fromCallable($clock);
-		self::$mailbox = new Table(16);
-		self::$mailbox->column('payload', Table::TYPE_STRING, States::MAX_BYTES);
-		if (!self::$mailbox->create()) throw new \RuntimeException('Не удалось создать mailbox экспедиций.');
+		self::$mailbox = new WorkerMailbox(self::MAILBOX_CAPACITY, States::MAX_BYTES);
 	}
 
 	public static function executeTask(array $task): void
@@ -570,12 +571,10 @@ final class FleetExpeditionService
 			$encoded = json_encode($reply, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
 			if (strlen($encoded) > States::MAX_BYTES) throw new \OverflowException('Результат экспедиционного раунда слишком велик.');
 		} catch (\Throwable $error) {
-			$encoded = json_encode(['error' => $error->getMessage()], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+			$encoded = json_encode(['error' => substr($error->getMessage(), 0, 512)], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
 		}
-		if (
-			self::$mailbox === null || !self::$mailbox->set($task['token'], ['payload' => $encoded])
-			|| self::$mailbox->get($task['token'])['payload'] !== $encoded
-		) throw new \RuntimeException('Не удалось передать результат экспедиционного раунда.');
+		if (self::$mailbox === null) throw new \LogicException('Mailbox экспедиций не инициализирован.');
+		self::$mailbox->publish($task['token'], $encoded);
 	}
 
 	private static function round(array &$state, Fleet $fleet, array $command, float $now): bool
@@ -584,21 +583,22 @@ final class FleetExpeditionService
 		if (self::$dispatch === null || self::$mailbox === null) throw new \LogicException('TaskWorkers экспедиции не инициализированы.');
 		$job = $state['job'] ?? null;
 		if ($job !== null) {
-			$reply = self::$mailbox->get($job['token']);
-			if ($reply !== false) {
-				$reply = json_decode($reply['payload'], true, 512, JSON_THROW_ON_ERROR);
+			$reply = self::$mailbox->read($job['token']);
+			if ($reply !== null) {
+				$reply = json_decode($reply, true, 512, JSON_THROW_ON_ERROR);
 				if (isset($reply['error'])) throw new \RuntimeException($reply['error']);
 				if (count($reply['combat']['rounds']) !== $job['round']) throw new \LogicException('Неверный номер экспедиционного раунда.');
 				$state['plan']['battle'] = $reply['combat'];
 				unset($state['job']);
 				States::store($fleet->getId(), $state);
-				self::$mailbox->del($job['token']);
+				self::$mailbox->release($job['token']);
 				if (FleetCombatService::isFinished($state['plan']['battle'])) return true;
 			} elseif ($now >= $job['submittedAt'] + FleetBattleService::JOB_TIMEOUT) {
-				self::$mailbox->del($job['token']);
+				self::$mailbox->release($job['token']);
 				unset($state['job']);
 				$state['attempts'] = ($state['attempts'] ?? 0) + 1;
 				if ($state['attempts'] > 3) throw new \RuntimeException('Экспедиционный бой не рассчитан после трёх попыток.');
+				States::store($fleet->getId(), $state);
 			}
 		}
 		if (!isset($state['job'])) {
@@ -608,21 +608,30 @@ final class FleetExpeditionService
 				$other = json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR);
 				if ($other['phase'] === 'combat' && isset($other['job'])) $tokens[$other['job']['token']] = true;
 			}
-			foreach (self::$mailbox as $token => $_) if (!isset($tokens[$token])) self::$mailbox->del((string)$token);
-			if (count($tokens) >= 2) {
+			self::$mailbox->retain($tokens);
+			if (count($tokens) >= self::WORKER_LIMIT) {
 				FleetControlService::patchCommand((int)$command['id'], ['execute_time' => $now + 1]);
 				return false;
 			}
 			$round = count($state['plan']['battle']['rounds']) + 1;
 			$token = bin2hex(random_bytes(16));
-			$state['job'] = ['token' => $token, 'round' => $round, 'submittedAt' => $now];
-			States::store($fleet->getId(), $state);
-			if (!(self::$dispatch)([
-				'kind' => 'expedition_round',
-				'token' => $token,
-				'combat' => $state['plan']['battle'],
-				'seed' => hash_hmac('sha256', count($state['events'] ?? []) . ':' . $round, $state['seed'])
-			])) throw new \RuntimeException('Не удалось отправить экспедиционный раунд.');
+			if (!self::$mailbox->reserve($token)) {
+				FleetControlService::patchCommand((int)$command['id'], ['execute_time' => $now + 1]);
+				return false;
+			}
+			try {
+				$state['job'] = ['token' => $token, 'round' => $round, 'submittedAt' => $now];
+				States::store($fleet->getId(), $state);
+				if (!(self::$dispatch)([
+					'kind' => 'expedition_round',
+					'token' => $token,
+					'combat' => $state['plan']['battle'],
+					'seed' => hash_hmac('sha256', count($state['events'] ?? []) . ':' . $round, $state['seed'])
+				])) throw new \RuntimeException('Не удалось отправить экспедиционный раунд.');
+			} catch (\Throwable $error) {
+				self::$mailbox->release($token);
+				throw $error;
+			}
 		}
 		self::apply([
 			[States::class, $fleet->getId(), States::row($fleet->getId(), $state)],

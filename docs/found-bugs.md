@@ -1070,6 +1070,20 @@
 
 ## B047 — ёмкости runtime/sync/connect не соответствуют20 000/1 000
 
+- Уточнение15.11.2026/4Е1: worker мог заново создать ответ после удаления
+  job/timeout. Теперь оба боевых mailbox резервируют строку до dispatch;
+  общий mutex сериализует reserve/publish/release. Late reply не создаёт
+  строку, полный буфер откладывает раунд без расхода попытки; duplicate
+  идемпотентен, conflict/oversize отклоняются. Cleanup не удаляет строки
+  при обходе collision-цепочек. Размеры32/16×262144B прежние, native-модель
+  не выросла, SQL/wire/30с/RAM-first сохранены. Основной probe45 PASS:
+  существующие mailbox, дочерний вычислитель обеих функций worker, QA tick
+  full/timeout/retry/reinforcement/dispatch-failure, восстановление checkpoint/
+  dirty/PlayerQueue, SQL-write0, hook снят. Модель91/PHPStan PASS, baseline217/
+  restart PASS(151 ответ/99 запросов,2 queue round-trip, QA восстановлены).
+  B047 открыт:
+  далее4Е2 payload1024/quota4/TTL120с — даже1000 pending не дают20% резерва;
+  selectedReserveFit пока не включает этот буфер. Target/SLO не принят.
 - Уточнение15.11.2026/4Д: общий снимок хранит packed-строки вместо широких
   PHP-массивов. Base writer распаковывает только SQL-партию100, без полного
   array_filter/array_chunk; очередь обходится без getAll. SQL/wire/одна
