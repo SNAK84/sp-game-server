@@ -2023,12 +2023,41 @@ Python compile PASS. Финальный baseline217/restart PASS:151 ответ/
 2 queue round-trip, QA-имена восстановлены. Временные hooks сняты,
 WSocket/main побайтово совпадают с исходными.
 
-Далее4Е3Б: целевые бюджеты checkpoint и буфер PhalanxScans(пока1024/16384B).
-При чтении также подтверждён остаток по размеру: requestCleanup добавляет
-cleanupRequested в JSON. У checkpoint, уже занявшего предельные262144B,
-для этого нет места: метод явно откажет до изменения строки. Данные не
-усекаются, но слот может остаться занят. Это пока проверка кода/границы,
-не live-репродукция; нужно отдельно решить headroom/компактный cleanup-marker.
+### 4Е3Б — очистка предельно большого checkpoint
+
+На основном dev воспроизведён отказ requestCleanup для принятого JSON ровно
+262144B: добавление cleanupRequested переполняло строку. Before7 PASS,
+исходные строки/markers восстановлены, отказ происходил до изменения данных.
+Теперь после ACK applied-результата и зависимостей, которые проверяет прежний
+cleanupApplied, остаётся компактный RAM-marker id/phase/cleanupRequested.
+При штатном32-символьном ID это83B; полный SQL-образ остаётся прежним до
+DELETE COMMIT. Аварийный откат до него вернёт полный applied из общего снимка,
+и обычная очистка повторится. Удаление истории BattleReports не затронуто.
+Native Table остаётся предвыделенной:83B уменьшают размер копируемого marker,
+а не размер аллокации Table. Новых таблиц, SQL hot path или увеличения строк нет.
+
+`BattleCleanupBoundaryMainWorldProbe.php` after21 PASS: точные262144B и отказ
+262145B, запрет до ACK/чужой identity/не-applied, plain/packed retained DELETE,
+защита от stale UPDATE/DELETE ACK, восстановление полного checkpoint,
+native sync-full откатывает сжатие строки к полному before. Прежний полный
+cleanup-marker совместим с ACK/finish, освобождение идемпотентно. Исходные
+строки/markers/PlayerQueue восстановлены, SQL-write/newTable0.
+Прежний main-only checkpoint probe40 и read-only модель115 PASS.
+
+Настоящий saver lifecycle с JSON262144B завершился за61,103с. Внешний SELECT
+увидел полный SQL-образ без cleanupRequested, затем DELETE; RAM-строка/marker
+освобождены штатным cleanupApplied. Нового мира, игроков/флотов/экономики,
+ручных SQL-write и принудительной аварии нет. Первая попытка observer
+отказала после успешного cleanup: WS gauge0 ещё не измерен без onMessage.
+Теперь world PID обязан совпасть с probe PID, а WS PID проверяется, если
+он уже измерен. Повтор с новым proof PASS; это не доказательство WS-потока.
+Отдельный финальный full v2 baseline217/restart PASS(151 ответ/99 запросов,
+2 queue round-trip, QA-имена восстановлены) подтвердил world PID=WS PID.
+PHPStan(src/probes), PHP8.2/8.4 lint, Python compile PASS. Hooks удалены,
+WSocket/main совпадают с исходными; SQL-ключ probe отсутствует. Main работает,
+ошибок saver/cleanup/runtimeSQL/snapshot budget нет, интервал30с прежний.
+
+Далее4Е3В: целевые бюджеты checkpoint и буфер PhalanxScans(пока1024/16384B).
 Ещё не проверены остальные переменные аллокации и границы хранения. Большой packed-backlog,
 времена world-capture/SQL/TTL и PHP heap всего target ещё не подтверждены;
 если packed-снимок целиком превышает заданный бюджет, отказ остаётся явным,

@@ -105,7 +105,9 @@ final class SpaceBattles extends BaseRepository
         return null;
     }
 
-    /** Слот остаётся занят до подтверждённого SQL DELETE; история хранится в BattleReports. */
+    /** После ACK результата и связанных изменений. Слот занят до SQL DELETE ACK;
+     * история хранится в BattleReports, gameplay уже не использует этот checkpoint.
+     */
     public static function requestCleanup(int $key, string $battleId): void
     {
         static::guarded(static function () use ($key, $battleId): void {
@@ -114,8 +116,12 @@ final class SpaceBattles extends BaseRepository
             $marker = static::$syncTable->get((string)$key);
             if ($state === null || $state['id'] !== $battleId || $state['phase'] !== 'applied'
                 || !empty($marker['need_update']) || !empty($marker['need_delete'])) throw new \LogicException('Checkpoint ещё не сохранён или уже очищается.');
-            $state['cleanupRequested'] = true;
-            $encoded = json_encode($state, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
+            // Полный applied может занимать MAX_STATE_BYTES: добавлять к нему
+            // поле нельзя. Для сверки DELETE/finish достаточно identity и фазы.
+            // Сохранённый SQL-образ остаётся полным до COMMIT удаления; при
+            // аварии до него загрузится прежний applied и очистка повторится.
+            $encoded = json_encode(['id' => $state['id'], 'phase' => 'applied', 'cleanupRequested' => true],
+                JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
             if (strlen($encoded) > self::MAX_STATE_BYTES) throw new \OverflowException('Нет места для marker очистки боя.');
             try {
                 if (!static::$table->set((string)$key, array_replace($before, ['state' => $encoded]))

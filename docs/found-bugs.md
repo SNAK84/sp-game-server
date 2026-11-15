@@ -1070,6 +1070,21 @@
 
 ## B047 — ёмкости runtime/sync/connect не соответствуют20 000/1 000
 
+- Уточнение15.11.2026/4Е3Б: воспроизведён отказ requestCleanup на допустимом
+  JSON262144B(before7 PASS). После ACK applied и всех зависимых изменений
+  cleanup хранит в RAM только id/phase/cleanupRequested(83B для штатного ID).
+  Полный SQL-образ не меняется до DELETE COMMIT; история BattleReports прежняя.
+  Main-only after21 PASS:262144/262145B, преждевременная/чужая очистка,
+  stale UPDATE/DELETE ACK, восстановление полного before, native sync-full
+  rollback, старый полный cleanup-marker и повторный finish. Исходные
+  строки/markers/очередь восстановлены; SQL-write/newTable0. Прежний probe40
+  и read-only модель115 PASS. Настоящий saver lifecycle61,103с PASS: SELECT
+  подтвердил полный262144B SQL-образ до DELETE, затем отсутствие SQL/RAM/marker.
+  Первый observer ошибочно требовал WS gauge при отсутствии WS-запросов;
+  уточнён признак «не измерено», повтор PASS. PHPStan/lint/compile и финальный
+  baseline217/restart PASS(151 ответ/99 запросов,2 queue round-trip), QA
+  восстановлены, hooks сняты, main работает. Схемы/ёмкости/RAM-first/30с прежние.
+  B047 открыт: target checkpoint128 и PhalanxScans1024 требуют продолжения.
 - Уточнение15.11.2026/4Е3А: два store боёв обходили runtime-бюджет128 и
   принимали129-ю строку. SpaceBattles не обновлял generation(старый ACK снимал
   новый ABA-update), а retained DELETE не подтверждался из-за проверки

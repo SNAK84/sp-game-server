@@ -111,6 +111,32 @@ Read-only модель115 PASS, PHPStan/lint/compile PASS; финальный fu
 baseline217/restart PASS:151 ответ/99 запросов,2 queue round-trip,
 QA-имена восстановлены. Оба bootstrap/onStart-hook удалены.
 
+После4Е3Б `BattleCleanupBoundaryMainWorldProbe.php` вызывается временным hook
+после GameProtocolV2::initialize до сети/saver основного dev. Параметр
+protected=false воспроизводит прежний отказ cleanup полного JSON262144B:
+before7 PASS. После исправления default-mode21 PASS: граница262144/262145B,
+недопустимая очистка без изменений, компактный retained DELETE83B, старые
+ACK, восстановление полного образа, native sync-full rollback сжатия,
+поддержка прежнего полного cleanupRequested и идемпотентный finish.
+Свои ключи существующих Table удаляются в finally, исходные строки/markers/
+PlayerQueue сверяются целиком. SQL-write/newTable0; это не новый тестовый мир.
+
+Lifecycle probe принимает второй параметр `true` для полного JSON262144B.
+Observer дополнительно сверяет полный размер SQL-строки до DELETE и отсутствие
+в ней cleanupRequested: компактный marker не должен сохраняться через UPDATE.
+WS-authority gauge0 при отсутствии onMessage — не измеренное значение;
+проверка требует world PID=probe PID и, если WS gauge уже установлен, тот же
+WS PID. Отдельный full v2 baseline проверяет обработку реальных WS-запросов.
+Observer запускается до restart, proof path каждый раз новый; hooks после
+проверок снять. Прежний checkpoint probe40 и read-only модель115 PASS.
+Основной dev с полной записью: lifecycle61,103с PASS, SQL-образ262144B до
+DELETE и marker83B в RAM подтверждены. Первый observer без WS-запросов
+ошибочно считал gauge0 другим worker; после уточнения повтор PASS, с
+wsAuthorityObserved=false. Отдельный финальный full v2 baseline217/restart
+PASS(151 ответ/99 запросов,2 queue round-trip, QA восстановлены) подтвердил
+WS/world PID. PHPStan(src/probes), lint PHP8.2/8.4 и compile PASS.
+Оба временных hook сняты, main работает; служебный SQL-ключ отсутствует.
+
 ## B045: нулевые значения Environment
 
 ```bash

@@ -30,6 +30,8 @@ def main():
         stored = sql('echo json_encode($db->fetchOne("SELECT state FROM space_battles WHERE id=?",[$x["id"]]));', {'id': proof['id']})
         if stored is not None:
             assert json.loads(stored['state'])['id'] == proof['battleId'], 'SQL-ключ занят другой записью.'
+            assert len(stored['state'].encode('utf-8')) == proof['checkpointBytes'], 'SQL-образ усечён или преждевременно заменён cleanup-marker.'
+            assert 'cleanupRequested' not in json.loads(stored['state']), 'Компактный cleanup не должен сохраняться через UPDATE.'
             seen_sql = True
         if proof['phase'] != phase:
             phase = proof['phase']
@@ -40,12 +42,19 @@ def main():
             assert stored is None, 'После освобождения RAM в SQL остался checkpoint.'
             assert proof['sawCleanupRequested'] and proof['rowGone'] and proof['markerGone']
             assert proof['runtimeSqlWrites'] == 0
+            if proof['atLimit']:
+                assert proof['checkpointBytes'] == 262144 and proof['cleanupBytes'] < 128
             health = stats()['storage']
-            assert health['world.authorityPid'] == health['ws.authorityPid'] == proof['pid']
+            assert health['world.authorityPid'] == proof['pid']
+            # Gauge WS устанавливается только при onMessage. При отсутствии
+            # клиентов 0 означает «не измерено», а не другой игровой worker.
+            assert health['ws.authorityPid'] in (0, proof['pid'])
             assert all(health[k] == 0 for k in ('storage.lastErrorAt', 'storage.runtimeSqlRejected',
                                               'storage.cleanupErrors', 'storage.snapshotBudgetHits'))
             print('LIVE_BATTLE_CHECKPOINT_LIFECYCLE_OK', json.dumps({'seconds': proof['elapsedSeconds'],
                   'checkpointCommitObserved': True, 'sqlDeleted': True, 'ramAndMarkerReleased': True,
+                  'checkpointBytes': proof['checkpointBytes'], 'cleanupBytes': proof['cleanupBytes'],
+                  'wsAuthorityObserved': health['ws.authorityPid'] != 0,
                   'newWorld': False, 'observerSqlWrites': 0}), flush=True)
             return
         time.sleep(.5)
