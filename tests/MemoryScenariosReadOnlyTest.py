@@ -41,12 +41,18 @@ def main():
     check(demand['BattleReportsBodies'] == 272000, 'Каждый доклад8192B занимает8 блоков.')
     check(demand['BattleReportSaves'] == 40000, 'Две закладки на аккаунт.')
     check(demand['ProtocolSubscriptions'] == 8000, 'Контракт8 подписок на соединение прежний.')
+    check(demand['PhalanxScans'] == 20000 and base['assumptions']['phalanxRetentionSeconds'] == 300,
+          'Снимки фаланги считаются по аккаунтам, а не только1000 online.')
     check(demand['PlayerQueue'] == 1000 and demand['PlayerQueuePayloads'] == 1000
           and demand['PlayerQueuePayloadAccounts'] == 1000, 'Ожидающие события и большие payload учтены отдельно.')
     check(scene['largePayloadAggregateQuotaFit'] and base['assumptions']['largePayloadsPerAccount'] == 4,
           'Агрегатная quota4 не потеряна и не подменяет вместимость.')
     check(base['assumptions']['targetMaxFill'] == 0.8, 'Целевой свободный резерв20%.')
     for profile in base['profiles']:
+        check(base['profiles'][profile]['phalanxPolicy'] == {
+            'slots': 32768 if profile == 'target' else 1024, 'maxBytes': 16384, 'jsonMaxBytes': 1048576,
+            'retentionSeconds': 300, 'ttlReadsPayload': False, 'ttlScan': 'on-full-metadata-pass', 'admissionBeforeCharge': True},
+            'Настоящие лимиты и metadata TTL фаланги экспортированы: ' + profile)
         for name, policy in base['profiles'][profile]['checkpointPolicies'].items():
             check(policy['rows'] == 128 and policy['syncRows'] == 256 and policy['maxBytes'] == 262144,
                   'Текущий бюджет checkpoint читается из схемы, не увеличен: ' + profile + '/' + name)
@@ -86,7 +92,8 @@ def main():
     for name, expected in {'FleetCommands': 16384, 'ProtocolCommands': 16384,
                            'ProtocolCommandsBodies': 16384, 'MessageBodiesOverflow': 1024,
                            'BattleReportsBodies': 32768, 'ProtocolSubscriptions': 8192,
-                           'PlayerQueue': 16384, 'PlayerQueuePayloads': 1024, 'PlayerQueuePayloadAccounts': 1024}.items():
+                           'PlayerQueue': 16384, 'PlayerQueuePayloads': 1024, 'PlayerQueuePayloadAccounts': 1024,
+                           'PhalanxScans': 1024}.items():
         check(dev[name] == expected, 'Development-бюджет не увеличен: ' + name)
     for history, reserve_ok in ((83, True), (84, False)):
         result = model('--accounts=20000', '--online=1000', '--commands-per-active=0',
@@ -146,17 +153,24 @@ def main():
     check(scene['estimatedSelectedRows']['FleetCommands'] == 48000, 'Старый сценарий воспроизводится явными нулями.')
     check(scene['profiles']['target']['selectedBudgetsFit'], 'Fit относится только к выбранным бюджетам, не SLO.')
 
+    phalanx = model('--accounts=20000', '--online=0', '--phalanx-recent-account-fraction=0.5')
+    check(phalanx['scenarios'][0]['estimatedSelectedRows']['PhalanxScans'] == 10000,
+          'Снимки недавно отключившихся игроков не пропадают при online0.')
+    phalanx = model('--accounts=1', '--online=0', '--phalanx-recent-account-fraction=0.01')
+    check(phalanx['scenarios'][0]['estimatedSelectedRows']['PhalanxScans'] == 1, 'Дробное число снимков округляется вверх.')
+
     for argument in ('--history-commands-per-active=-1', '--message-overflow-fraction=1.01', '--large-command-fraction=1.01',
                      '--command-hours-per-day=25', '--receipt-packed-bytes=256.5',
                      '--report-packed-bytes=0', '--commands-per-online-minute=NaN',
-                     '--saved-reports-per-account=3', '--unknown=1'):
+                     '--saved-reports-per-account=3', '--phalanx-recent-account-fraction=1.01', '--unknown=1'):
         result = run(argument)
         check(result.returncode == 1 and not result.stdout, 'Некорректный параметр не даёт частичный JSON: ' + argument)
         check('SELECT ' not in result.stderr and 'Stack trace' not in result.stderr, 'В ошибке нет SQL/конфигурации.')
 
     help_result = run('--help')
     check(help_result.returncode == 0 and '--receipt-packed-bytes' in help_result.stdout
-          and '--large-command-fraction' in help_result.stdout, 'Справка содержит новые коэффициенты.')
+          and '--large-command-fraction' in help_result.stdout
+          and '--phalanx-recent-account-fraction' in help_result.stdout, 'Справка содержит новые коэффициенты.')
 
     # Меняется только process-local env-map диагностики. Файл .env и профиль
     # работающего main не затрагиваются; preflight проверяет до первой Table.

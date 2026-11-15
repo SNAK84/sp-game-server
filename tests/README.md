@@ -137,6 +137,35 @@ PASS(151 ответ/99 запросов,2 queue round-trip, QA восстано�
 WS/world PID. PHPStan(src/probes), lint PHP8.2/8.4 и compile PASS.
 Оба временных hook сняты, main работает; служебный SQL-ключ отсутствует.
 
+После4Е3В `PhalanxCapacityMainWorldProbe.php` временно вызывается после
+GameProtocolV2::initialize до сети/saver основного dev.28 PASS:1024/1025,
+profile frozen, update при full/без TTL-pass, отказ до оплаты и dirty,
+TTL-reuse/300с, приватность,16384/16385B, JSON1MiB/+1B, bad codec/ID/время,
+один платёж и replay. Использует существующую QA-луну snak1 с фалангой и
+минимум5000 дейтерия. В finally восстанавливает исходные cache/ресурсы/dirty/
+PlayerQueue. SQL/newTable/newWorld0; native set failure не инъецировался.
+
+`PhalanxCapacityLiveMainWorldProbe.php` временно вызывается из onStart. Он
+заполняет только cache своими ключами, .release освобождает fixture, .finish
+возвращает одну тестовую оплату5000 snak1 обычным RAM-update. Не затирает
+неожиданные изменения дейтерия. За120с срабатывает аварийная уборка fixture.
+Перед restart запустить observer с **новым** приватным proof path:
+
+```bash
+python3 -u tests/PhalanxCapacityLiveTest.py --proof .secrets/<run>/live.json
+```
+
+Тест входит через кабинет только как snak1, временно выбирает его луну,
+отправляет настоящий phalanx.scan: при full ожидает rejected(не unknown) и
+нулевую оплату. После release ожидает applied, расход5000 и публичный scan
+в galaxy DTO без _observations. Выбранный объект восстанавливается в finally,
+refund и освобождение fixture сверяются в proof. Финальный повтор PASS.
+Новых аккаунтов/мира/Table и SQL игры нет; кабинет создаёт обычную QA-сессию.
+Read-only модель123 PASS, target guard проверен до аллокации.
+PHPStan(src/probes/CLI), PHP8.2/8.4 lint и Python compile PASS. Финальный full
+v2 baseline217/restart PASS:151 ответ/99 запросов,2 queue round-trip,
+QA-имена восстановлены. Оба временных hook сняты, main работает.
+
 ## B045: нулевые значения Environment
 
 ```bash

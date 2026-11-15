@@ -47,6 +47,7 @@ final class PhalanxService
         $previous = PhalanxScans::get($userId, $now);
         if (($previous['eventId'] ?? null) === $eventId) return $previous;
         $target = self::validate($owner, $targetId);
+        PhalanxScans::assertWritable($userId); // Отказ ёмкости до DTO и оплаты.
         $events = [];
         $page = new FleetsPage(new Message());
         $owners = [];

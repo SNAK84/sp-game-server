@@ -24,6 +24,8 @@ final class RuntimeCapacity
         'Galaxy' => 8192, 'GalaxyOrbits' => 262144,
         'ResourceSurveys' => 131072, 'SurveyResults' => 32768,
         'SensorContacts' => 32768,
+        // Последний снимок хранится5мин и после отключения; резерв для20K аккаунтов.
+        'PhalanxScans' => 32768,
         'Config' => 256,
     ];
 

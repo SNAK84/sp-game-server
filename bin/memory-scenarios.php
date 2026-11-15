@@ -7,7 +7,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use SPGame\Game\Repositories\Messages;
 use SPGame\Game\Repositories\ProtocolSubscriptions;
-use SPGame\Game\Repositories\{BattleReports, PlayerQueuePayloads, ProtocolCommands, RuntimeCapacity, RuntimeRecords, SharedBlobStore};
+use SPGame\Game\Repositories\{BattleReports, PlayerQueuePayloads, ProtocolCommands, RuntimeCapacity, RuntimeRecords, SharedBlobStore, PhalanxScans};
 
 /** Защита самой модели от переполнения при пользовательских коэффициентах. */
 function scenarioRows(float $value): int
@@ -25,6 +25,7 @@ if (in_array('--help', $argv, true)) {
         . "--commands-per-online-minute=2 --command-hours-per-day=24 --receipt-packed-bytes=384\n"
         . "--pending-commands-per-online=1 (отдельно от суточных terminal-квитанций)\n"
         . "--large-command-fraction=1 (доля pending, требующих отдельного payload)\n"
+        . "--phalanx-recent-account-fraction=1 (доля аккаунтов со снимком за последние300с, включая offline)\n"
         . "--message-overflow-fraction=0.25 --message-overflow-bytes=1024\n"
         . "--reports-per-account-day=0.1 --saved-reports-per-account=1 --bookmarks-per-account=2\n"
         . "--report-packed-bytes=8192\n"
@@ -42,6 +43,7 @@ try {
         'commands-per-online-minute' => '2', 'command-hours-per-day' => '24',
         'pending-commands-per-online' => '1',
         'large-command-fraction' => '1',
+        'phalanx-recent-account-fraction' => '1',
         'receipt-packed-bytes' => '384', 'message-overflow-fraction' => '0.25',
         'message-overflow-bytes' => '1024', 'reports-per-account-day' => '0.1',
         'saved-reports-per-account' => '1', 'bookmarks-per-account' => '2',
@@ -66,7 +68,8 @@ try {
         $options[$key] = (float)$options[$key];
     }
     if ($options['active-fraction'] > 1) throw new InvalidArgumentException('Доля активных флотов должна быть от0 до1.');
-    if ($options['message-overflow-fraction'] > 1 || $options['large-command-fraction'] > 1 || $options['command-hours-per-day'] > 24
+    if ($options['message-overflow-fraction'] > 1 || $options['large-command-fraction'] > 1
+        || $options['phalanx-recent-account-fraction'] > 1 || $options['command-hours-per-day'] > 24
         || $options['saved-reports-per-account'] > $options['bookmarks-per-account']) {
         throw new InvalidArgumentException('Неверная доля переполнения, время активности или число закладок.');
     }
@@ -89,7 +92,7 @@ try {
         $budgets = [];
         foreach ($inventory['repositories'] as $repository) $budgets[$repository['class']] = $repository['layout']['mainBuckets'];
         foreach (['Connect', 'ProtocolSubscriptions', 'MessageBodiesOverflow',
-            'ProtocolCommandsBodies', 'BattleReportsBodies', 'PlayerQueuePayloads', 'PlayerQueuePayloadAccounts'] as $name) {
+            'ProtocolCommandsBodies', 'BattleReportsBodies', 'PlayerQueuePayloads', 'PlayerQueuePayloadAccounts', 'PhalanxScans'] as $name) {
             $budgets[$name] = $inventory['extraTables'][$name]['buckets'];
         }
         foreach (['ProtocolCommands', 'BattleReports', 'BattleReportSaves'] as $name) {
@@ -97,6 +100,7 @@ try {
         }
         $profiles[$profile] = ['sharedAllocationModelBytes' => $inventory['totalSharedAllocationModelBytes'],
             'checkpointPolicies' => $inventory['checkpointPolicies'],
+            'phalanxPolicy' => $inventory['phalanxPolicy'],
             'workerMailboxPolicy' => $inventory['workerMailboxPolicy'], 'playerQueuePayloadPolicy' => $inventory['playerQueuePayloadPolicy'],
             'selectedBudgets' => $budgets, 'cleanupPolicies' => $inventory['cleanupPolicies'], 'snapshotPolicy' => $inventory['snapshotPolicy']];
     }
@@ -143,6 +147,7 @@ try {
             'BattleReports' => $reports,
             'BattleReportsBodies' => scenarioRows($reports * $blocks($options['report-packed-bytes'], $runtimeInline)),
             'BattleReportSaves' => scenarioRows($accounts * $options['bookmarks-per-account']),
+            'PhalanxScans' => scenarioRows($accounts * $options['phalanx-recent-account-fraction']),
             'Connect' => $online, 'ProtocolSubscriptions' => $online * $subscriptions];
         $estimates = [];
         foreach ($profiles as $profile => $inventory) {
@@ -174,6 +179,7 @@ try {
         'assumptions' => $options + ['retentionDays' => $days, 'reportRetentionDays' => $reportDays,
             'receiptRetentionDays' => $receiptDays, 'subscriptionsPerOnline' => $subscriptions,
             'largePayloadsPerAccount' => PlayerQueuePayloads::MAX_PER_ACCOUNT,
+            'phalanxRetentionSeconds' => PhalanxScans::RETENTION,
             'messageInlineBytes' => $messageInline, 'runtimeInlineBytes' => $runtimeInline,
             'blockBytes' => SharedBlobStore::BLOCK_BYTES, 'targetMaxFill' => RuntimeCapacity::TARGET_MAX_FILL],
         'completionReservation' => ['bytesPerPending' => $completionReserve, 'blocksPerPending' => $completionBlocks],
@@ -184,6 +190,7 @@ try {
             'Сохранённые доклады добавлены отдельно от свежих без пересечения; их бессрочный архив не ограничен числом аккаунтов.',
             'Размеры packed и доля overflow заданы явно, не получены из маленькой выборки dev; компрессия не гарантируется.',
             'Pending считаются ожидающими в PlayerQueue; доля больших событий задана отдельно. Прочие серверные события/недавно отключившиеся аккаунты не включены; агрегатная quota не гарантирует равномерное распределение.',
+            'Снимки фаланги учитывают offline-владельцев: по умолчанию все аккаунты имеют свежий снимок. Это верхний сценарий числа строк, не частота сканов; полный metadata TTL-pass пока не ограничен временем.',
             'Учтены физический резерв accepted и payload очереди; прочие индексы, журналы добычи, mailbox, tombstones и обновления других типов тел вне модели.',
             'idealFullPassCalls очистки не учитывает time-budget hits, lag, ошибки и ожидание ACK: это не гарантия освобождения памяти за заданное время.',
             'PHP heap, COW, сокеты, снимки, ОС, БД и другие сервисы требуют отдельного запаса.',

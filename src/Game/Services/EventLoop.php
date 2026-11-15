@@ -682,8 +682,15 @@ class EventLoop
                         'message' => $error->getMessage(), 'file' => $error->getFile(), 'line' => $error->getLine()]);
                     $failure = ['eventId' => (int)$Event['id'], 'token' => $Event['data']['token'],
                         'sourceId' => (int)$Event['planet_id'], 'error' => $error->getMessage()];
-                    \SPGame\Game\Repositories\PhalanxScans::put((int)$Event['user_id'],
-                        \SPGame\Game\Repositories\PhalanxScans::pack($failure, microtime(true)));
+                    try {
+                        \SPGame\Game\Repositories\PhalanxScans::put((int)$Event['user_id'],
+                            \SPGame\Game\Repositories\PhalanxScans::pack($failure, microtime(true)));
+                    } catch (\Throwable $publishError) {
+                        // Полный буфер не должен ломать завершение исходной
+                        // команды: её rejected-результат уже содержит ошибку.
+                        $this->logger->warning('Не опубликована ошибка сканирования в буфере фаланги',
+                            ['queueId' => (int)$Event['id'], 'message' => $publishError->getMessage()]);
+                    }
                 }
                 $sendMsg = true;
                 break;

@@ -7,7 +7,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use SPGame\Core\{Database, Environment};
 use SPGame\Game\Repositories\BaseRepository;
-use SPGame\Game\Repositories\{PlayerQueuePayloads, PlanetBattles, SpaceBattles, FleetExpeditions, WorkerMailbox};
+use SPGame\Game\Repositories\{PlayerQueuePayloads, PlanetBattles, SpaceBattles, FleetExpeditions, WorkerMailbox, PhalanxScans};
 use SPGame\Game\Services\{FleetBattleService, FleetExpeditionService};
 use Swoole\Table;
 
@@ -101,7 +101,7 @@ $extra = [
     'PlayerQueuePayloads' => memoryModel(PlayerQueuePayloads::capacity(), array_merge(array_fill(0, 4, [Table::TYPE_INT, 4]),
         [[Table::TYPE_FLOAT], [Table::TYPE_STRING, 32], [Table::TYPE_STRING, PlayerQueuePayloads::MAX_BYTES]]), 1),
     'PlayerQueuePayloadAccounts' => memoryModel(PlayerQueuePayloads::capacity(), [[Table::TYPE_INT, 4]], 1),
-    'PhalanxScans' => memoryModel(1024, [[Table::TYPE_FLOAT, 8], [Table::TYPE_STRING, 16384]], 1),
+    'PhalanxScans' => memoryModel(PhalanxScans::capacity(), [[Table::TYPE_FLOAT, 8], [Table::TYPE_STRING, PhalanxScans::MAX_BYTES]], 1),
     'SensorContacts' => memoryModel(\SPGame\Game\Repositories\SensorContacts::capacity(),
         [[Table::TYPE_FLOAT, 8], [Table::TYPE_STRING, \SPGame\Game\Repositories\SensorContacts::MAX_BYTES]], 1),
     'CombatMailbox' => memoryModel(FleetBattleService::MAILBOX_CAPACITY,
@@ -147,6 +147,9 @@ foreach ([PlanetBattles::class, SpaceBattles::class, FleetExpeditions::class] as
         'retainedUntilDeleteAck' => $class === SpaceBattles::class];
 }
 $result = ['php' => PHP_VERSION, 'swoole' => phpversion('swoole'), 'checkpointPolicies' => $checkpointPolicies,
+    'phalanxPolicy' => ['slots' => PhalanxScans::capacity(), 'maxBytes' => PhalanxScans::MAX_BYTES,
+        'jsonMaxBytes' => PhalanxScans::MAX_JSON_BYTES, 'retentionSeconds' => PhalanxScans::RETENTION,
+        'ttlReadsPayload' => false, 'ttlScan' => 'on-full-metadata-pass', 'admissionBeforeCharge' => true],
     'workerMailboxPolicy' => ['reserveBeforeDispatch' => true, 'lateReplyCreatesRow' => false,
         'conflict' => WorkerMailbox::CONFLICT,
         'CombatMailbox' => ['slots' => FleetBattleService::MAILBOX_CAPACITY, 'maxBytes' => PlanetBattles::MAX_STATE_BYTES],

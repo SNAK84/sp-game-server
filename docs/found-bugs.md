@@ -1070,6 +1070,23 @@
 
 ## B047 — ёмкости runtime/sync/connect не соответствуют20 000/1 000
 
+- Уточнение15.11.2026/4Е3В: PhalanxScans теперь profile-aware1024/32768;
+  dev/16384B/JSON1MiB/TTL300с прежние. Ёмкость фиксируется после init,
+  full admission до DTO/оплаты, обновление своего снимка разрешено при full.
+  TTL читается по metadata и только при нехватке места новому владельцу;
+  живые снимки не вытесняются. Oversize/невалидная строка отклоняется до set,
+  write/readback failure восстанавливает before. Запись ошибки в заполненный
+  cache больше не переводит исходную команду в unknown через общий catch.
+  Main28 PASS без нового мира/Table/SQL, исходные ресурсы/markers восстановлены.
+  Настоящий v2 full→rejected/0 дейтерия; после освобождения applied/5000 PASS,
+  топливо snak1 и выбранный объект восстановлены; финальный повтор PASS.
+  Модель123 PASS учитывает offline-снимки: default20K строк, target61,04%
+  заполнения, резерв есть. Target native+999,023MiB до36,141GiB(не RSS),
+  dev1,594GiB прежний, target не включён. PHPStan(src/probes/CLI), PHP8.2/8.4
+  lint, Python compile и финальный baseline217/restart PASS(151 ответ/99
+  запросов,2 queue round-trip), QA восстановлены, hooks сняты, main работает.
+  B047 открыт: checkpoint128, худшее время полного metadata-pass при full и
+  прочие границы требуют продолжения.
 - Уточнение15.11.2026/4Е3Б: воспроизведён отказ requestCleanup на допустимом
   JSON262144B(before7 PASS). После ACK applied и всех зависимых изменений
   cleanup хранит в RAM только id/phase/cleanupRequested(83B для штатного ID).
