@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace SPGame\Game\Repositories;
 
-use SPGame\Core\Logger;
 use Swoole\Table;
 
 /** Один текущий бой на планете. Записывает только координатор игрового цикла. */
@@ -49,28 +48,11 @@ final class PlanetBattles extends BaseRepository
         if (strlen($encoded) > self::MAX_STATE_BYTES) {
             throw new \OverflowException('Состояние боя превышает вместимость runtime записи.');
         }
-        $key = (string)$planetId;
-        $before = static::$table->get($key);
-        $marker = static::$syncTable->get($key);
-        try {
-            if (!static::$table->set($key, ['id' => $planetId, 'phase' => $state['phase'], 'state' => $encoded])
-                || static::$table->get($key)['state'] !== $encoded) {
-                throw new \RuntimeException('Не удалось записать состояние боя.');
-            }
-            static::markForUpdate($planetId);
-            if ((static::$syncTable->get($key)['need_update'] ?? 0) !== 1) {
-                throw new \RuntimeException('Не удалось установить dirty marker боя.');
-            }
-        } catch (\Throwable $error) {
-            $rowRestored = $before ? static::$table->set($key, $before)
-                : (!static::$table->exists($key) || static::$table->del($key));
-            $markerRestored = $marker ? static::$syncTable->set($key, $marker)
-                : (!static::$syncTable->exists($key) || static::$syncTable->del($key));
-            if (!$rowRestored || !$markerRestored) {
-                Logger::getInstance()->critical('Не удалось восстановить runtime запись боя', ['planetId' => $planetId]);
-            }
-            throw $error;
-        }
+        $before = static::findExistingById($planetId);
+        // Общий путь проверяет бюджет, подтверждает байты/поколение и откатывает
+        // main+marker под тем же runtime-lock, что захват/ACK штатного saver.
+        static::writeRuntimeRow(['id' => $planetId, 'phase' => $state['phase'], 'state' => $encoded],
+            $before, true, $before === null);
     }
 
     public static function active(): array

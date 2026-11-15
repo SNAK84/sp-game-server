@@ -81,6 +81,36 @@ finally отработал, после уточнения probe main запущ�
 Финальный full v2 baseline217/restart PASS:152 ответа/99 запросов,2 queue
 round-trip, QA-имена восстановлены. PHPStan(src/probe/CLI) и lint PHP8.2 PASS.
 
+После4Е3А `BattleCheckpointMainWorldProbe.php` вызывается после
+GameProtocolV2::initialize и до сети/saver. Before-mode protected=false:
+12 PASS воспроизводят129-ю строку при бюджете128, неизменный generation/ABA
+ACK и зависший retained DELETE. Основной protected-mode40 PASS: admission,
+generation/stale ACK, oversize, plain/packed snapshot, rollback native sync-full
+для PlanetBattles/SpaceBattles/FleetExpeditions. SQL DELETE проверяется только
+для своего отсутствующего ключа в ROLLBACK. ACK временных ключей моделируется;
+исходные Table/markers/PlayerQueue восстановлены, нового мира/Table нет.
+Первый расширенный probe скорректирован: идентичный update экспедиции вправе
+не создавать marker. Bootstrap повторён; hooks и wrapper сняты.
+
+`BattleCheckpointLifecycleMainWorldProbe.php` временно вызывается из onStart
+основного dev: одна applied-запись без флотов/ресурсов/игроков проходит штатный
+saver и cleanupApplied. Перед запуском SELECT проверяет отсутствие служебного
+ключа1900700001. Внешний read-only observer нужно запускать **до** restart:
+
+```bash
+python3 -u tests/BattleCheckpointLifecycleLiveTest.py --proof .secrets/<run>/lifecycle.json
+```
+
+Он не создаёт fixture/подключения/SQL-записи; читает proof и SELECT state этого
+ключа. Должен увидеть INSERT, затем DELETE и отсутствие строки/marker в RAM.
+Наблюдаемый PASS62,114с при штатном saveInterval30с; первый запоздавший observer
+не засчитан. После выполнения hook удалить. Это не отдельный сервер или бой,
+а реальная проверка COMMIT→ACK→освобождение основным saver. Код теста не
+меняет рабочий .env и не делает аварийной остановки.
+Read-only модель115 PASS, PHPStan/lint/compile PASS; финальный full v2
+baseline217/restart PASS:151 ответ/99 запросов,2 queue round-trip,
+QA-имена восстановлены. Оба bootstrap/onStart-hook удалены.
+
 ## B045: нулевые значения Environment
 
 ```bash

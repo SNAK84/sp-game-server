@@ -1070,6 +1070,21 @@
 
 ## B047 — ёмкости runtime/sync/connect не соответствуют20 000/1 000
 
+- Уточнение15.11.2026/4Е3А: два store боёв обходили runtime-бюджет128 и
+  принимали129-ю строку. SpaceBattles не обновлял generation(старый ACK снимал
+  новый ABA-update), а retained DELETE не подтверждался из-за проверки
+  runtime===null, поэтому слот не освобождался. Main-only before12/after40
+  PASS: оба store переведены на общий writer; retainedRow только в RAM snapshot,
+  ACK сверяет точные row+marker после COMMIT; request/finish под runtime-lock.
+  Native sync-full rollback проверен для боёв и экспедиций, исходные записи
+  восстановлены, hooks сняты. Настоящий saver lifecycle62,114с: SELECT видел
+  INSERT и DELETE, RAM/marker освобождены, без флотов/ресурсов и ручного SQL-write.
+  Таблицы/SQL/wire/30с/RAM-first прежние. Размеры checkpoint128/256/262144B
+  экспортируются как checkpointPolicies, но demand ещё не моделирует их число.
+  B047 открыт:128 для target не принят, PhalanxScans1024 и JSON-headroom
+  cleanupRequested у предельно большой записи требуют следующей проверки.
+  Модель115/PHPStan/lint PASS, финальный baseline217/restart PASS(151 ответ/
+  99 запросов,2 queue round-trip), QA восстановлены, main работает.
 - Уточнение15.11.2026/4Е2: большой буфер теперь profile-aware — dev1024,
   target8192 строк/counter; quota4/16384B/TTL120с/inline512B прежние. После
   init capacity фиксирована по выделенной Table. Счётчик проверяется после

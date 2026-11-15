@@ -96,6 +96,7 @@ try {
             $budgets[$name] = $inventory['extraTables'][$name . 'Rows']['buckets'];
         }
         $profiles[$profile] = ['sharedAllocationModelBytes' => $inventory['totalSharedAllocationModelBytes'],
+            'checkpointPolicies' => $inventory['checkpointPolicies'],
             'workerMailboxPolicy' => $inventory['workerMailboxPolicy'], 'playerQueuePayloadPolicy' => $inventory['playerQueuePayloadPolicy'],
             'selectedBudgets' => $budgets, 'cleanupPolicies' => $inventory['cleanupPolicies'], 'snapshotPolicy' => $inventory['snapshotPolicy']];
     }

@@ -7,7 +7,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use SPGame\Core\{Database, Environment};
 use SPGame\Game\Repositories\BaseRepository;
-use SPGame\Game\Repositories\{PlayerQueuePayloads, PlanetBattles, FleetExpeditions, WorkerMailbox};
+use SPGame\Game\Repositories\{PlayerQueuePayloads, PlanetBattles, SpaceBattles, FleetExpeditions, WorkerMailbox};
 use SPGame\Game\Services\{FleetBattleService, FleetExpeditionService};
 use Swoole\Table;
 
@@ -138,7 +138,15 @@ foreach (['ProtocolCommands' => 512, 'BattleReports' => 128] as $name => $minimu
         'idealFullPassCalls' => (int)ceil($capacity / $steps),
         'budgetMs' => \SPGame\Game\Repositories\RuntimeRecords::SWEEP_BUDGET_MS];
 }
-$result = ['php' => PHP_VERSION, 'swoole' => phpversion('swoole'),
+$checkpointPolicies = [];
+foreach ([PlanetBattles::class, SpaceBattles::class, FleetExpeditions::class] as $class) {
+    $layout = $class::runtimeLayout();
+    $checkpointPolicies[(new ReflectionClass($class))->getShortName()] = [
+        'rows' => $layout['mainBuckets'], 'syncRows' => $layout['syncBuckets'],
+        'maxBytes' => $class === FleetExpeditions::class ? $class::MAX_BYTES : $class::MAX_STATE_BYTES,
+        'retainedUntilDeleteAck' => $class === SpaceBattles::class];
+}
+$result = ['php' => PHP_VERSION, 'swoole' => phpversion('swoole'), 'checkpointPolicies' => $checkpointPolicies,
     'workerMailboxPolicy' => ['reserveBeforeDispatch' => true, 'lateReplyCreatesRow' => false,
         'conflict' => WorkerMailbox::CONFLICT,
         'CombatMailbox' => ['slots' => FleetBattleService::MAILBOX_CAPACITY, 'maxBytes' => PlanetBattles::MAX_STATE_BYTES],

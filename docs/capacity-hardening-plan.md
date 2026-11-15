@@ -1969,8 +1969,67 @@ WSocket/main совпадают с исходными. После штатног
 authority/WS, очередь0, saveInterval30с; lastErrorAt/runtimeSqlRejected/
 cleanupErrors/snapshotBudgetHits0. Это текущий малый dev, не20K/1K нагрузка.
 
-Далее4Е3: остальные бюджеты runtime(включая боевые checkpoint и буфер сканов),
-оставшиеся переменные аллокации и границы хранения. Большой packed-backlog,
+### 4Е3А — admission/generation и очистка боевых checkpoint(15.11.2026)
+
+Подтверждены на основном dev два обхода общей защиты. PlanetBattles::store и
+SpaceBattles::store писали прямо в Table: при бюджете128 принимали129-ю строку,
+которую preflight уже не разрешил бы загрузить после restart. SpaceBattles не
+обновлял generation при записи: старый ACK снимал новый ABA-update.
+Кроме того, cleanup сохранял applied-строку до ACK SQL DELETE, а общий ACK
+сверял runtime сnull. Marker оставался pending, finishCleanup не освобождал слот.
+Отрицательный main-only probe12 PASS воспроизвёл все три проявления; исходные
+строки/markers/PlayerQueue восстановлены, SQL-write0, нового мира/Table нет.
+
+Оба store теперь используют существующий BaseRepository::writeRuntimeRow:
+лимит, runtime-lock, полная проверка bytes/marker, generation и общий rollback.
+Размеры Table/JSON не менялись. FleetExpeditions уже использовал этот путь;
+его проверили как контроль без изменения исходного кода репозитория.
+
+Для retained DELETE только SpaceBattles добавляет в **внутренний снимок RAM**
+точный retainedRow. SQL writer по-прежнему пишет DELETE, не новое поле/таблицу.
+После COMMIT специальный ACK снимает marker лишь при точном совпадении
+generation и retained-строки. Старый UPDATE/DELETE ACK не снимает новую запись
+или повторный DELETE. До ACK слот занят; после него штатный finishCleanup
+освобождает строку. Request/finish также сериализованы runtime-lock.
+SQL/wire/состояния боя/экономика/RAM-first/30с прежние, hot-path SQL не добавлен.
+
+Положительный main-only probe40 PASS: full admission/update, generation/ABA,
+возврат из tombstone, oversize, plain/packed retained snapshot, SQL writer
+DELETE своего отсутствующего ключа в ROLLBACK-транзакции, stale UPDATE/DELETE
+ACK, ожидание до ACK и идемпотентный finish. В трёх настоящих sync Table
+воспроизведён native-full после записи main; rollback всех строк/markers
+подтверждён. Исходное состояние восстановлено до сети/saver; SQL commit0.
+Первый расширенный probe прервал bootstrap из-за своей fixture: для экспедиции
+записал идентичное значение, update корректно не создавал marker. Fixture
+уточнена,40 PASS получены. Временные диагностические hooks удалены.
+
+Настоящий lifecycle отдельно проверен на основном dev: одна служебная applied
+запись без флотов/игроков/ресурсов. Штатный saver сначала выполнил INSERT/ACK,
+затем cleanupApplied→DELETE/ACK→finishCleanup. Внешний observer делал только
+SELECT этого ключа: видел SQL-строку и затем её отсутствие; RAM/marker удалены,
+authority/WS PID совпадают, ошибок saver/cleanup/runtimeSQL/budget нет.
+Полный наблюдаемый цикл62,114с при saveInterval30с. Первый observer запущен
+слишком поздно и не видел INSERT; повтор с новым proof запущен до restart,
+обе стадии подтверждены. Служебный SQL-ключ штатно удалён, SQL cleanup вручную
+не выполнялся. Это не бой/нагрузка, но реальный общий saver, не имитация COMMIT.
+
+Аудитор/модель экспортируют checkpointPolicies из схем трёх репозиториев:
+каждый пока128 строк/256 sync/262144B в обоих профилях. Выбранный demand и
+selectedReserveFit по-прежнему не включают число боевых checkpoint. Native
+dev1711540576B/target37758216544B прежние, target не включён. Это исправление
+целостности, не утверждение достаточности128 боёв/экспедиций для20K/1K.
+Read-only модель115 PASS; PHPStan всего src и адресно probe/CLI, lint PHP8.2,
+Python compile PASS. Финальный baseline217/restart PASS:151 ответ/99 запросов,
+2 queue round-trip, QA-имена восстановлены. Временные hooks сняты,
+WSocket/main побайтово совпадают с исходными.
+
+Далее4Е3Б: целевые бюджеты checkpoint и буфер PhalanxScans(пока1024/16384B).
+При чтении также подтверждён остаток по размеру: requestCleanup добавляет
+cleanupRequested в JSON. У checkpoint, уже занявшего предельные262144B,
+для этого нет места: метод явно откажет до изменения строки. Данные не
+усекаются, но слот может остаться занят. Это пока проверка кода/границы,
+не live-репродукция; нужно отдельно решить headroom/компактный cleanup-marker.
+Ещё не проверены остальные переменные аллокации и границы хранения. Большой packed-backlog,
 времена world-capture/SQL/TTL и PHP heap всего target ещё не подтверждены;
 если packed-снимок целиком превышает заданный бюджет, отказ остаётся явным,
 он не превращается в несогласованные частичные commits. B047 остаётся открыт.

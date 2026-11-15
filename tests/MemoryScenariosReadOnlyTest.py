@@ -47,6 +47,10 @@ def main():
           'Агрегатная quota4 не потеряна и не подменяет вместимость.')
     check(base['assumptions']['targetMaxFill'] == 0.8, 'Целевой свободный резерв20%.')
     for profile in base['profiles']:
+        for name, policy in base['profiles'][profile]['checkpointPolicies'].items():
+            check(policy['rows'] == 128 and policy['syncRows'] == 256 and policy['maxBytes'] == 262144,
+                  'Текущий бюджет checkpoint читается из схемы, не увеличен: ' + profile + '/' + name)
+            check(policy['retainedUntilDeleteAck'] == (name == 'SpaceBattles'), 'Retained DELETE выделен отдельно: ' + name)
         mailbox = base['profiles'][profile]['workerMailboxPolicy']
         check(mailbox['reserveBeforeDispatch'] and not mailbox['lateReplyCreatesRow'], 'Mailbox публикуется только в резерв: ' + profile)
         check(mailbox['CombatMailbox'] == {'slots': 32, 'maxBytes': 262144}, 'Бюджет боевого mailbox прежний: ' + profile)
