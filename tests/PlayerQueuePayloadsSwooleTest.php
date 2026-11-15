@@ -181,12 +181,12 @@ researchCase('PageAction при заполненном буфере возвра
 
 researchCase('глобальный лимит 1024, отдельные аккаунты, TTL освобождает всю ёмкость', static function (): void {
     researchFixture();
-    for ($i = 1; $i <= Payloads::MAX_PENDING; ++$i) {
+    for ($i = 1; $i <= Payloads::capacity(); ++$i) {
         Payloads::put(['id' => $i, 'account_id' => $i, 'user_id' => $i, 'planet_id' => 101, 'action' => 'test'], serialize(payloadLarge()));
     }
-    researchAssert(Payloads::count() === Payloads::MAX_PENDING, 'Буфер не вмещает заявленный лимит.');
+    researchAssert(Payloads::count() === Payloads::capacity(), 'Буфер не вмещает заявленный лимит.');
     payloadExpectFailure(static fn() => PlayerQueue::addQueue(9000, 9000, 101, PlayerQueue::ActionMessagesNew, payloadLarge()));
-    researchAssert(PlayerQueue::getAll() === [] && Payloads::count() === Payloads::MAX_PENDING, 'Переполнение создало event/перезаписало payload.');
+    researchAssert(PlayerQueue::getAll() === [] && Payloads::count() === Payloads::capacity(), 'Переполнение создало event/перезаписало payload.');
     Payloads::deleteExpired(PHP_FLOAT_MAX);
     researchAssert(Payloads::count() === 0 && payloadTable('accounts')->count() === 0, 'Очистка утекла по памяти/квотам.');
     PlayerQueue::addQueue(9000, 9000, 101, PlayerQueue::ActionMessagesNew, payloadLarge());

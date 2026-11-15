@@ -1070,6 +1070,21 @@
 
 ## B047 — ёмкости runtime/sync/connect не соответствуют20 000/1 000
 
+- Уточнение15.11.2026/4Е2: большой буфер теперь profile-aware — dev1024,
+  target8192 строк/counter; quota4/16384B/TTL120с/inline512B прежние. После
+  init capacity фиксирована по выделенной Table. Счётчик проверяется после
+  set, TTL scan не копирует тела живых строк. Main-only probe46 PASS:
+  границы/identity/quota, восстановление полного тела+TTL, global-full,
+  native counter-full и PlayerQueue-full с откатом. Исходные строки/quota/
+  dirty/индексы восстановлены, SQL-write0, hook снят; пропуски ID допустимы.
+  Первая проверка ошибочно учитывала meta.last_id, bootstrap повторён после
+  исправления probe. Модель103 PASS теперь включает PlayerQueue/payload/
+  счётчики и aggregate quota. При полной quota1000 online нужно4000 мест,
+  target сохраняет20% резерв. Native dev1,594GiB прежний; target35,165GiB,
+  +228,046875MiB. PHPStan/lint и финальный baseline217/restart PASS(152 ответа/
+  99 запросов,2 queue round-trip, QA восстановлены). Рабочий main запущен,
+  ошибок saver/cleanup/runtimeSQL нет,30с/RAM-first сохранены. На текущем dev
+  target не включён; B047/SLO ещё открыт.
 - Уточнение15.11.2026/4Е1: worker мог заново создать ответ после удаления
   job/timeout. Теперь оба боевых mailbox резервируют строку до dispatch;
   общий mutex сериализует reserve/publish/release. Late reply не создаёт

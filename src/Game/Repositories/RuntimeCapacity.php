@@ -19,6 +19,8 @@ final class RuntimeCapacity
         'Fleets' => 131072, 'FleetsShips' => 131072, 'FleetCommands' => 1048576,
         'Queues' => 131072, 'Friends' => 131072, 'Messages' => 1048576,
         'MessageBodiesOverflow' => 262144, 'ProtocolSubscriptions' => 16384,
+        //1000 online ×4 больших события; не менее20% свободных мест.
+        'PlayerQueuePayloads' => 8192,
         'Galaxy' => 8192, 'GalaxyOrbits' => 262144,
         'ResourceSurveys' => 131072, 'SurveyResults' => 32768,
         'SensorContacts' => 32768,

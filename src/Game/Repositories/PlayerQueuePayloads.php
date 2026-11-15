@@ -18,23 +18,32 @@ final class PlayerQueuePayloads
     private static Table $table;
     private static Table $accounts;
     private static Lock $lock;
+    private static int $capacity = 0;
     private const IDENTITY = ['id', 'account_id', 'user_id', 'planet_id', 'action'];
+
+    /** После init возвращает ёмкость созданной Table, не изменяемый профиль. */
+    public static function capacity(): int
+    {
+        return isset(self::$table) ? self::$capacity : RuntimeCapacity::budget('PlayerQueuePayloads', self::MAX_PENDING);
+    }
 
     /** Вызывается до запуска WebSocket workers: Table и mutex должны быть общими. */
     public static function init(): void
     {
         if (isset(self::$table)) return;
-        // Полный резерв коллизий позволяет вместить MAX_PENDING разных ключей.
-        $table = new Table(self::MAX_PENDING, 1.0);
+        $capacity = self::capacity();
+        // Полный резерв коллизий позволяет вместить capacity разных ключей.
+        $table = new Table($capacity, 1.0);
         foreach (['id', 'account_id', 'user_id', 'planet_id'] as $name) $table->column($name, Table::TYPE_INT, 4);
         $table->column('action', Table::TYPE_STRING, 32);
         $table->column('expires_at', Table::TYPE_FLOAT);
         $table->column('data', Table::TYPE_STRING, self::MAX_BYTES);
-        $accounts = new Table(self::MAX_PENDING, 1.0);
+        $accounts = new Table($capacity, 1.0);
         $accounts->column('pending', Table::TYPE_INT, 4);
         if (!$table->create() || !$accounts->create()) throw new \RuntimeException('Не удалось создать буфер PlayerQueue.');
         self::$lock = new Lock(SWOOLE_MUTEX);
         self::$accounts = $accounts;
+        self::$capacity = $capacity;
         self::$table = $table;
     }
 
@@ -52,14 +61,15 @@ final class PlayerQueuePayloads
             $accountKey = (string)$event['account_id'];
             $before = self::$accounts->get($accountKey);
             $pending = (int)($before['pending'] ?? 0);
-            if (self::$table->count() >= self::MAX_PENDING || $pending >= self::MAX_PER_ACCOUNT) {
+            if (self::$table->count() >= self::$capacity || $pending >= self::MAX_PER_ACCOUNT) {
                 throw new \LogicException('Буфер команд занят. Дождитесь обработки предыдущих команд.');
             }
             if (self::$table->exists($key)) throw new \LogicException('Событие с таким ID уже ожидает обработки.');
             $row = self::identity($event) + ['expires_at' => microtime(true) + $ttlSeconds, 'data' => $payload];
             try {
                 if (!self::$table->set($key, $row) || self::$table->get($key) !== $row
-                    || !self::$accounts->set($accountKey, ['pending' => $pending + 1])) {
+                    || !self::$accounts->set($accountKey, ['pending' => $pending + 1])
+                    || self::$accounts->get($accountKey) !== ['pending' => $pending + 1]) {
                     throw new \LogicException('Не удалось сохранить команду во временном буфере.');
                 }
             } catch (\Throwable $error) {
@@ -116,9 +126,15 @@ final class PlayerQueuePayloads
         self::acquire();
         try {
             $expired = [];
-            foreach (self::$table as $row) {
-                if ($row['expires_at'] > $now) continue;
-                $expired[] = self::identity($row);
+            // Не копируем до16KiB data каждой живой строки каждые5с:
+            // iterator::current не вызывается, читаются только deadline/identity.
+            for (self::$table->rewind(); self::$table->valid(); self::$table->next()) {
+                $key = (string)self::$table->key();
+                $expiresAt = self::$table->get($key, 'expires_at');
+                if ($expiresAt === false || $expiresAt > $now) continue;
+                $identity = [];
+                foreach (self::IDENTITY as $field) $identity[$field] = self::$table->get($key, $field);
+                $expired[] = $identity;
             }
             // Удаление во время обхода Swoole Table может пропустить строки коллизий.
             foreach ($expired as $row) self::removeLocked($row);

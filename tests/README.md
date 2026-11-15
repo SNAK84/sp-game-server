@@ -64,6 +64,23 @@ Checkpoint/dirty/PlayerQueue восстановлены. Full v2 baseline217/res
 временный bootstrap-hook удалён. Сгенерированные timeout/dispatch-failure
 в логах probe ожидаемы. Бюджет1024 больших payload пока не увеличен.
 
+После4Е2 модель103 PASS включает PlayerQueue/внешние тела/счётчики, долю
+--large-command-fraction, суммарную quota4, полную quota1000 online и честное
+превышение очереди для200000 pending. Dev1024, target8192; target не выделяется.
+`PlayerQueuePayloadMainWorldProbe.php` вызывается после GameProtocolV2::initialize,
+до сети/saver основного dev.46 PASS:512/513/16384/16385B, identity, quota/reuse,
+codec/startup publish полного тела+TTL, выборочная TTL-очистка. Существующие
+Table заполняются своими временными ключами для global-full/native counter-full/
+PlayerQueue-full. Проверяются откат тела/quota/индексов и неизменность принятых
+событий. Исходные строки/markers/индексы восстановлены; SQL-write/newTable0.
+ID монотонны: отказ может дать пропуск, meta.last_id не сравнивается/не откатывается.
+Первый запуск probe остановил bootstrap из-за ошибочного сравнения allocator;
+finally отработал, после уточнения probe main запущен и46 PASS. Hook снят.
+Это не новая копия мира и не нагрузочная приёмка. Старый native-тест
+`PlayerQueuePayloadsSwooleTest.php` теперь читает capacity(), не жёсткий default.
+Финальный full v2 baseline217/restart PASS:152 ответа/99 запросов,2 queue
+round-trip, QA-имена восстановлены. PHPStan(src/probe/CLI) и lint PHP8.2 PASS.
+
 ## B045: нулевые значения Environment
 
 ```bash

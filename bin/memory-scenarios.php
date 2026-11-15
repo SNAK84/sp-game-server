@@ -7,7 +7,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use SPGame\Game\Repositories\Messages;
 use SPGame\Game\Repositories\ProtocolSubscriptions;
-use SPGame\Game\Repositories\{BattleReports, ProtocolCommands, RuntimeCapacity, RuntimeRecords, SharedBlobStore};
+use SPGame\Game\Repositories\{BattleReports, PlayerQueuePayloads, ProtocolCommands, RuntimeCapacity, RuntimeRecords, SharedBlobStore};
 
 /** Защита самой модели от переполнения при пользовательских коэффициентах. */
 function scenarioRows(float $value): int
@@ -24,6 +24,7 @@ if (in_array('--help', $argv, true)) {
         . "--commands-per-active=24 --history-commands-per-active=24 --messages-per-day=5\n"
         . "--commands-per-online-minute=2 --command-hours-per-day=24 --receipt-packed-bytes=384\n"
         . "--pending-commands-per-online=1 (отдельно от суточных terminal-квитанций)\n"
+        . "--large-command-fraction=1 (доля pending, требующих отдельного payload)\n"
         . "--message-overflow-fraction=0.25 --message-overflow-bytes=1024\n"
         . "--reports-per-account-day=0.1 --saved-reports-per-account=1 --bookmarks-per-account=2\n"
         . "--report-packed-bytes=8192\n"
@@ -40,6 +41,7 @@ try {
         'history-commands-per-active' => '24',
         'commands-per-online-minute' => '2', 'command-hours-per-day' => '24',
         'pending-commands-per-online' => '1',
+        'large-command-fraction' => '1',
         'receipt-packed-bytes' => '384', 'message-overflow-fraction' => '0.25',
         'message-overflow-bytes' => '1024', 'reports-per-account-day' => '0.1',
         'saved-reports-per-account' => '1', 'bookmarks-per-account' => '2',
@@ -64,7 +66,7 @@ try {
         $options[$key] = (float)$options[$key];
     }
     if ($options['active-fraction'] > 1) throw new InvalidArgumentException('Доля активных флотов должна быть от0 до1.');
-    if ($options['message-overflow-fraction'] > 1 || $options['command-hours-per-day'] > 24
+    if ($options['message-overflow-fraction'] > 1 || $options['large-command-fraction'] > 1 || $options['command-hours-per-day'] > 24
         || $options['saved-reports-per-account'] > $options['bookmarks-per-account']) {
         throw new InvalidArgumentException('Неверная доля переполнения, время активности или число закладок.');
     }
@@ -87,7 +89,7 @@ try {
         $budgets = [];
         foreach ($inventory['repositories'] as $repository) $budgets[$repository['class']] = $repository['layout']['mainBuckets'];
         foreach (['Connect', 'ProtocolSubscriptions', 'MessageBodiesOverflow',
-            'ProtocolCommandsBodies', 'BattleReportsBodies'] as $name) {
+            'ProtocolCommandsBodies', 'BattleReportsBodies', 'PlayerQueuePayloads', 'PlayerQueuePayloadAccounts'] as $name) {
             $budgets[$name] = $inventory['extraTables'][$name]['buckets'];
         }
         foreach (['ProtocolCommands', 'BattleReports', 'BattleReportSaves'] as $name) {
@@ -121,6 +123,7 @@ try {
             ? 0 : scenarioRows($messages * $options['message-overflow-fraction']);
         $receipts = scenarioRows($online * $options['commands-per-online-minute'] * 60 * $options['command-hours-per-day'] * $receiptDays);
         $pendingReceipts = scenarioRows($online * $options['pending-commands-per-online']);
+        $largePayloads = scenarioRows($pendingReceipts * $options['large-command-fraction']);
         $recentReports = scenarioRows($accounts * $options['reports-per-account-day'] * $reportDays);
         $savedReports = scenarioRows($accounts * $options['saved-reports-per-account']);
         $reports = scenarioRows((float)$recentReports + $savedReports);
@@ -128,6 +131,9 @@ try {
             'Planets' => $bases, 'PlanetResources' => $bases, 'Builds' => $bases, 'Ships' => $bases, 'Defenses' => $bases,
             'Fleets' => $fleets, 'FleetsShips' => $fleets,
             'FleetCommands' => scenarioRows((float)$futureCommands + $historyCommands),
+            'PlayerQueue' => $pendingReceipts, 'PlayerQueuePayloads' => $largePayloads,
+            // Худшее распределение: как можно больше отдельных счётчиков.
+            'PlayerQueuePayloadAccounts' => min($online, $largePayloads),
             'Messages' => $messages,
             'MessageBodiesOverflow' => scenarioRows($overflowMessages * $blocks($options['message-overflow-bytes'], $messageInline)),
             'ProtocolCommands' => scenarioRows((float)$receipts + $pendingReceipts),
@@ -155,15 +161,18 @@ try {
                 'selectedReserveFit' => $reserveShortfalls === [], 'insufficientReserveBudgets' => (object)$reserveShortfalls];
         }
         $scenarios[] = ['accounts' => $accounts, 'online' => $online, 'activeFleets' => $active,
+            'largePayloadAggregateQuotaFit' => $largePayloads <= $online * PlayerQueuePayloads::MAX_PER_ACCOUNT,
             'demandBreakdown' => ['futureCommands' => $futureCommands, 'historyCommands' => $historyCommands,
                 'overflowMessages' => $overflowMessages, 'recentReports' => $recentReports, 'savedReports' => $savedReports,
                 'terminalReceipts' => $receipts, 'pendingReceipts' => $pendingReceipts,
-                'pendingReceiptBlocks' => $pendingReceipts * $completionBlocks],
+                'pendingReceiptBlocks' => $pendingReceipts * $completionBlocks,
+                'largePayloads' => $largePayloads, 'largePayloadQuota' => $online * PlayerQueuePayloads::MAX_PER_ACCOUNT],
             'estimatedSelectedRows' => $rows, 'profiles' => $estimates];
     }
     echo json_encode(['generatedAtUtc' => gmdate(DATE_ATOM), 'modelNotRss' => true, 'loadTestPerformed' => false,
         'assumptions' => $options + ['retentionDays' => $days, 'reportRetentionDays' => $reportDays,
             'receiptRetentionDays' => $receiptDays, 'subscriptionsPerOnline' => $subscriptions,
+            'largePayloadsPerAccount' => PlayerQueuePayloads::MAX_PER_ACCOUNT,
             'messageInlineBytes' => $messageInline, 'runtimeInlineBytes' => $runtimeInline,
             'blockBytes' => SharedBlobStore::BLOCK_BYTES, 'targetMaxFill' => RuntimeCapacity::TARGET_MAX_FILL],
         'completionReservation' => ['bytesPerPending' => $completionReserve, 'blocksPerPending' => $completionBlocks],
@@ -173,7 +182,8 @@ try {
             'Ритм terminal-команд постоянен в заданные часы; backlog accepted задан отдельно, это не измеренные частоты и не все возможные accepted за пределами TTL.',
             'Сохранённые доклады добавлены отдельно от свежих без пересечения; их бессрочный архив не ограничен числом аккаунтов.',
             'Размеры packed и доля overflow заданы явно, не получены из маленькой выборки dev; компрессия не гарантируется.',
-            'Учтён физический резерв завершения accepted; прочие индексы, журналы добычи, очереди, mailbox, tombstones и обновления других типов тел вне модели.',
+            'Pending считаются ожидающими в PlayerQueue; доля больших событий задана отдельно. Прочие серверные события/недавно отключившиеся аккаунты не включены; агрегатная quota не гарантирует равномерное распределение.',
+            'Учтены физический резерв accepted и payload очереди; прочие индексы, журналы добычи, mailbox, tombstones и обновления других типов тел вне модели.',
             'idealFullPassCalls очистки не учитывает time-budget hits, lag, ошибки и ожидание ACK: это не гарантия освобождения памяти за заданное время.',
             'PHP heap, COW, сокеты, снимки, ОС, БД и другие сервисы требуют отдельного запаса.',
             'Это не доказательство CPU/tick SLO или готовности мира20K/1000.',
