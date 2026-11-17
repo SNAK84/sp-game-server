@@ -272,6 +272,25 @@ restart PASS:151 ответ/99 запросов,2 queue round-trip. QA восс�
 hooks сняты, служебные SQL-строки отсутствуют; main работает, RAM-first/30с
 и native-бюджеты прежние. Это не новый игровой бой или нагрузочная приёмка.
 
+После4Е4Г `BattleCorruptionMainWorldProbe.php` вызывается после обоих
+initializeWorkers, до сети/saver основного dev.148 PASS: испорченный JSON
+в любой активной phase, null/скаляр/неполный header/расхождение phase,
+консервативный учёт unknown jobs без двойного счёта, занятый pool, повтор,
+соседние раунды, восстановление/GC, повреждение перед retain и поздний ответ.
+Исходные bytes/phase/dirty не переписываются; GC откладывается, пока нельзя
+доказать принадлежность резервов. После ручного восстановления возобновляется.
+Два native token с одним payload262144B: peak504B; не копируются payload.
+Original checkpoint/dirty/PlayerQueue/callback/workerLimit/mailbox возвращены;
+новых Table/world/SQL/Fleet/игроков нет, generation не откатываются. Вместе
+с consumers33/read67/space23/planet21/checkpoint40/boundary21/coordinator19/
+mailbox45 —417 PASS. Ошибки fixture ожидаемы, temporary hooks перед handoff
+снимаются. Это не общий permissive-reader и не полный validator combat:
+внешние lookup/DTO сохраняют строгий отказ, B047 остаётся открыт.
+PHPStan(src/probe), lint8.2/8.4, read-only модель135 и v2 baseline217/restart
+PASS:151 ответ/99 запросов,2 queue round-trip, QA восстановлены. Hooks сняты,
+WSocket/main прежние, SQL-count fixture0, main работает без новых ошибок
+saver/runtimeSQL/cleanup/budget. RAM-first/общий снимок30с/ёмкости прежние.
+
 ## B045: нулевые значения Environment
 
 ```bash

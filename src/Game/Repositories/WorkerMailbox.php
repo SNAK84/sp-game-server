@@ -77,6 +77,19 @@ final class WorkerMailbox
         finally { $this->lock->unlock(); }
     }
 
+    /** Только ключи резервов, без копирования больших payload ответов. */
+    public function tokens(): array
+    {
+        $this->acquire();
+        try {
+            $tokens = [];
+            for ($this->table->rewind(); $this->table->valid(); $this->table->next()) {
+                $tokens[(string)$this->table->key()] = true;
+            }
+            return $tokens;
+        } finally { $this->lock->unlock(); }
+    }
+
     /** Набор token => true. Удаление не совмещаем с обходом collision-цепочек. */
     public function retain(array $tokens): void
     {

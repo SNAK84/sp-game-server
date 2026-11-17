@@ -138,12 +138,15 @@ final class FleetBattleService
         $changedOwners = [];
         // Общий busy нужен до первого dispatch. Сохраняем порядок и короткие
         // заголовки, а не все combat/rounds/pending каждого боя одновременно.
-        $active = []; $busy = 0;
-        foreach (self::activeBattles() as $entry) {
+        $active = []; $busy = 0; $knownTokens = []; $unreadable = false;
+        foreach (self::activeBattles($unreadable) as $entry) {
             $state = $entry['state'];
             $running = $state['phase'] === 'running';
             $hasJob = $running && $state['job'] !== null;
-            if ($hasJob) ++$busy;
+            if ($hasJob) {
+                ++$busy;
+                $knownTokens[$state['job']['token']] = true;
+            }
             $readyAt = null;
             if ($running && !$hasJob && is_numeric($state['startedAt'] ?? null) && is_array($state['combat']['rounds'] ?? null)) {
                 $readyAt = $state['startedAt'] + (count($state['combat']['rounds']) + 1) * self::ROUND_SECONDS;
@@ -152,6 +155,10 @@ final class FleetBattleService
                 'running' => $running, 'hasJob' => $hasJob, 'readyAt' => $readyAt];
         }
         unset($entry, $state);
+        // Нечитаемый checkpoint мог владеть ещё работающим job. Его резерв
+        // учитываем дополнительно, но известные job не считаем второй раз.
+        if ($unreadable) $busy += count(array_diff_key(self::$results->tokens(), $knownTokens));
+        unset($knownTokens);
         foreach ($active as $entry) {
             ['repository' => $repository, 'key' => $planetId] = $entry;
             try {
@@ -245,12 +252,14 @@ final class FleetBattleService
         }
         unset($active, $entry, $state, $reply);
         // Поздний ответ старого задания не может перезаписать новую попытку.
-        $tokens = [];
-        foreach (self::activeBattles() as $entry) {
+        $tokens = []; $unreadable = false;
+        foreach (self::activeBattles($unreadable, false) as $entry) {
             $state = $entry['state'];
-            if ($state['job'] !== null && $state['phase'] === 'running') $tokens[$state['job']['token']] = true;
+            if ($state['phase'] === 'running' && $state['job'] !== null) $tokens[$state['job']['token']] = true;
         }
-        self::$results->retain($tokens);
+        // При неполном чтении нельзя отличить orphan от резерва повреждённого
+        // боя. Отложим только GC mailbox, не расчёт исправных боёв.
+        if (!$unreadable) self::$results->retain($tokens);
         // Доставка остаётся в EventLoop; поиск аккаунтов не относится к расчёту
         // раунда и не должен переводить сам бой в failed при ошибке уведомления.
         $accounts = [];
@@ -360,9 +369,31 @@ final class FleetBattleService
         }
     }
 
-    private static function activeBattles(): \Generator
+    private static function activeBattles(bool &$unreadable, bool $logErrors = true): \Generator
     {
-        foreach ([PlanetBattles::class, SpaceBattles::class] as $repository) foreach ($repository::iterateActive() as $key => $state) {
+        foreach ([PlanetBattles::class, SpaceBattles::class] as $repository) foreach ($repository::activeKeys() as $key) {
+            // Ошибка generator iterateActive возникала до per-battle try в tick
+            // и останавливала весь мир. Не изменяем исходные bytes/dirty/phase.
+            try {
+                $row = $repository::findExistingById($key);
+                if ($row === null || $row['phase'] === 'applied') continue;
+                $state = json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR);
+                // Валидный JSON null/скаляр/неполный header тоже нельзя считать
+                // отсутствующим боем: у него мог остаться резерв вычислителя.
+                if (!is_array($state) || !in_array($state['phase'] ?? null, ['running', 'finished', 'settled', 'failed'], true)
+                    || $state['phase'] !== $row['phase'] || ($state['phase'] === 'running'
+                        && (!array_key_exists('job', $state) || ($state['job'] !== null
+                            && (!is_array($state['job']) || !is_string($state['job']['token'] ?? null)
+                                || !preg_match('/^[a-f0-9]{32}$/D', $state['job']['token'])))))) {
+                    throw new \UnexpectedValueException('Некорректный заголовок checkpoint боя.');
+                }
+            } catch (\Throwable $error) {
+                $unreadable = true;
+                if ($logErrors) Logger::getInstance()->error('Нечитаемый checkpoint боя пропущен',
+                    ['scope' => $repository, 'battleKey' => $key, 'exception' => $error::class]);
+                continue;
+            }
+            unset($row);
             yield ['repository' => $repository, 'key' => $key, 'state' => $state];
         }
     }
