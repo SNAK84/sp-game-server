@@ -633,9 +633,10 @@ final class FleetAttackService
     public static function process(float $now, ?callable $actualizeTarget = null): array
     {
         $affected = [];
-        foreach (PlanetBattles::active() as $planetId => $state) {
-            if (!isset($state['mission']) || !in_array($state['phase'], ['finished', 'settled'], true)) continue;
+        foreach (PlanetBattles::settlementKeys() as $planetId) {
             try {
+                $state = PlanetBattles::state($planetId);
+                if ($state === null || !isset($state['mission']) || !in_array($state['phase'], ['finished', 'settled'], true)) continue;
                 if ($state['phase'] === 'finished' && !isset($state['application']) && $actualizeTarget !== null) {
                     $actualizeTarget($planetId, $now);
                 }
@@ -656,11 +657,16 @@ final class FleetAttackService
                     if ($user) $affected[(int)$user['account_id']] = true;
                 }
             } catch (\Throwable $error) {
-                $current = PlanetBattles::state($planetId);
-                if ($current !== null && $current['phase'] === 'finished'
-                    && ($error instanceof \LogicException || $error instanceof \OverflowException)) {
-                    $current['phase'] = 'failed';
-                    PlanetBattles::store($planetId, $current);
+                try {
+                    $current = PlanetBattles::state($planetId);
+                    if ($current !== null && $current['phase'] === 'finished'
+                        && ($error instanceof \LogicException || $error instanceof \OverflowException)) {
+                        $current['phase'] = 'failed';
+                        PlanetBattles::store($planetId, $current);
+                    }
+                } catch (\Throwable $saveError) {
+                    Logger::getInstance()->critical('Не сохранён отказ планетарного боя', ['planetId' => $planetId,
+                        'originalMessage' => $error->getMessage(), 'message' => $saveError->getMessage()]);
                 }
                 Logger::getInstance()->error('Завершение ATTACK отложено', ['planetId' => $planetId, 'message' => $error->getMessage()]);
             }

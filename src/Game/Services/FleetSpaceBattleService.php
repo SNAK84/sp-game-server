@@ -442,9 +442,10 @@ final class FleetSpaceBattleService
     public static function process(float $now): array
     {
         $affected = [];
-        foreach (SpaceBattles::active() as $key => $state) {
-            if (!isset($state['mission']) || !in_array($state['phase'], ['finished', 'settled'], true)) continue;
+        foreach (SpaceBattles::settlementKeys() as $key) {
             try {
+                $state = SpaceBattles::state($key);
+                if ($state === null || !isset($state['mission']) || !in_array($state['phase'], ['finished', 'settled'], true)) continue;
                 if ($state['phase'] === 'finished') self::settle($key, $state, $now);
                 $state = SpaceBattles::state($key);
                 if ($state['phase'] === 'settled') {
@@ -460,14 +461,15 @@ final class FleetSpaceBattleService
                     if ($user !== null) $affected[(int)$user['account_id']] = true;
                 }
             } catch (\Throwable $error) {
-                $current = SpaceBattles::state($key);
-                if ($current !== null && $current['phase'] === 'finished'
-                    && ($error instanceof \LogicException || $error instanceof \OverflowException)) {
-                    $current['phase'] = 'failed';
-                    try { SpaceBattles::store($key, $current); }
-                    catch (\Throwable $saveError) { Logger::getInstance()->critical('Не сохранён отказ пространственного боя',
-                        ['battleKey' => $key, 'originalMessage' => $error->getMessage(), 'message' => $saveError->getMessage()]); }
-                }
+                try {
+                    $current = SpaceBattles::state($key);
+                    if ($current !== null && $current['phase'] === 'finished'
+                        && ($error instanceof \LogicException || $error instanceof \OverflowException)) {
+                        $current['phase'] = 'failed';
+                        SpaceBattles::store($key, $current);
+                    }
+                } catch (\Throwable $saveError) { Logger::getInstance()->critical('Не сохранён отказ пространственного боя',
+                    ['battleKey' => $key, 'originalMessage' => $error->getMessage(), 'message' => $saveError->getMessage()]); }
                 Logger::getInstance()->error('Завершение боя в пространстве отложено', ['battleKey' => $key, 'message' => $error->getMessage()]);
             }
         }

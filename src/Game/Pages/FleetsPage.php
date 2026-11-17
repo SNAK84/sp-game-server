@@ -180,9 +180,31 @@ class FleetsPage extends AbstractPage
         ];
     }
 
-    /**
-     * Собирает список флотов игрока
+    /** Только публичная проекция запрошенных флотов. Space имеет прежний
+     * приоритет над Planet; первый native-key выигрывает, кэша между DTO нет.
      */
+    private function buildFleetBattleStates(array $fleetIds): array
+    {
+        $needed = array_fill_keys($fleetIds, true); $result = [];
+        if ($needed === []) return $result;
+        foreach ([SpaceBattles::class, PlanetBattles::class] as $repository) {
+            foreach ($repository::iterateActive() as $state) {
+                $view = null;
+                foreach ($state['fleets'] as $id) {
+                    // Как прежний in_array(..., true): строковый ID не равен int.
+                    if (!is_int($id) || !isset($needed[$id])) continue;
+                    $view ??= ['phase' => $state['phase'],
+                        'round' => count($state['combat']['rounds'] ?? []) + (($state['job'] ?? null) === null ? 0 : 1),
+                        'rounds_max' => $state['combat']['roundLimit'] ?? FleetCombatService::DEFAULT_ROUNDS];
+                    $result[$id] = $view; unset($needed[$id]);
+                }
+                if ($needed === []) return $result;
+            }
+        }
+        return $result;
+    }
+
+    /** Собирает список флотов игрока. */
     private function buildFleetList(AccountData &$AccountData): array
     {
         $fleets = $AccountData->getFleetsData()->getForPlanet(
@@ -196,7 +218,7 @@ class FleetsPage extends AbstractPage
         }
 
         $FleetList = [];
-        $planetBattles = PlanetBattles::active();
+        $battleStates = $this->buildFleetBattleStates(array_keys($fleets));
 
         foreach ($fleets as $fleet) {
             if ($fleet === null) {
@@ -259,10 +281,7 @@ class FleetsPage extends AbstractPage
             $targetCoordinate = $fleet->getTargetCoordinate();
             $currentCoordinate = $fleet->getCurrentCoordinate();
             // IDLE-защитник ресурсной базы остаётся в FleetList и во время боя.
-            $battle = SpaceBattles::forFleet($fleet->getId())['state'] ?? null;
-            if ($battle === null) foreach ($planetBattles as $state) {
-                if (in_array($fleet->getId(), $state['fleets'], true)) { $battle = $state; break; }
-            }
+            $battle = $battleStates[$fleet->getId()] ?? null;
             $fallback = null;
             if ($fleet->getHomeSiteId() > 0) {
                 try { $fallback = ResourceBaseService::fallbackCoordinate($fleet)->toArray(); }
@@ -275,9 +294,7 @@ class FleetsPage extends AbstractPage
                 'name'          => $fleet->getName(),
                 'mission'       => $fleet->getMission(),
                 'status'        => $fleet->getStatus(),
-                'battle'        => $battle === null ? null : ['phase' => $battle['phase'],
-                    'round' => count($battle['combat']['rounds'] ?? []) + (($battle['job'] ?? null) === null ? 0 : 1),
-                    'rounds_max' => $battle['combat']['roundLimit'] ?? FleetCombatService::DEFAULT_ROUNDS],
+                'battle'        => $battle,
                 'home_site_id'  => $fleet->getHomeSiteId(),
                 'standing'      => ResourceBaseService::standingState($fleet, microtime(true)),
                 'fallback'      => $fallback,

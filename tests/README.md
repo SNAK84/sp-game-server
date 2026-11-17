@@ -252,6 +252,26 @@ hooks сняты, служебные SQL-строки отсутствуют; ma
 сохранены. Невалидный JSON первого прохода не является проверенным здесь
 случаем: плохой заголовок в probe — корректный JSON с rounds=null.
 
+После4Е4В `BattleConsumersMainWorldProbe.php` вызывается после
+GameProtocolV2::initialize, до сети/saver main. Before13/after33 PASS:
+metadata finished/settled, компактная проекция FleetList и native-порядок/
+Space-приоритет/строгие ID.4/16 выполняющихся строк каждого вида262144B:
+heap process1325248/4486912→392/392B при отсутствии кандидатов завершения;
+buildFleetList QA2132744/5294408→1078640/1078800B. Это плоские JSON, не предел
+настоящего боя или target SLO. DTO сравнивается без непрерывного standing.
+Четыре нейтральных отчёта без участников/потерь проходят prepare/publish и
+finished/settled→applied. Ошибка JSON отдельного кандидата внутри адаптера
+не стирает строку и не мешает соседним. Это не проверка первого прохода
+координатора с таким JSON: там риск остаётся. Reports удаляются с ACK только
+новых собственных fixture до saver; исходные отчёты/dirty/count, checkpoint/
+markers/PlayerQueue/cleanup-clock возвращены. SQL/newWorld/newTable0.
+Регрессии Read67/Space23/Planet21/checkpoint40/boundary21/coordinator19/
+mailbox45 PASS, вместе269. Временные hooks перед handoff снимаются.
+PHPStan(src/probe), lint PHP8.2/8.4, read-only модель135 и полный v2 baseline217/
+restart PASS:151 ответ/99 запросов,2 queue round-trip. QA восстановлены,
+hooks сняты, служебные SQL-строки отсутствуют; main работает, RAM-first/30с
+и native-бюджеты прежние. Это не новый игровой бой или нагрузочная приёмка.
+
 ## B045: нулевые значения Environment
 
 ```bash

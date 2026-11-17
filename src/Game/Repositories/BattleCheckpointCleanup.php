@@ -12,22 +12,28 @@ trait BattleCheckpointCleanup
     /** Список ключей без копирования больших JSON неоконченных боёв. */
     public static function appliedKeys(): array
     {
-        return static::phaseKeys(true);
+        return static::phaseKeys(['applied']);
     }
 
     public static function activeKeys(): array
     {
-        return static::phaseKeys(false);
+        return static::phaseKeys(['applied'], true);
     }
 
-    private static function phaseKeys(bool $applied): array
+    /** Адаптеру завершения не нужны combat JSON выполняющихся/ошибочных боёв. */
+    public static function settlementKeys(): array
+    {
+        return static::phaseKeys(['finished', 'settled']);
+    }
+
+    private static function phaseKeys(array $phases, bool $exclude = false): array
     {
         $keys = [];
         if (!isset(static::$table)) return $keys;
         for (static::$table->rewind(); static::$table->valid(); static::$table->next()) {
             $key = (string)static::$table->key();
             $phase = static::$table->get($key, 'phase');
-            if ($phase !== false && ($phase === 'applied') === $applied) $keys[] = (int)$key;
+            if ($phase !== false && in_array($phase, $phases, true) !== $exclude) $keys[] = (int)$key;
         }
         return $keys;
     }
