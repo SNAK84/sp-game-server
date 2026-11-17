@@ -11,7 +11,7 @@ use SPGame\Game\Services\{FleetBattleService as Battles, FleetCombatService as C
 return static function (string $path, bool $protected = true, int $samples = 1): void {
     if (file_exists($path)) return;
     if ($samples < 1 || $samples > 21) throw new InvalidArgumentException('От1 до21 замеров tick.');
-    $checks = 0; $measurements = [];
+    $checks = 0; $measurements = []; $waitingMeasurements = [];
     $check = static function (bool $ok, string $message) use (&$checks): void {
         if (!$ok) throw new RuntimeException('Battle coordinator: ' . $message);
         ++$checks;
@@ -68,6 +68,39 @@ return static function (string $path, bool $protected = true, int $samples = 1):
             $protected ? 'Пик tick не растёт на сумму24 больших JSON.' : 'Воспроизведена коллекция полных боёв в tick.');
         $clearOwn();
         if ($protected) {
+            foreach ([2, 8] as $waitingCount) {
+                $limit->setValue(null, $waitingCount); $tokens = [];
+                for ($i = 0; $i < $waitingCount; ++$i) {
+                    $repository = $repositories[$i % 2]; $key = $owned[$repository][intdiv($i, 2)];
+                    $token = bin2hex(random_bytes(16));
+                    if (!$mailbox->reserve($token)) throw new LogicException('Нет места для своего waiting job.');
+                    $tokens[$token] = true;
+                    $state = ['id' => str_pad((string)$key, 32, '0', STR_PAD_LEFT), 'phase' => 'running',
+                        'job' => ['token' => $token, 'round' => 1, 'submittedAt' => 100.0], 'attempts' => 1,
+                        'fleets' => [], 'startedAt' => 99.0, 'combat' => ['rounds' => []], 'padding' => ''];
+                    $state['padding'] = str_repeat('x', $repository::MAX_STATE_BYTES - strlen($json($state)));
+                    $repository::store($key, $state);
+                }
+                $waitingBefore = [];
+                foreach ($repositories as $repository) $waitingBefore[$repository] = [$copy($tables[$repository]), $copy($markers[$repository])];
+                $durations = []; $peak = 0; $unchanged = true;
+                for ($sample = 0; $sample < $samples; ++$sample) {
+                    gc_collect_cycles(); $memory = memory_get_usage(); memory_reset_peak_usage(); $started = hrtime(true);
+                    $affected = Battles::tick(100.1);
+                    $durations[] = (hrtime(true) - $started) / 1000000;
+                    $peak = max($peak, memory_get_peak_usage() - $memory);
+                    $unchanged = $unchanged && $affected === [] && $jobs === [] && $mailboxTable->count() === $waitingCount;
+                }
+                sort($durations);
+                $waitingMeasurements[$waitingCount] = ['peakBytes' => $peak, 'elapsedMs' => $durations[intdiv($samples, 2)],
+                    'samples' => $samples, 'sortedSamplesMs' => $durations];
+                foreach ($repositories as $repository) $unchanged = $unchanged
+                    && [$copy($tables[$repository]), $copy($markers[$repository])] === $waitingBefore[$repository];
+                $actualTokens = $mailbox->tokens(); ksort($actualTokens); ksort($tokens);
+                $check($unchanged && $actualTokens === $tokens, 'Ожидание не меняет checkpoint/dirty/token и не повторяет dispatch.');
+                $clearOwn(); $mailbox->retain([]);
+            }
+            $limit->setValue(null, 2);
             $group = ['type' => 204, 'kind' => 'fleet', 'count' => 10, 'attack' => 1.0,
                 'hull' => 10000.0, 'shield' => 0.0, 'unitCost' => 4000.0, 'experience' => 0.0];
             foreach ([0, 1] as $i) Battles::begin($owned[PlanetBattles::class][$i], ['a' => $group], ['d' => $group], 100.0);
@@ -130,6 +163,32 @@ return static function (string $path, bool $protected = true, int $samples = 1):
             }
             Battles::tick(101.2);
             $check(count($jobs) === 2 && $mailboxTable->count() === 0, 'Finished не отправляется повторно, mailbox пуст.');
+            $clearOwn(); $jobs = [];
+            Battles::begin($owned[PlanetBattles::class][0], ['a' => $group], ['d' => $group], 100.0);
+            Battles::beginSpace($owned[SpaceBattles::class][0], ['a' => $group], ['d' => $group], 100.0);
+            Battles::tick(101.0);
+            $check(count($jobs) === 2, 'Два job для проверки точной границы timeout.');
+            if (!isset($jobs[0], $jobs[1])) throw new LogicException('Нет заданий для проверки границы timeout.');
+            Battles::executeTask($jobs[0]);
+            $expired = SpaceBattles::state($owned[SpaceBattles::class][0]); $expired['attempts'] = 3;
+            SpaceBattles::store($owned[SpaceBattles::class][0], $expired);
+            Battles::tick(161.0);
+            $check(PlanetBattles::state($owned[PlanetBattles::class][0])['phase'] === 'finished', 'Готовый ответ на границе timeout имеет приоритет.');
+            $expired = SpaceBattles::state($owned[SpaceBattles::class][0]);
+            $check($expired['phase'] === 'failed' && $expired['job'] === null && $mailboxTable->count() === 0,
+                'На точной границе без ответа последняя попытка завершается failed.');
+            Battles::executeTask($jobs[1]);
+            $check($mailboxTable->count() === 0, 'Ответ после последнего timeout не создаёт резерв.');
+            $clearOwn(); $jobs = [];
+            foreach ($repositories as $r => $repository) {
+                $key = $owned[$repository][0]; $token = bin2hex(random_bytes(16)); $mailbox->reserve($token);
+                $repository::store($key, ['id' => str_repeat('a', 32), 'phase' => 'running', 'fleets' => [],
+                    'job' => ['token' => $token, 'round' => 1, 'submittedAt' => $r === 0 ? 'invalid time' : []],
+                    'startedAt' => 100.0, 'combat' => ['rounds' => []]]);
+            }
+            Battles::tick(101.0);
+            foreach ($repositories as $repository) $check($repository::state($owned[$repository][0])['phase'] === 'failed',
+                'Некорректное время не превращается в бесконечное быстрое ожидание.');
         }
     } finally {
         $dispatch->setValue(null, $oldDispatch); $limit->setValue(null, $oldLimit); $mailbox->retain([]); $clearOwn();
@@ -141,6 +200,7 @@ return static function (string $path, bool $protected = true, int $samples = 1):
         $check(PlayerQueue::getAll() === $queue && $mailboxTable->count() === 0, 'PlayerQueue прежняя, mailbox освобождён.');
     }
     file_put_contents($path, $json(['ok' => true, 'checks' => $checks, 'protected' => $protected, 'samplesPerRepository' => $measurements,
+        'waitingJobs' => $waitingMeasurements,
         'newTables' => 0, 'newWorld' => false, 'sqlWrites' => 0, 'originalStateRestored' => true]), LOCK_EX);
     chmod($path, 0600);
 };

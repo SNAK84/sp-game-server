@@ -309,6 +309,23 @@ PHPStan(src/probe), lint8.2/8.4, модель135 и v2 baseline217/restart PASS:
 WSocket/main прежние, SQL-count fixture0; main работает без ошибок
 saver/runtimeSQL/cleanup/budget, RAM-first/30с/native-ёмкости прежние.
 
+После4Е4Е `BattleCoordinatorMainWorldProbe.php` содержит31 проверку, в том
+числе2/8 ожидающих jobs с JSON262144B: без мутаций checkpoint/dirty/token и
+повторного dispatch. При samples=9 на основном dev медиана7,054/27,705→
+2,708/10,667мс, heap799296/800352→797712/800352B. Лимит8 установлен только
+внутри probe и восстановлен; новых процессов для этого замера нет.
+Это bootstrap-микрозамер, не CPU/SLO20K/1K. Проверены точная граница60с,
+приоритет готового ответа, последняя попытка без ответа, поздний результат,
+ошибочные string/array submittedAt. Checkpoint/dirty/PlayerQueue/настройки/
+mailbox возвращены, generation не откатываются; сам probe не пишет SQL,
+не создаёт мир/Table/Fleet/игроков. Вместе с corruption148/mailbox45/
+consumers33/read67/space23/planet21/checkpoint40/boundary21 —429 PASS.
+Временные hooks перед handoff снимаются, общий первый JSON-проход остаётся.
+PHPStan(src/probe), lint8.2/8.4, read-only модель135 и v2 baseline217/restart
+PASS:151 ответ/99 запросов,2 queue round-trip, QA восстановлены. Hooks сняты,
+WSocket/main прежние, SQL-count fixture0; main работает, saver/runtimeSQL/
+cleanup/budget ошибок0, RAM-first/30с/native-ёмкости прежние.
+
 ## B045: нулевые значения Environment
 
 ```bash

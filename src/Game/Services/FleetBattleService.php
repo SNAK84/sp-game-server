@@ -151,9 +151,14 @@ final class FleetBattleService
             if ($running && !$hasJob && is_numeric($state['startedAt'] ?? null) && is_array($state['combat']['rounds'] ?? null)) {
                 $readyAt = $state['startedAt'] + (count($state['combat']['rounds']) + 1) * self::ROUND_SECONDS;
             }
+            $waitUntil = null;
+            if ($hasJob && is_numeric($state['job']['submittedAt'] ?? null)) {
+                $deadline = (float)$state['job']['submittedAt'] + self::JOB_TIMEOUT;
+                if (is_finite($deadline)) $waitUntil = $deadline;
+            }
             $active[] = ['repository' => $entry['repository'], 'key' => $entry['key'],
                 'running' => $running, 'hasJob' => $hasJob, 'readyAt' => $readyAt,
-                'token' => $hasJob ? $state['job']['token'] : null];
+                'token' => $hasJob ? $state['job']['token'] : null, 'waitUntil' => $waitUntil];
         }
         unset($entry, $state);
         // Нечитаемый checkpoint мог владеть ещё работающим job. Его резерв
@@ -169,12 +174,24 @@ final class FleetBattleService
                 // пишут только mailbox. Для retain перепроверяем затронутые строки,
                 // а не разбираем второй раз все неизменившиеся combat JSON.
                 $refresh[$repository][$planetId] = $entry['token'];
+                $reply = null;
+                if ($entry['hasJob'] && $entry['waitUntil'] !== null) {
+                    $reply = self::$results->read($entry['token']);
+                    if ($reply === null && $now < $entry['waitUntil']) {
+                        // Нет ответа и timeout ещё не наступил: checkpoint не
+                        // меняется, его исходный token остаётся в knownTokens.
+                        unset($refresh[$repository][$planetId]);
+                        continue;
+                    }
+                }
                 $state = $repository::state($planetId);
                 if ($state === null) throw new \LogicException('Потеряна запись текущего боя.');
                 if ($state['phase'] !== 'running') continue;
                 $job = $state['job'];
                 if ($job !== null) {
-                    $reply = self::$results->read($job['token']);
+                    if ($entry['waitUntil'] === null || $job['token'] !== $entry['token']) {
+                        $reply = self::$results->read($job['token']);
+                    }
                     if ($reply !== null) {
                         $reply = json_decode($reply, true, 512, JSON_THROW_ON_ERROR);
                         if (isset($reply['error'])) throw new \RuntimeException($reply['error']);
