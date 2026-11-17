@@ -306,9 +306,7 @@ final class FleetBattleService
         FleetExpeditionService::assertAvailable($fleetId);
         FleetSurveyService::assertAvailable($fleetId);
         if (!$allowMining) FleetMiningRuntimeService::assertAvailable($fleetId);
-        foreach (PlanetBattles::active() as $state) {
-            if (in_array($fleetId, $state['fleets'], true)) throw new \LogicException('Флот участвует в бою.');
-        }
+        if (PlanetBattles::forFleet($fleetId) !== null) throw new \LogicException('Флот участвует в бою.');
         if (SpaceBattles::forFleet($fleetId) !== null) throw new \LogicException('Флот участвует в бою в пространстве.');
     }
 

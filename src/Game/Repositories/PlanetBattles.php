@@ -57,15 +57,4 @@ final class PlanetBattles extends BaseRepository
             $before, true, $before === null);
     }
 
-    public static function active(): array
-    {
-        $result = [];
-        if (!isset(static::$table)) return $result;
-        foreach (static::$table as $row) {
-            if ($row['phase'] !== 'applied') {
-                $result[(int)$row['id']] = json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR);
-            }
-        }
-        return $result;
-    }
 }

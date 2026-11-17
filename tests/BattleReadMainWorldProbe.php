@@ -1,0 +1,111 @@
+<?php
+declare(strict_types=1);
+
+use SPGame\Game\Repositories\{PlanetBattles, PlayerQueue, SpaceBattles};
+use SPGame\Game\Services\ResourceBaseService;
+
+/** Только bootstrap основного dev до сети/saver. Существующие Table, свои
+ * ключи, без Fleet/игроков/SQL. finally возвращает строки и dirty; служебные
+ * generation монотонны. Измеряется временный PHP heap, не native RAM/SLO.
+ */
+return static function (string $path, bool $protected = true): void {
+    if (file_exists($path)) return;
+    $checks = 0; $measurements = [];
+    $check = static function (bool $ok, string $message) use (&$checks): void {
+        if (!$ok) throw new RuntimeException('Battle read: ' . $message);
+        ++$checks;
+    };
+    $copy = static function (Swoole\Table $table): array { $rows = iterator_to_array($table); ksort($rows); return $rows; };
+    $queue = PlayerQueue::getAll();
+    foreach ($protected ? [SpaceBattles::class, PlanetBattles::class] : [SpaceBattles::class] as $repository) {
+        $table = (new ReflectionProperty($repository, 'table'))->getValue();
+        $sync = (new ReflectionProperty($repository, 'syncTable'))->getValue();
+        $before = [$copy($table), $copy($sync)]; $owned = [];
+        $name = (new ReflectionClass($repository))->getShortName();
+        $base = $repository === SpaceBattles::class ? 1901400000 : 1901400100;
+        $json = static fn(array $state): string => json_encode($state, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
+        $peak = static function (callable $read): array {
+            gc_collect_cycles(); $memory = memory_get_usage(); memory_reset_peak_usage();
+            $result = $read();
+            return [$result, memory_get_peak_usage() - $memory];
+        };
+        try {
+            foreach ([4, 16] as $count) {
+                for ($i = count($owned); $i < $count; ++$i) {
+                    $key = $base + $i;
+                    if ($table->exists((string)$key) || $sync->exists((string)$key)) throw new LogicException('Ключ probe занят.');
+                    $state = ['id' => str_pad((string)$key, 32, '0', STR_PAD_LEFT), 'phase' => 'running',
+                        'fleets' => [$key], 'job' => null, 'mission' => ['resourceSite' => ['id' => $key]], 'padding' => ''];
+                    $state['padding'] = str_repeat('x', $repository::MAX_STATE_BYTES - strlen($json($state)));
+                    $repository::store($key, $state); $owned[] = $key;
+                }
+                [$result, $bytes] = $peak(static fn(): ?array => $repository::forFleet(1901499999));
+                $check($result === null, 'Несуществующий Fleet не найден.');
+                $measurements[$name][$count] = $bytes;
+            }
+            $growth = $measurements[$name][16] - $measurements[$name][4];
+            $check($protected ? $growth < 1048576 : $growth > 2097152,
+                $protected ? 'Пик поиска не растёт на сумму12 JSON.' : 'Воспроизведён рост PHP heap от12 лишних JSON.');
+            if (!$protected) continue;
+            $all = $repository::active();
+            $keys = $repository::activeKeys();
+            $check(array_keys($all) === $keys, 'Порядок и ключи active сохранены.');
+            $check(iterator_to_array($repository::iterateActive()) === $all, 'Потоковое чтение совместимо с active.');
+            foreach ($owned as $key) {
+                $found = $repository::forFleet($key);
+                $check($found === ['key' => $key, 'state' => $all[$key]], 'Точный key/state для Fleet.');
+            }
+            if ($repository === SpaceBattles::class) {
+                $key = $owned[0];
+                $check(ResourceBaseService::battleAt($key) === ['key' => $key, 'state' => $all[$key]], 'Точный бой ресурсной базы.');
+                $check(ResourceBaseService::battleAt(1901499999) === null, 'Несуществующая ресурсная база не найдена.');
+            }
+            unset($all);
+            // Вложенный lookup не должен перематывать внешний native iterator.
+            $visited = [];
+            foreach ($repository::iterateActive() as $key => $state) {
+                $repository::activeKeys(); $repository::appliedKeys();
+                $repository::forFleet(1901499999); $visited[] = $key;
+            }
+            $check($visited === $keys, 'Вложенные обходы не теряют записи и не зацикливаются.');
+            $ownKeys = array_values(array_intersect($keys, $owned));
+            $first = $ownKeys[0]; $last = $ownKeys[count($ownKeys) - 1];
+            $row = $table->get((string)$last);
+            $table->set((string)$last, ['state' => '{']);
+            $check($repository::forFleet($first)['key'] === $first, 'После совпадения последующие JSON не читаются.');
+            $bad = false;
+            try { $repository::forFleet(1901499999); } catch (JsonException) { $bad = true; }
+            $check($bad, 'Ошибка посещённого JSON не скрывается.');
+            $table->set((string)$last, ['phase' => 'applied']);
+            $check(!in_array($last, $repository::activeKeys(), true) && $repository::forFleet($last) === null,
+                'Applied исключён по metadata до чтения JSON.');
+            $check(in_array($last, $repository::appliedKeys(), true), 'Applied-селектор совместим.');
+            $table->set((string)$last, $row);
+            $row = $table->get((string)$first);
+            $changed = json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR);
+            $changed['padding'] = substr($changed['padding'], 0, -128); // Место для более длинных phase.
+            $changed['fleets'] = [$first + 2000];
+            $repository::store($first, $changed);
+            $check($repository::forFleet($first) === null && $repository::forFleet($first + 2000)['key'] === $first,
+                'Новое подкрепление видно сразу, без устаревшего кэша.');
+            foreach (['failed', 'finished', 'settled', 'applied'] as $phase) {
+                $changed['phase'] = $phase; $repository::store($first, $changed);
+                $found = $repository::forFleet($first + 2000);
+                $check($phase === 'applied' ? $found === null : $found['state']['phase'] === $phase, 'Фаза ' . $phase . ' сохранена.');
+            }
+        } finally {
+            foreach ($owned as $key) {
+                if ($table->exists((string)$key)) $table->del((string)$key);
+                if ($sync->exists((string)$key)) $sync->del((string)$key);
+            }
+            foreach ($before[0] as $key => $row) $table->set((string)$key, $row);
+            foreach ($before[1] as $key => $row) $sync->set((string)$key, $row);
+            $check([$copy($table), $copy($sync)] === $before, 'Исходные строки/markers восстановлены.');
+        }
+    }
+    $check(PlayerQueue::getAll() === $queue, 'PlayerQueue прежняя.');
+    file_put_contents($path, json_encode(['ok' => true, 'checks' => $checks, 'protected' => $protected,
+        'peakBytes' => $measurements, 'newWorld' => false, 'newTables' => 0, 'sqlWrites' => 0,
+        'originalStateRestored' => true], JSON_THROW_ON_ERROR), LOCK_EX);
+    chmod($path, 0600);
+};

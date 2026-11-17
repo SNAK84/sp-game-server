@@ -70,7 +70,7 @@ final class FleetInterceptionService
             $known[(int)$fleet['id']] = ['id' => (int)$fleet['id'], 'name' => $fleet['name'] ?? '',
                 'is_own' => false, 'owner_name' => $fleet['ownerName'] ?? '', 'position' => null];
         }
-        foreach (SpaceBattles::active() as $state) if (isset($state['mission']['attackerId'], $state['mission']['defenderId'])
+        foreach (SpaceBattles::iterateActive() as $state) if (isset($state['mission']['attackerId'], $state['mission']['defenderId'])
             && in_array($viewerId, [(int)$state['mission']['attackerId'], (int)$state['mission']['defenderId']], true)) {
             foreach ($state['mission']['participants'] as $id => $participant) if ((int)$participant['ownerId'] !== $viewerId) {
                 $known[(int)$id] = ['id' => (int)$id, 'name' => $participant['fleetName'] ?? '', 'is_own' => false,

@@ -11,6 +11,7 @@ namespace Swoole {
             public const TYPE_STRING = 3;
 
             private array $rows = [];
+            private ?\ArrayIterator $cursor = null;
             // Узкая failure injection для runtime commit/rollback тестов.
             public int $failedWrites = 0;
             public ?string $failedWriteKey = null;
@@ -28,7 +29,15 @@ namespace Swoole {
                 $this->rows[$key] = $value;
                 return true;
             }
-            public function get(string $key): array|false { return $this->rows[$key] ?? false; }
+            public function get(string $key, ?string $column = null): mixed
+            {
+                $row = $this->rows[$key] ?? false;
+                return $column === null || $row === false ? $row : ($row[$column] ?? false);
+            }
+            public function rewind(): void { $this->cursor = new \ArrayIterator($this->rows); }
+            public function valid(): bool { return $this->cursor?->valid() ?? false; }
+            public function key(): mixed { return $this->cursor?->key(); }
+            public function next(): void { $this->cursor?->next(); }
             public function del(string $key): bool
             {
                 unset($this->rows[$key]);

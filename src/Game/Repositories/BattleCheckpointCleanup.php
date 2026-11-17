@@ -6,19 +6,57 @@ namespace SPGame\Game\Repositories;
 use SPGame\Core\Logger;
 use SPGame\Game\Services\RepositorySaver;
 
-/** Общий retained DELETE двух боевых checkpoint. Не история BattleReports. */
+/** Чтение и retained DELETE двух боевых checkpoint. Не история BattleReports. */
 trait BattleCheckpointCleanup
 {
     /** Список ключей без копирования больших JSON неоконченных боёв. */
     public static function appliedKeys(): array
     {
+        return static::phaseKeys(true);
+    }
+
+    public static function activeKeys(): array
+    {
+        return static::phaseKeys(false);
+    }
+
+    private static function phaseKeys(bool $applied): array
+    {
         $keys = [];
         if (!isset(static::$table)) return $keys;
         for (static::$table->rewind(); static::$table->valid(); static::$table->next()) {
             $key = (string)static::$table->key();
-            if (static::$table->get($key, 'phase') === 'applied') $keys[] = (int)$key;
+            $phase = static::$table->get($key, 'phase');
+            if ($phase !== false && ($phase === 'applied') === $applied) $keys[] = (int)$key;
         }
         return $keys;
+    }
+
+    /** Сначала только ключи: вложенный lookup не перематывает native iterator.
+     * Полный JSON читается по одному и только для ещё существующего active.
+     */
+    public static function iterateActive(): \Generator
+    {
+        foreach (static::activeKeys() as $key) {
+            $row = static::findExistingById($key);
+            if ($row === null || $row['phase'] === 'applied') continue;
+            yield $key => json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR);
+        }
+    }
+
+    /** Совместимость для потребителей, которым нужен полный массив снимков. */
+    public static function active(): array
+    {
+        return iterator_to_array(static::iterateActive());
+    }
+
+    /** Не материализуем все бои ради одного Fleet. Поиск всё ещё линейный. */
+    public static function forFleet(int $fleetId): ?array
+    {
+        foreach (static::iterateActive() as $key => $state) {
+            if (in_array($fleetId, $state['fleets'], true)) return ['key' => $key, 'state' => $state];
+        }
+        return null;
     }
 
     /** DELETE сохраняет runtime-строку до ACK: нужен точный образ для сверки. */

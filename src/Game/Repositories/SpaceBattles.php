@@ -51,19 +51,4 @@ final class SpaceBattles extends BaseRepository
             $before, true, $before === null);
     }
 
-    public static function active(): array
-    {
-        $result = [];
-        if (isset(static::$table)) foreach (static::$table as $row) if ($row['phase'] !== 'applied') {
-            $result[(int)$row['id']] = json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR);
-        }
-        return $result;
-    }
-
-    public static function forFleet(int $fleetId): ?array
-    {
-        foreach (self::active() as $key => $state) if (in_array($fleetId, $state['fleets'], true)) return ['key' => $key, 'state' => $state];
-        return null;
-    }
-
 }

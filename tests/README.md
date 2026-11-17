@@ -211,6 +211,26 @@ Read-only модель135, PHPStan(src/probes), lint PHP8.2/8.4, Python compile 
 полный v2 baseline217/restart PASS(151 ответ/99 запросов,2 queue round-trip).
 QA восстановлены, hooks сняты, служебные SQL-строки отсутствуют; main работает.
 
+После4Е4А `BattleReadMainWorldProbe.php` запускается только в bootstrap main
+до сети/saver. before protected=false5 PASS воспроизводит полный массив
+при lookup одного отсутствующего Fleet. After67 PASS проверяет Space/Planet
+activeKeys/iterateActive/forFleet: те же key/state/порядок, вложенные обходы,
+ранний выход, ошибка посещённого JSON, metadata applied, смена fleets/phase
+без кэша и поиск боя ресурсной базы.16 собственных checkpoint на репозиторий
+по262144B, без Fleet/игроков/мира/новых Table/SQL-write. Исходные строки/dirty/
+PlayerQueue возвращены finally; generation не откатываются.
+
+Для4/16 плоских JSON peak-delta поиска был1325616/4492112B; после изменения
+798424/798584B в обоих репозиториях. Это PHP heap одного read, не native RAM
+и не верхний предел сложного JSON. Явный active() всё ещё возвращает полный
+массив. Space cleanup23/Planet21/checkpoint40/boundary21 PASS, всего172.
+Временный bootstrap-hook удалён. Два прежних Table doubles FleetTransport/
+FleetStage3 актуализированы под чтение колонки и cursor; их изолированные
+игровые наборы не запускались по указанию пользователя.
+PHPStan(src/probe), lint PHP8.2/8.4, read-only модель135 и полный v2 baseline217/
+restart PASS:151 ответ/99 запросов,2 queue round-trip. QA восстановлены,
+hook снят, основной сервер работает; RAM-first/30с и native-бюджеты прежние.
+
 ## B045: нулевые значения Environment
 
 ```bash

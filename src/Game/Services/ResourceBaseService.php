@@ -38,7 +38,7 @@ final class ResourceBaseService
     /** Один защищаемый siteId, не вся орбита и не ID выбранного флота. */
     public static function battleAt(int $siteId): ?array
     {
-        foreach (SpaceBattles::active() as $key => $state) {
+        foreach (SpaceBattles::iterateActive() as $key => $state) {
             if ((int)($state['mission']['resourceSite']['id'] ?? 0) === $siteId) return ['key' => $key, 'state' => $state];
         }
         return null;
