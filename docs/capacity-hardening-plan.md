@@ -2551,7 +2551,59 @@ Main running/exit0/OOMfalse, worldPID=wsPID10, authorized/PlayerQueue0;
 saver/runtimeSQL/cleanup/snapshot-budget ошибок0, возраст снимка20,002с.
 RAM-first/30с/native-ёмкости development/target прежние, target не выделялся.
 
-Далее4Е4З: линейные forFleet/battleAt и оставшийся running JSON-проход,
+### 4Е4З — один ленивый поиск боёв на проход ресурсных баз
+
+nextEvent и settleWorld раньше повторяли battleAt для каждой базы: большие
+JSON SpaceBattles разбирались заново даже для уже проверенных боёв. Теперь
+каждый из двух проходов создаёт свой private boolean reader. При первом
+lookup он берёт только activeKeys, дальше лениво читает следующий JSON до
+совпадения или конца. Остаются курсор и set найденных siteId, ограниченные
+количеством checkpoint; не коллекция combat state и не межтиковый кэш.
+Повторный отрицательный lookup после полного прохода не разбирает JSON.
+
+Scope разрешён только внутри прохода без изменения SpaceBattles. Проверены
+members/standingAt/hasGuard, mining guards/mustWait и settleStanding/commit:
+они не пишут боевые checkpoint. Один authority; TaskWorkers только публикуют
+ответы в mailbox, saver не меняет active. На следующем nextEvent/settleWorld
+создаётся новый reader. Изменения между вызовами не скрываются. Полный публичный
+battleAt, forFleet и протокол не меняются; новых native Table/индексов/SQL нет.
+
+Сохранены native-порядок, int-приведение siteId, failed/finished/settled и
+исключение applied по metadata. В отличие от предварительной полной карты,
+ленивый reader не читает повреждённый поздний JSON после раннего совпадения.
+Посещённая ошибка сохраняется и повторно бросается для следующих unresolved
+lookup: курсор не перескакивает плохую строку. Уже найденный до ошибки site
+по-прежнему возвращает true, как самостоятельный battleAt. Ключи — отдельный
+список, вложенные/параллельные reader не перематывают native iterator.
+
+BattleReadMainWorldProbe расширен до101 проверки. Control batched=false
+использует неизменённый публичный battleAt, after batched=true — новый reader
+через Reflection. По9 замеров, в каждом новый reader и16 отсутствующих siteId;
+4/16 собственных Space checkpoint по262144B. Прогрев класса отдельным reader
+исключает автозагрузку из измерения, но не прогревает timed-курсор. На основном
+dev медиана75,402104/302,348710→4,477839/18,858867мс,−94,06%/−93,76%.
+PHP peak798424/798584→798096/798576B, удержано после lookup592/1072B вместо
+полного combat state. Это bootstrap-микрозамер отсутствующих site на padding
+JSON и PHP heap, не полный world pass, native RAM или CPU/SLO20K/1K.
+
+Проверены ранний выход перед bad JSON, строгая ошибка и её повтор, доступ к
+предыдущему совпадению после ошибки, независимость двух reader, смена site и
+всех phase между вызовами. Read101 before/after PASS, coordinator33/corruption148/
+mailbox45/consumers33/space23/planet21/checkpoint40/boundary21 — после465 PASS.
+Строки/dirty/PlayerQueue/callback/лимиты/mailbox восстановлены finally;
+generation не откатываются. Нового мира/Table/Fleet/игроков нет. Read probe
+не пишет SQL; ACK/rollback DELETE прежних регрессий — только свои служебные
+строки, как описано выше. Временные hooks снимаются перед handoff.
+
+PHPStan(src/probe), lint PHP8.2/8.4, read-only модель135 и v2 baseline217/
+restart PASS:151 ответ/99 запросов,2 queue round-trip, QA восстановлены.
+Hooks сняты, WSocket/main прежние; SQL-count своих read-fixture0. Main
+running/exit0/OOMfalse, worldPID=wsPID10, authorized/PlayerQueue0; свежих
+ошибок нет, saver/runtimeSQL/cleanup/budget ошибок0, возраст снимка15,602с
+при интервале30с. RAM-first/native-ёмкости development/target прежние,
+target не выделялся. Это не закрывает оставшуюся часть B047.
+
+Далее4Е4И: линейные forFleet/battleAt вне этих двух проходов и running JSON,
 переменные аллокации/границы хранения и задержки очистки.
 
 Ещё не проверены остальные переменные аллокации и границы хранения. Большой packed-backlog,

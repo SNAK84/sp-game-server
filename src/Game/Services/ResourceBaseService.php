@@ -44,6 +44,35 @@ final class ResourceBaseService
         return null;
     }
 
+    /** Только для одного прохода без изменения SpaceBattles. Храним siteId,
+     * не combat state; читаем следующий JSON лишь при следующем поиске.
+     */
+    private static function battlePresenceReader(): \Closure
+    {
+        $keys = null; $offset = 0; $occupied = []; $failure = null;
+        return static function (int $siteId) use (&$keys, &$offset, &$occupied, &$failure): bool {
+            if (isset($occupied[$siteId])) return true;
+            if ($failure !== null) throw $failure;
+            try {
+                $keys ??= SpaceBattles::activeKeys();
+                while (isset($keys[$offset])) {
+                    $row = SpaceBattles::findExistingById($keys[$offset++]);
+                    if ($row === null || $row['phase'] === 'applied') continue;
+                    $state = json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR);
+                    $id = (int)($state['mission']['resourceSite']['id'] ?? 0);
+                    $occupied[$id] = true;
+                    if ($id === $siteId) return true;
+                }
+            } catch (\Throwable $error) {
+                // Следующий lookup не должен перескочить через плохую строку.
+                // Уже найденные до неё site по-прежнему доступны, как battleAt.
+                $failure = $error;
+                throw $error;
+            }
+            return false;
+        };
+    }
+
     /** Чистый фильтр присутствия: приписанный, но улетевший флот не защищает базу. */
     public static function defendsSite(int $fleetOwner, array $position, ?array $command,
         array $at, int $baseOwner, bool $friend, float $time): bool
@@ -362,9 +391,10 @@ final class ResourceBaseService
     {
         if (!self::isEnabled()) return null;
         $next = null;
+        $hasBattle = self::battlePresenceReader();
         foreach (ResourceBases::getAll() as $base) {
             $id = -(int)$base['id'];
-            if (self::battleAt((int)$base['id']) !== null) continue;
+            if ($hasBattle((int)$base['id'])) continue;
             if (isset($failed[$id])) continue;
             try {
                 $members = self::members($base);
@@ -419,8 +449,9 @@ final class ResourceBaseService
     public static function settleWorld(float $time): void
     {
         if (!self::isEnabled()) return;
+        $hasBattle = self::battlePresenceReader();
         foreach (ResourceBases::getAll() as $base) {
-            if (self::battleAt((int)$base['id']) !== null) continue;
+            if ($hasBattle((int)$base['id'])) continue;
             try {
                 $at = FleetSurveyService::coordinate(self::site((int)$base['id']));
                 foreach (self::members($base) as $fleet) {

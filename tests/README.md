@@ -344,6 +344,30 @@ PHPStan(src/probes), lint8.2/8.4, модель135 и v2 baseline217/restart PASS
 WSocket/main прежние, служебные SQL-строки0; main работает, saver/runtimeSQL/
 cleanup/budget ошибок0, RAM-first/30с/native-ёмкости прежние.
 
+После4Е4З `BattleReadMainWorldProbe.php` принимает третий bool batched:
+false сравнивает прежние самостоятельные ResourceBaseService::battleAt,
+true (default) — private reader одного прохода через Reflection. Protected
+по-прежнему должен быть true на текущем коде. Control/after содержат101 проверку,
+в том числе независимые reader, раннее совпадение до bad JSON, повтор ошибки
+без перескока, прежний найденный site после ошибки, новые site/phase между
+вызовами. Полные public battleAt/forFleet не изменены.
+
+В siteLookups — по9 замеров для4/16 Space JSON262144B; каждый замер создаёт
+свежий reader и ищет16 различных отсутствующих siteId. Прогрев класса выполняет
+отдельный экземпляр, не timed-курсор. Медиана75,402/302,349→4,478/18,859мс;
+PHP peak798424/798584→798096/798576B. Retained592/1072B подтверждает, что после
+lookup остаются только метаданные, не полный combat state. Это bootstrap-замер
+на основном dev, не полный world tick/нативная память или CPU/SLO20K/1K.
+Read101+coordinator33/corruption148/mailbox45/consumers33/space23/planet21/
+checkpoint40/boundary21 —465 PASS. Исходные строки/dirty/PlayerQueue/настройки/
+mailbox возвращены, generation не откатываются; hooks перед handoff снимаются.
+Условия по SQL/ACK в прежних регрессиях не меняются; read probe без SQL-write.
+PHPStan(src/probe), lint8.2/8.4, read-only модель135 и v2 baseline217/restart
+PASS:151 ответ/99 запросов,2 queue round-trip, QA восстановлены. Hooks сняты,
+WSocket/main прежние, SQL-count своих read-fixture0. Основной сервер работает,
+свежих ошибок нет; saver/runtimeSQL/cleanup/budget ошибок0, RAM-first/30с/
+native-ёмкости прежние, target не выделялся. B047 остаётся открыт.
+
 ## B045: нулевые значения Environment
 
 ```bash

@@ -8,15 +8,21 @@ use SPGame\Game\Services\ResourceBaseService;
  * ключи, без Fleet/игроков/SQL. finally возвращает строки и dirty; служебные
  * generation монотонны. Измеряется временный PHP heap, не native RAM/SLO.
  */
-return static function (string $path, bool $protected = true): void {
+return static function (string $path, bool $protected = true, bool $batched = true): void {
     if (file_exists($path)) return;
-    $checks = 0; $measurements = [];
+    $checks = 0; $measurements = []; $siteMeasurements = [];
     $check = static function (bool $ok, string $message) use (&$checks): void {
         if (!$ok) throw new RuntimeException('Battle read: ' . $message);
         ++$checks;
     };
     $copy = static function (Swoole\Table $table): array { $rows = iterator_to_array($table); ksort($rows); return $rows; };
     $queue = PlayerQueue::getAll();
+    $newLookup = static function () use ($batched): Closure {
+        if (!$batched) return static fn(int $id): bool => ResourceBaseService::battleAt($id) !== null;
+        $reader = (new ReflectionMethod(ResourceBaseService::class, 'battlePresenceReader'))->invoke(null);
+        if (!$reader instanceof Closure) throw new LogicException('Нет scoped reader боёв ресурса.');
+        return $reader;
+    };
     foreach ($protected ? [SpaceBattles::class, PlanetBattles::class] : [SpaceBattles::class] as $repository) {
         $table = (new ReflectionProperty($repository, 'table'))->getValue();
         $sync = (new ReflectionProperty($repository, 'syncTable'))->getValue();
@@ -42,6 +48,26 @@ return static function (string $path, bool $protected = true): void {
                 [$result, $bytes] = $peak(static fn(): ?array => $repository::forFleet(1901499999));
                 $check($result === null, 'Несуществующий Fleet не найден.');
                 $measurements[$name][$count] = $bytes;
+                if ($protected && $repository === SpaceBattles::class) {
+                    // Автозагрузка большого сервиса не является памятью reader.
+                    // Прогреваем отдельный экземпляр, не будущий timed-курсор.
+                    $warmup = $newLookup(); $warmup(1901499999); unset($warmup);
+                    $durations = []; $maxPeak = 0; $retained = 0; $absent = true;
+                    for ($sample = 0; $sample < 9; ++$sample) {
+                        $lookup = $newLookup();
+                        gc_collect_cycles(); $memory = memory_get_usage(); memory_reset_peak_usage(); $started = hrtime(true);
+                        for ($query = 0; $query < 16; ++$query) $absent = !$lookup(1901499000 + $query) && $absent;
+                        $elapsed = (hrtime(true) - $started) / 1000000;
+                        $retained = max($retained, memory_get_usage() - $memory);
+                        $maxPeak = max($maxPeak, memory_get_peak_usage() - $memory);
+                        $durations[] = $elapsed; unset($lookup);
+                    }
+                    sort($durations);
+                    $siteMeasurements[$count] = ['elapsedMs' => $durations[4], 'peakBytes' => $maxPeak,
+                        'retainedBytes' => $retained, 'samples' => 9, 'queriesPerSample' => 16, 'sortedSamplesMs' => $durations];
+                    $check($absent, 'Все16 отсутствующих siteId не заняты боем.');
+                    $check($retained < 65536, 'Между lookup не удерживаются полные combat JSON.');
+                }
             }
             $growth = $measurements[$name][16] - $measurements[$name][4];
             $check($protected ? $growth < 1048576 : $growth > 2097152,
@@ -80,11 +106,27 @@ return static function (string $path, bool $protected = true): void {
             $bad = false;
             try { $repository::forFleet(1901499999); } catch (JsonException) { $bad = true; }
             $check($bad, 'Ошибка посещённого JSON не скрывается.');
+            if ($repository === SpaceBattles::class) {
+                $lookup = $newLookup();
+                $check($lookup($first), 'Scoped lookup останавливается до повреждённого позднего JSON.');
+                $bad = false;
+                try { $lookup(1901499999); } catch (JsonException) { $bad = true; }
+                $check($bad, 'Scoped lookup не скрывает посещённую ошибку JSON.');
+                $check($lookup($first), 'Ранее найденный site до ошибки остаётся доступен.');
+                $bad = false;
+                try { $lookup(1901499998); } catch (JsonException) { $bad = true; }
+                $check($bad, 'После ошибки курсор не перескакивает через плохую строку.');
+            }
             $table->set((string)$last, ['phase' => 'applied']);
             $check(!in_array($last, $repository::activeKeys(), true) && $repository::forFleet($last) === null,
                 'Applied исключён по metadata до чтения JSON.');
             $check(in_array($last, $repository::appliedKeys(), true), 'Applied-селектор совместим.');
             $table->set((string)$last, $row);
+            if ($repository === SpaceBattles::class) {
+                $left = $newLookup(); $right = $newLookup();
+                $check($left($first) && $right($last) && $left($last), 'Два scoped reader и native iterator независимы.');
+                unset($left, $right, $lookup);
+            }
             $row = $table->get((string)$first);
             $changed = json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR);
             $changed['padding'] = substr($changed['padding'], 0, -128); // Место для более длинных phase.
@@ -99,6 +141,16 @@ return static function (string $path, bool $protected = true): void {
                 $check(!in_array($first, $repository::runningKeys(), true), 'Фаза ' . $phase . ' не рассчитывает раунд.');
                 $check(in_array($first, $repository::nonRunningKeys(), true) === ($phase !== 'applied'),
                     'Фаза ' . $phase . ' в остальных active без applied.');
+                if ($repository === SpaceBattles::class) {
+                    $lookup = $newLookup();
+                    $check($lookup($first) === ($phase !== 'applied'), 'Новый reader видит фазу ' . $phase . '.');
+                }
+            }
+            if ($repository === SpaceBattles::class) {
+                $changed['phase'] = 'running'; $changed['mission']['resourceSite']['id'] = (string)($first + 3000);
+                $repository::store($first, $changed); $lookup = $newLookup();
+                $check(!$lookup($first) && $lookup($first + 3000), 'Новая операция видит изменённый siteId с прежним int-приведением.');
+                unset($lookup);
             }
         } finally {
             foreach ($owned as $key) {
@@ -112,7 +164,8 @@ return static function (string $path, bool $protected = true): void {
     }
     $check(PlayerQueue::getAll() === $queue, 'PlayerQueue прежняя.');
     file_put_contents($path, json_encode(['ok' => true, 'checks' => $checks, 'protected' => $protected,
-        'peakBytes' => $measurements, 'newWorld' => false, 'newTables' => 0, 'sqlWrites' => 0,
+        'peakBytes' => $measurements, 'siteLookups' => $siteMeasurements, 'batched' => $batched,
+        'newWorld' => false, 'newTables' => 0, 'sqlWrites' => 0,
         'originalStateRestored' => true], JSON_THROW_ON_ERROR), LOCK_EX);
     chmod($path, 0600);
 };
