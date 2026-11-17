@@ -326,6 +326,24 @@ PASS:151 ответ/99 запросов,2 queue round-trip, QA восстано�
 WSocket/main прежние, SQL-count fixture0; main работает, saver/runtimeSQL/
 cleanup/budget ошибок0, RAM-first/30с/native-ёмкости прежние.
 
+После4Е4Ж coordinator33 before/after и read87 PASS: metadata running/
+nonRunning, native-порядок и исключение applied. Нерассчитываемые JSON
+перепроверяются координатором при неизвестных резервах; corruption148 и
+mailbox45 повторно проверили сохранение unknown job и backpressure/GC.
+8/32 своих finished/settled/failed JSON262144B с пустым mailbox, samples9:
+медиана9,240/38,509→0,519/2,233мс, PHP peak797480/807144→2216/2216B.
+Все строки/dirty/token проверены на неизменность и возвращены в finally;
+PlayerQueue/настройки/mailbox прежние, generation не откатываются. Это
+bootstrap-микрозамер, не полный validator nonRunning, память процесса или
+20K/1K CPU/SLO. Running JSON остаются линейными. Вместе с consumers33/space23/
+planet21/checkpoint40/boundary21 —451 PASS, без нового мира/Table/Fleet/игроков.
+Сами coordinator/read probe не пишут SQL; служебные ACK/rollback DELETE
+остальных регрессий описаны выше. Временные hooks перед handoff снимаются.
+PHPStan(src/probes), lint8.2/8.4, модель135 и v2 baseline217/restart PASS:
+151 ответ/99 запросов,2 queue round-trip, QA восстановлены. Hooks сняты,
+WSocket/main прежние, служебные SQL-строки0; main работает, saver/runtimeSQL/
+cleanup/budget ошибок0, RAM-first/30с/native-ёмкости прежние.
+
 ## B045: нулевые значения Environment
 
 ```bash

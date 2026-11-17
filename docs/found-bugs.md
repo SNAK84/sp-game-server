@@ -1070,6 +1070,23 @@
 
 ## B047 — ёмкости runtime/sync/connect не соответствуют20 000/1 000
 
+- Уточнение17.11.2026/4Е4Ж: первый проход координатора выбирает running по
+  native phase, не разбирая finished/settled/failed ради пустых заголовков.
+  Если все резервы известны из running, нерассчитываемые JSON не нужны;
+  при неизвестном token они всё ещё валидируются, bad JSON сохраняет резерв,
+  ограничение busy и отложенный GC. Worker не создаёт новые token, поэтому
+  проверка не теряет поздние ответы. Metadata running/nonRunning сохраняет
+  native-порядок и исключает applied; строгие forFleet/active не изменены.
+  На основном dev8/32 нерассчитываемых JSON262144B,9 замеров: медиана9,240/
+  38,509→0,519/2,233мс, PHP heap797480/807144→2216/2216B. Не CPU/SLO20K/1K.
+  Coordinator33 before/after, read87 и регресс331 — после451 PASS;
+  исходные checkpoint/dirty/PlayerQueue возвращены. Новых Table/кэшей/SQL/
+  схем/клиентского API нет. PHPStan(src/probes), lint8.2+8.4, модель135 и
+  v2 baseline217/restart PASS:151 ответ/99 запросов,2 queue round-trip, QA
+  восстановлены. Hooks сняты, WSocket/main прежние, SQL-count fixture0;
+  main работает, saver/runtimeSQL/cleanup/budget ошибок0, RAM-first/30с/
+  native-ёмкости прежние. B047 открыт: running всё ещё читаются линейно, forFleet/
+  battleAt и остальные аллокации/границы хранения ещё требуют проверки.
 - Уточнение17.11.2026/4Е4Е: ожидающий job проверяет mailbox и конечный
   числовой deadline до повторного чтения state. Если ответа нет и timeout
   не наступил, убраны второй/третий JSON-разбор, checkpoint/dirty/token

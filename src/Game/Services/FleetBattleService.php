@@ -139,7 +139,11 @@ final class FleetBattleService
         // Общий busy нужен до первого dispatch. Сохраняем порядок и короткие
         // заголовки, а не все combat/rounds/pending каждого боя одновременно.
         $active = []; $refresh = []; $busy = 0; $knownTokens = []; $unreadable = false;
-        foreach (self::activeBattles($unreadable) as $entry) {
+        $runningKeys = [];
+        foreach ([PlanetBattles::class, SpaceBattles::class] as $repository) {
+            $runningKeys[$repository] = array_fill_keys($repository::runningKeys(), null);
+        }
+        foreach (self::activeBattles($unreadable, true, $runningKeys) as $entry) {
             $state = $entry['state'];
             $running = $state['phase'] === 'running';
             $hasJob = $running && $state['job'] !== null;
@@ -160,10 +164,26 @@ final class FleetBattleService
                 'running' => $running, 'hasJob' => $hasJob, 'readyAt' => $readyAt,
                 'token' => $hasJob ? $state['job']['token'] : null, 'waitUntil' => $waitUntil];
         }
-        unset($entry, $state);
+        unset($entry, $state, $runningKeys);
+        // Worker не создаёт резервы, только публикует в уже существующие.
+        // Если каждый резерв известен из running, остальные phase не владеют
+        // неизвестным ответом и их большие JSON для расчёта раундов не нужны.
+        $unknownTokens = array_diff_key(self::$results->tokens(), $knownTokens);
+        if ($unknownTokens !== []) {
+            $nonRunningKeys = [];
+            foreach ([PlanetBattles::class, SpaceBattles::class] as $repository) {
+                $nonRunningKeys[$repository] = array_fill_keys($repository::nonRunningKeys(), null);
+            }
+            foreach (self::activeBattles($unreadable, true, $nonRunningKeys) as $entry) {
+                // Только валидация: нечитаемая строка может скрывать владельца
+                // неизвестного резерва. Не сохраняем её state или заголовок.
+            }
+            unset($entry, $nonRunningKeys);
+        }
         // Нечитаемый checkpoint мог владеть ещё работающим job. Его резерв
         // учитываем дополнительно, но известные job не считаем второй раз.
-        if ($unreadable) $busy += count(array_diff_key(self::$results->tokens(), $knownTokens));
+        if ($unreadable) $busy += count($unknownTokens);
+        unset($unknownTokens);
         foreach ($active as $entry) {
             ['repository' => $repository, 'key' => $planetId] = $entry;
             try {

@@ -11,7 +11,7 @@ use SPGame\Game\Services\{FleetBattleService as Battles, FleetCombatService as C
 return static function (string $path, bool $protected = true, int $samples = 1): void {
     if (file_exists($path)) return;
     if ($samples < 1 || $samples > 21) throw new InvalidArgumentException('От1 до21 замеров tick.');
-    $checks = 0; $measurements = []; $waitingMeasurements = [];
+    $checks = 0; $measurements = []; $waitingMeasurements = []; $inactiveMeasurements = [];
     $check = static function (bool $ok, string $message) use (&$checks): void {
         if (!$ok) throw new RuntimeException('Battle coordinator: ' . $message);
         ++$checks;
@@ -68,6 +68,32 @@ return static function (string $path, bool $protected = true, int $samples = 1):
             $protected ? 'Пик tick не растёт на сумму24 больших JSON.' : 'Воспроизведена коллекция полных боёв в tick.');
         $clearOwn();
         if ($protected) {
+            foreach ([4, 16] as $count) {
+                foreach ($repositories as $repository) for ($i = 0; $i < $count; ++$i) {
+                    $key = $owned[$repository][$i];
+                    $state = ['id' => str_pad((string)$key, 32, '0', STR_PAD_LEFT),
+                        'phase' => ['finished', 'settled', 'failed'][$i % 3], 'job' => null, 'fleets' => [], 'padding' => ''];
+                    $state['padding'] = str_repeat('x', $repository::MAX_STATE_BYTES - strlen($json($state)));
+                    $repository::store($key, $state);
+                }
+                $inactiveBefore = [];
+                foreach ($repositories as $repository) $inactiveBefore[$repository] = [$copy($tables[$repository]), $copy($markers[$repository])];
+                $durations = []; $peak = 0; $unchanged = true;
+                for ($sample = 0; $sample < $samples; ++$sample) {
+                    gc_collect_cycles(); $memory = memory_get_usage(); memory_reset_peak_usage(); $started = hrtime(true);
+                    $affected = Battles::tick(100.0);
+                    $durations[] = (hrtime(true) - $started) / 1000000;
+                    $peak = max($peak, memory_get_peak_usage() - $memory);
+                    $unchanged = $unchanged && $affected === [] && $jobs === [] && $mailboxTable->count() === 0;
+                }
+                sort($durations);
+                $inactiveMeasurements[$count] = ['peakBytes' => $peak, 'elapsedMs' => $durations[intdiv($samples, 2)],
+                    'samples' => $samples, 'sortedSamplesMs' => $durations];
+                foreach ($repositories as $repository) $unchanged = $unchanged
+                    && [$copy($tables[$repository]), $copy($markers[$repository])] === $inactiveBefore[$repository];
+                $check($unchanged, 'Неисполняемые finished/settled/failed не меняют checkpoint/dirty/mailbox.');
+                $clearOwn();
+            }
             foreach ([2, 8] as $waitingCount) {
                 $limit->setValue(null, $waitingCount); $tokens = [];
                 for ($i = 0; $i < $waitingCount; ++$i) {
@@ -201,6 +227,7 @@ return static function (string $path, bool $protected = true, int $samples = 1):
     }
     file_put_contents($path, $json(['ok' => true, 'checks' => $checks, 'protected' => $protected, 'samplesPerRepository' => $measurements,
         'waitingJobs' => $waitingMeasurements,
+        'inactivePerRepository' => $inactiveMeasurements,
         'newTables' => 0, 'newWorld' => false, 'sqlWrites' => 0, 'originalStateRestored' => true]), LOCK_EX);
     chmod($path, 0600);
 };

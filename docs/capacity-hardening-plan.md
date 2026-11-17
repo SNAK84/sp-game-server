@@ -2507,8 +2507,52 @@ Main running, worldPID=wsPID10, authorized/PlayerQueue0; saver/runtimeSQL/
 cleanup/snapshot-budget ошибок0, возраст снимка16,408с при интервале30с.
 RAM-first/native-ёмкости development/target прежние, target не выделялся.
 
-Далее4Е4Ж: первый линейный JSON-проход и lookup, остальные переменные
-аллокации/границы хранения и задержки очистки.
+### 4Е4Ж — первый проход только по рассчитываемым phase
+
+Координатор раньше разбирал полные finished/settled/failed, хотя не запускал
+для них раунды. В общем trait добавлены metadata-only runningKeys и
+nonRunningKeys: используются прежние native phase, без новых колонок/индексов.
+Первый проход читает только running, в прежнем порядке Planet→Space/native.
+Затем под lock берутся ключи резервов mailbox, без payload; из них исключаются
+knownTokens. Worker публикует только в существующий резерв и не создаёт token,
+поэтому после этой проверки новых неизвестных резервов до dispatch не появится.
+
+Если неизвестных нет, нерассчитываемые JSON для управления раундами не нужны.
+Если есть, прежний строгий activeBattles валидирует nonRunning по одному,
+без коллекции больших state/заголовков. При плохой записи сохраняются исходные
+bytes/dirty, unknown busy и отложенный GC, как в4Е4Г. Сам fast path не является
+полной диагностикой всех nonRunning при пустом/полностью известном mailbox.
+Сохраняются single-authority, лимит workers, порядок раундов, seed/retry/
+подкрепления и поздние ответы. Внешние active/iterateActive/forFleet по-прежнему
+строгие, без новых правил видимости. Native phase обход остаётся линейным,
+JSON running всё ещё читаются целиком. Новый кэш/Table/SQL/schema/API не нужен.
+
+Coordinator probe дополнен двумя наборами8/32 записей262144B, phase циклически
+finished/settled/failed, mailbox пуст. По9 замеров на основном dev до/после:
+медиана9,240071/38,508807→0,519027/2,233485мс, PHP peak797480/807144→2216/2216B.
+Нет dispatch или изменений checkpoint/dirty/mailbox, перед/после сравниваются
+все исходные строки/markers. Это bootstrap-микрозамер padding JSON и PHP heap,
+не память всего процесса, настоящий бой, workload или20K/1K CPU/SLO.
+На running future32 JSON after35,961мс/809856B, before36,748мс/808088B:
+этот разбор не устранён, небольшой служебный overhead metadata-карты остался.
+
+Coordinator33 before/after PASS; read87 PASS, добавлены metadata-order и все
+нерассчитываемые phase/applied для обоих репозиториев. Corruption148/mailbox45/
+consumers33/space23/planet21/checkpoint40/boundary21 PASS, после вместе451.
+Оригинальные строки/dirty/PlayerQueue/callback/workerLimit/mailbox возвращены,
+generation не откатываются. Нет нового мира/Table/Fleet/игроков; coordinator/
+read probe не пишут SQL. ACK/rollback DELETE в прежних регрессиях по-прежнему
+только для собственных служебных строк, как описано выше.
+
+PHPStan(src/probes), lint PHP8.2/8.4, read-only модель135 и полный v2
+baseline217/restart PASS:151 ответ/99 запросов,2 queue round-trip, QA
+восстановлены. Hooks сняты, WSocket/main прежние; служебные SQL-строки0.
+Main running/exit0/OOMfalse, worldPID=wsPID10, authorized/PlayerQueue0;
+saver/runtimeSQL/cleanup/snapshot-budget ошибок0, возраст снимка20,002с.
+RAM-first/30с/native-ёмкости development/target прежние, target не выделялся.
+
+Далее4Е4З: линейные forFleet/battleAt и оставшийся running JSON-проход,
+переменные аллокации/границы хранения и задержки очистки.
 
 Ещё не проверены остальные переменные аллокации и границы хранения. Большой packed-backlog,
 времена world-capture/SQL/TTL и PHP heap всего target ещё не подтверждены;

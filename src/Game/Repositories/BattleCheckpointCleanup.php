@@ -20,6 +20,18 @@ trait BattleCheckpointCleanup
         return static::phaseKeys(['applied'], true);
     }
 
+    /** Координатор рассчитывает раунды только для native phase=running. */
+    public static function runningKeys(): array
+    {
+        return static::phaseKeys(['running']);
+    }
+
+    /** Остальные active нужны координатору лишь для проверки неизвестных jobs. */
+    public static function nonRunningKeys(): array
+    {
+        return static::phaseKeys(['running', 'applied'], true);
+    }
+
     /** Адаптеру завершения не нужны combat JSON выполняющихся/ошибочных боёв. */
     public static function settlementKeys(): array
     {

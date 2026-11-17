@@ -51,6 +51,10 @@ return static function (string $path, bool $protected = true): void {
             $keys = $repository::activeKeys();
             $check(array_keys($all) === $keys, 'Порядок и ключи active сохранены.');
             $check(iterator_to_array($repository::iterateActive()) === $all, 'Потоковое чтение совместимо с active.');
+            $check($repository::runningKeys() === array_keys(array_filter($all,
+                static fn(array $state): bool => $state['phase'] === 'running')), 'Running metadata сохраняет native-порядок.');
+            $check($repository::nonRunningKeys() === array_keys(array_filter($all,
+                static fn(array $state): bool => $state['phase'] !== 'running')), 'Остальные active отделены без JSON-фильтра.');
             foreach ($owned as $key) {
                 $found = $repository::forFleet($key);
                 $check($found === ['key' => $key, 'state' => $all[$key]], 'Точный key/state для Fleet.');
@@ -92,6 +96,9 @@ return static function (string $path, bool $protected = true): void {
                 $changed['phase'] = $phase; $repository::store($first, $changed);
                 $found = $repository::forFleet($first + 2000);
                 $check($phase === 'applied' ? $found === null : $found['state']['phase'] === $phase, 'Фаза ' . $phase . ' сохранена.');
+                $check(!in_array($first, $repository::runningKeys(), true), 'Фаза ' . $phase . ' не рассчитывает раунд.');
+                $check(in_array($first, $repository::nonRunningKeys(), true) === ($phase !== 'applied'),
+                    'Фаза ' . $phase . ' в остальных active без applied.');
             }
         } finally {
             foreach ($owned as $key) {
