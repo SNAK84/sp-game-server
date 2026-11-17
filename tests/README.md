@@ -231,6 +231,27 @@ PHPStan(src/probe), lint PHP8.2/8.4, read-only модель135 и полный v
 restart PASS:151 ответ/99 запросов,2 queue round-trip. QA восстановлены,
 hook снят, основной сервер работает; RAM-first/30с и native-бюджеты прежние.
 
+После4Е4Б `BattleCoordinatorMainWorldProbe.php` вызывается после обоих
+initializeWorkers, **до сети/saver основного dev**. Before-mode6 PASS:
+8/32 записей(4/16 каждого вида), JSON262144B; пик tick4488640/17139584B.
+After19 PASS:801696/811360B. Это временный PHP heap для плоского JSON,
+не native RAM/верхний предел сложного боя/benchmark CPU. Проверены порядок
+Planet→Space/native-ключей, общий workerLimit2, ожидание и освобождение
+слота, ответ один раз, ошибка отдельного job/плохой заголовок, timeout,
+поздний ответ и новый token retry с прежними snapshot/seed. Исходные строки/
+dirty/PlayerQueue и callback/workerLimit/mailbox восстановлены; нет SQL,
+нового мира/Table/Fleet/игрока. Generation не откатывается.
+WorkerMailbox45 PASS допускает неизменённые чужие failed и теперь сверяет
+все исходные checkpoint обоих видов. Его настоящий дочерний вычислитель/
+full pool/подкрепление следующего раунда повторно проверены. Read67/Space23/
+Planet21/checkpoint40/boundary21 также PASS, вместе236. Ошибки и timeout
+этих служебных probe ожидаемы; временные hooks перед handoff снимаются.
+PHPStan(src/probes), lint PHP8.2/8.4, read-only модель135 и полный v2 baseline217/
+restart PASS:151 ответ/99 запросов,2 queue round-trip. QA восстановлены,
+hooks сняты, служебные SQL-строки отсутствуют; main работает, RAM-first/30с
+сохранены. Невалидный JSON первого прохода не является проверенным здесь
+случаем: плохой заголовок в probe — корректный JSON с rounds=null.
+
 ## B045: нулевые значения Environment
 
 ```bash

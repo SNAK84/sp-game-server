@@ -136,11 +136,30 @@ final class FleetBattleService
         self::validTime($now);
         if (self::$results === null || self::$dispatch === null) return [];
         $changedOwners = [];
-        $active = self::activeBattles();
-        $busy = count(array_filter($active, static fn($entry) => $entry['state']['phase'] === 'running' && $entry['state']['job'] !== null));
+        // Общий busy нужен до первого dispatch. Сохраняем порядок и короткие
+        // заголовки, а не все combat/rounds/pending каждого боя одновременно.
+        $active = []; $busy = 0;
+        foreach (self::activeBattles() as $entry) {
+            $state = $entry['state'];
+            $running = $state['phase'] === 'running';
+            $hasJob = $running && $state['job'] !== null;
+            if ($hasJob) ++$busy;
+            $readyAt = null;
+            if ($running && !$hasJob && is_numeric($state['startedAt'] ?? null) && is_array($state['combat']['rounds'] ?? null)) {
+                $readyAt = $state['startedAt'] + (count($state['combat']['rounds']) + 1) * self::ROUND_SECONDS;
+            }
+            $active[] = ['repository' => $entry['repository'], 'key' => $entry['key'],
+                'running' => $running, 'hasJob' => $hasJob, 'readyAt' => $readyAt];
+        }
+        unset($entry, $state);
         foreach ($active as $entry) {
-            ['repository' => $repository, 'key' => $planetId, 'state' => $state] = $entry;
+            ['repository' => $repository, 'key' => $planetId] = $entry;
             try {
+                // Плохой заголовок (readyAt=null) проверяет прежний catch боя.
+                if (!$entry['running'] || (!$entry['hasJob'] && $entry['readyAt'] !== null
+                    && ($now < $entry['readyAt'] || $busy >= self::$workerLimit))) continue;
+                $state = $repository::state($planetId);
+                if ($state === null) throw new \LogicException('Потеряна запись текущего боя.');
                 if ($state['phase'] !== 'running') continue;
                 $job = $state['job'];
                 if ($job !== null) {
@@ -224,6 +243,7 @@ final class FleetBattleService
                 Logger::getInstance()->error('Расчёт раунда боя остановлен', ['scope' => $repository, 'battleKey' => $planetId, 'message' => $error->getMessage()]);
             }
         }
+        unset($active, $entry, $state, $reply);
         // Поздний ответ старого задания не может перезаписать новую попытку.
         $tokens = [];
         foreach (self::activeBattles() as $entry) {
@@ -340,13 +360,11 @@ final class FleetBattleService
         }
     }
 
-    private static function activeBattles(): array
+    private static function activeBattles(): \Generator
     {
-        $result = [];
-        foreach ([PlanetBattles::class, SpaceBattles::class] as $repository) foreach ($repository::active() as $key => $state) {
-            $result[] = ['repository' => $repository, 'key' => $key, 'state' => $state];
+        foreach ([PlanetBattles::class, SpaceBattles::class] as $repository) foreach ($repository::iterateActive() as $key => $state) {
+            yield ['repository' => $repository, 'key' => $key, 'state' => $state];
         }
-        return $result;
     }
 
     private static function requireBattle(int $planetId, string $battleId, string $repository = PlanetBattles::class): array

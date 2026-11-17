@@ -2267,8 +2267,58 @@ round-trip, QA восстановлены. Bootstrap-hook снят; WSocket/main
 основной сервер работает, worldPID=wsPID. Ошибки saver/runtimeSQL/cleanup/
 snapshot-budget0, RAM-first/30с прежние, native-бюджеты не менялись.
 
-Далее4Е4Б: полные коллекции activeBattles координатора раундов, адаптеров
-завершения и FleetsPage; оставшиеся переменные аллокации и задержки очистки.
+### 4Е4Б — короткая очередь координатора раундов
+
+FleetBattleService::tick держал все раскодированные state Planet/Space в
+activeBattles, затем создавал ещё одну полную коллекцию для retain mailbox.
+В private activeBattles теперь generator поверх iterateActive. Первый проход
+считает общий busy до любого dispatch и сохраняет только repository/key/
+running/hasJob/readyAt, не combat/rounds/pending. Порядок Planet→Space и
+native-ключей прежний. Бой с job читается повторно для ответа/timeout;
+без job — только когда раунд наступил и есть worker. Некорректный заголовок
+с readyAt=null направляется в прежний per-battle catch, а не скрывается
+предварительным отбором. До финального прохода освобождаются заголовки и
+остаточные state/reply; retain собирает текущие running token потоком.
+
+Два полных чтения JSON для предварительного отбора/финальной сверки остаются;
+для действительно обрабатываемых боёв есть дополнительное чтение state.
+Нового кэша, native Table, SQL, изменений schema/API/лимитов workers нет.
+Механика, время и количество раундов, seed/подкрепления и retry не менялись.
+Это устранение одновременных больших коллекций, не индекс/O(1) или CPU SLO.
+
+BattleCoordinatorMainWorldProbe вызывается в основном dev после обоих
+initializeWorkers, до сети/saver. Before6 PASS:4/16 своих записей каждого
+вида, всего8/32 JSON262144B; будущие раунды не исполняются. Пик tick
+4488640/17139584B. После19 PASS:801696/811360B(для32 записей≈16,346→0,774MiB).
+Это плоский JSON с padding и единичные bootstrap-замеры, не универсальный
+предел сложного боя/нагрузочная оценка. Duration есть в приватном proof,
+но не считается сравнительным CPU benchmark. Новых миров/Table/Fleet/игроков/
+SQL-write нет. Исходные строки/markers/PlayerQueue, callback/workerLimit
+и пустой mailbox возвращены; монотонные generation не откатываются.
+
+На тех же Table проверены общий лимит2 для двух репозиториев, порядок
+dispatch, ожидание третьего боя, освобождение worker в том же tick, один
+применённый раунд, ошибка отдельного job/плохого заголовка, timeout,
+поздний результат и retry с прежними snapshot/seed и новым token.
+Прежний WorkerMailboxMainWorldProbe45 PASS повторно проверил физический full,
+чистый вычислитель после fork и подкрепление со следующего раунда. Его
+precondition теперь допускает чужие failed, которые tick не исполняет;
+добавлена сверка всех исходных checkpoint/dirty обоих репозиториев.
+Ошибка job/плохой заголовок/timeout/dispatch-failure в этих probe ожидаемы.
+Read67/Space cleanup23/Planet21/checkpoint40/boundary21 также PASS, всего236.
+
+PHPStan(src/probes), lint PHP8.2/8.4, read-only модель135 PASS; native-бюджеты
+не менялись, target не выделялся. Полный v2 baseline217/restart PASS:
+151 ответ/99 запросов,2 queue round-trip, QA восстановлены. Hooks сняты,
+WSocket/main совпадают с исходными. Служебные SQL-строки отсутствуют, основной
+сервер работает, worldPID=wsPID, saver/runtimeSQL/cleanup/snapshot-budget
+ошибок0; RAM-first/30с сохранены. Валидация плохого заголовка выше касается
+корректного JSON с неверным rounds; ошибка самого JSON первого чтения по коду
+по-прежнему вне per-battle catch. Этот старый риск здесь не исправлялся и
+нуждается в отдельной проверке, не объявляется устранённым вместе с heap.
+
+Далее4Е4В: полные коллекции адаптеров завершения/FleetsPage; оставшиеся
+переменные аллокации и задержки очистки. CPU полных JSON-проходов остаётся риском.
 Ещё не проверены остальные переменные аллокации и границы хранения. Большой packed-backlog,
 времена world-capture/SQL/TTL и PHP heap всего target ещё не подтверждены;
 если packed-снимок целиком превышает заданный бюджет, отказ остаётся явным,

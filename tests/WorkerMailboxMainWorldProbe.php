@@ -20,7 +20,16 @@ return static function (string $path): void {
     $expedition = $get(Expeditions::class, 'mailbox');
     $mailboxes = [[$combat, Battles::MAILBOX_CAPACITY], [$expedition, Expeditions::MAILBOX_CAPACITY]];
     $check($get($combat, 'table')->count() === 0 && $get($expedition, 'table')->count() === 0, 'Проверка до запуска workers.');
-    $check(PlanetBattles::active() === [] && SpaceBattles::active() === [], 'Нет чужих активных checkpoint для tick.');
+    $check(array_filter([...PlanetBattles::active(), ...SpaceBattles::active()],
+        static fn(array $state): bool => $state['phase'] !== 'failed') === [], 'Нет чужих исполняемых checkpoint для tick.');
+    $checkpoints = static function () use ($get): array {
+        $result = [];
+        foreach ([PlanetBattles::class, SpaceBattles::class] as $repository) foreach (['table', 'syncTable'] as $name) {
+            $rows = iterator_to_array($get($repository, $name)); ksort($rows); $result[$repository][$name] = $rows;
+        }
+        return $result;
+    };
+    $checkpointsBefore = $checkpoints();
     $queueBefore = PlayerQueue::getAll();
     $account = Accounts::findByIndex('login', 'qaown_260924') ?? throw new LogicException('Нет QA.');
     $user = Users::findByIndex('account', (string)$account['id']) ?? throw new LogicException('Нет QA-игрока.');
@@ -147,7 +156,8 @@ return static function (string $path): void {
         if ($markerBefore === false) $markers->del((string)$key); else $markers->set((string)$key, $markerBefore);
     }
     $check($rows->get((string)$key) === $rowBefore && $markers->get((string)$key) === $markerBefore
-        && PlayerQueue::getAll() === $queueBefore, 'QA-checkpoint/dirty/PlayerQueue восстановлены.');
+        && $checkpoints() === $checkpointsBefore && PlayerQueue::getAll() === $queueBefore,
+        'QA и исходные checkpoint/dirty/PlayerQueue восстановлены.');
     file_put_contents($path, json_encode(['ok' => true, 'checks' => $checks, 'newTables' => 0,
         'childProcess' => true, 'qaRestored' => true, 'sqlWrites' => 0], JSON_THROW_ON_ERROR), LOCK_EX);
     chmod($path, 0600);
