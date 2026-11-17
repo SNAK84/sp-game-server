@@ -291,6 +291,24 @@ PASS:151 ответ/99 запросов,2 queue round-trip, QA восстано�
 WSocket/main прежние, SQL-count fixture0, main работает без новых ошибок
 saver/runtimeSQL/cleanup/budget. RAM-first/общий снимок30с/ёмкости прежние.
 
+После4Е4Д `BattleCoordinatorMainWorldProbe.php` принимает третий необязательный
+параметр samples=1 (1..21). Для before/after на основном dev взято9 замеров
+каждого набора8/32 будущих JSON262144B: медиана22,069/70,421→9,692/39,314мс,
+heap798168/807832→798424/808088B. Это локальный bootstrap-микрозамер, не
+20K/1K SLO или предел реального боя. До19 PASS, после23: дополнительно
+finished/job=null двух чистых боёв, освобождение token и отсутствие повторной
+отправки. Corruption148/mailbox45/consumers33/read67/space23/planet21/
+checkpoint40/boundary21 PASS, всего421. Сам coordinator probe не создаёт
+мира/Table/Fleet/игроков и не пишет SQL; исходные checkpoint/dirty/PlayerQueue/настройки/mailbox возвращены,
+generation не откатываются. В tick обновляется только временная карта
+затронутых ключей, без нового межтикового кэша. Ошибка первого чтения не
+сбрасывается до конца вызова; неизвестный резерв сохраняется. Временные
+hooks перед handoff снимаются.
+PHPStan(src/probe), lint8.2/8.4, модель135 и v2 baseline217/restart PASS:
+151 ответ/99 запросов,2 queue round-trip, QA восстановлены. Hooks сняты,
+WSocket/main прежние, SQL-count fixture0; main работает без ошибок
+saver/runtimeSQL/cleanup/budget, RAM-first/30с/native-ёмкости прежние.
+
 ## B045: нулевые значения Environment
 
 ```bash

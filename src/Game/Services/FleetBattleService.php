@@ -138,7 +138,7 @@ final class FleetBattleService
         $changedOwners = [];
         // Общий busy нужен до первого dispatch. Сохраняем порядок и короткие
         // заголовки, а не все combat/rounds/pending каждого боя одновременно.
-        $active = []; $busy = 0; $knownTokens = []; $unreadable = false;
+        $active = []; $refresh = []; $busy = 0; $knownTokens = []; $unreadable = false;
         foreach (self::activeBattles($unreadable) as $entry) {
             $state = $entry['state'];
             $running = $state['phase'] === 'running';
@@ -152,19 +152,23 @@ final class FleetBattleService
                 $readyAt = $state['startedAt'] + (count($state['combat']['rounds']) + 1) * self::ROUND_SECONDS;
             }
             $active[] = ['repository' => $entry['repository'], 'key' => $entry['key'],
-                'running' => $running, 'hasJob' => $hasJob, 'readyAt' => $readyAt];
+                'running' => $running, 'hasJob' => $hasJob, 'readyAt' => $readyAt,
+                'token' => $hasJob ? $state['job']['token'] : null];
         }
         unset($entry, $state);
         // Нечитаемый checkpoint мог владеть ещё работающим job. Его резерв
         // учитываем дополнительно, но известные job не считаем второй раз.
         if ($unreadable) $busy += count(array_diff_key(self::$results->tokens(), $knownTokens));
-        unset($knownTokens);
         foreach ($active as $entry) {
             ['repository' => $repository, 'key' => $planetId] = $entry;
             try {
                 // Плохой заголовок (readyAt=null) проверяет прежний catch боя.
                 if (!$entry['running'] || (!$entry['hasJob'] && $entry['readyAt'] !== null
                     && ($now < $entry['readyAt'] || $busy >= self::$workerLimit))) continue;
+                // Во время tick checkpoint меняет лишь координатор; TaskWorkers
+                // пишут только mailbox. Для retain перепроверяем затронутые строки,
+                // а не разбираем второй раз все неизменившиеся combat JSON.
+                $refresh[$repository][$planetId] = $entry['token'];
                 $state = $repository::state($planetId);
                 if ($state === null) throw new \LogicException('Потеряна запись текущего боя.');
                 if ($state['phase'] !== 'running') continue;
@@ -252,8 +256,11 @@ final class FleetBattleService
         }
         unset($active, $entry, $state, $reply);
         // Поздний ответ старого задания не может перезаписать новую попытку.
-        $tokens = []; $unreadable = false;
-        foreach (self::activeBattles($unreadable, false) as $entry) {
+        $tokens = $knownTokens;
+        foreach ($refresh as $changed) foreach ($changed as $oldToken) {
+            if ($oldToken !== null) unset($tokens[$oldToken]);
+        }
+        foreach (self::activeBattles($unreadable, false, $refresh) as $entry) {
             $state = $entry['state'];
             if ($state['phase'] === 'running' && $state['job'] !== null) $tokens[$state['job']['token']] = true;
         }
@@ -369,9 +376,11 @@ final class FleetBattleService
         }
     }
 
-    private static function activeBattles(bool &$unreadable, bool $logErrors = true): \Generator
+    private static function activeBattles(bool &$unreadable, bool $logErrors = true, ?array $selected = null): \Generator
     {
-        foreach ([PlanetBattles::class, SpaceBattles::class] as $repository) foreach ($repository::activeKeys() as $key) {
+        foreach ([PlanetBattles::class, SpaceBattles::class] as $repository) foreach (
+            $selected === null ? $repository::activeKeys() : array_keys($selected[$repository] ?? []) as $key
+        ) {
             // Ошибка generator iterateActive возникала до per-battle try в tick
             // и останавливала весь мир. Не изменяем исходные bytes/dirty/phase.
             try {

@@ -8,8 +8,9 @@ use SPGame\Game\Services\{FleetBattleService as Battles, FleetCombatService as C
  * существующих Table, без Fleet/игроков/SQL. ACK не моделируется. Возвращает
  * строки/markers/mailbox/настройки; generation не откатываются.
  */
-return static function (string $path, bool $protected = true): void {
+return static function (string $path, bool $protected = true, int $samples = 1): void {
     if (file_exists($path)) return;
+    if ($samples < 1 || $samples > 21) throw new InvalidArgumentException('От1 до21 замеров tick.');
     $checks = 0; $measurements = [];
     $check = static function (bool $ok, string $message) use (&$checks): void {
         if (!$ok) throw new RuntimeException('Battle coordinator: ' . $message);
@@ -49,10 +50,18 @@ return static function (string $path, bool $protected = true): void {
                 $state['padding'] = str_repeat('x', $repository::MAX_STATE_BYTES - strlen($json($state)));
                 $repository::store($key, $state); $owned[$repository][] = $key;
             }
-            gc_collect_cycles(); $memory = memory_get_usage(); memory_reset_peak_usage(); $started = hrtime(true);
-            $affected = Battles::tick(100.0);
-            $measurements[$count] = ['peakBytes' => memory_get_peak_usage() - $memory, 'elapsedMs' => (hrtime(true) - $started) / 1000000];
-            $check($affected === [] && $jobs === [] && $mailboxTable->count() === 0, 'Будущие раунды не отправляются worker.');
+            $durations = []; $peak = 0; $unchanged = true;
+            for ($sample = 0; $sample < $samples; ++$sample) {
+                gc_collect_cycles(); $memory = memory_get_usage(); memory_reset_peak_usage(); $started = hrtime(true);
+                $affected = Battles::tick(100.0);
+                $durations[] = (hrtime(true) - $started) / 1000000;
+                $peak = max($peak, memory_get_peak_usage() - $memory);
+                $unchanged = $unchanged && $affected === [] && $jobs === [] && $mailboxTable->count() === 0;
+            }
+            sort($durations);
+            $measurements[$count] = ['peakBytes' => $peak, 'elapsedMs' => $durations[intdiv($samples, 2)],
+                'samples' => $samples, 'sortedSamplesMs' => $durations];
+            $check($unchanged, 'Будущие раунды не отправляются worker.');
         }
         $growth = $measurements[16]['peakBytes'] - $measurements[4]['peakBytes'];
         $check($protected ? $growth < 1048576 : $growth > 4194304,
@@ -106,6 +115,21 @@ return static function (string $path, bool $protected = true): void {
             $check($thirdRepository::state($thirdKey)['job']['token'] === $retry['token']
                 && $retry['token'] !== $third['token'] && $retry['combat'] === $third['combat'] && $retry['seed'] === $third['seed'],
                 'Повтор того же раунда: прежний snapshot/seed, новый token.');
+            $clearOwn(); $mailbox->retain([]); $jobs = [];
+            $group['count'] = 1; $group['attack'] = 100.0; $group['hull'] = 1.0;
+            Battles::begin($owned[PlanetBattles::class][0], ['a' => $group], ['d' => $group], 100.0);
+            Battles::beginSpace($owned[SpaceBattles::class][0], ['a' => $group], ['d' => $group], 100.0);
+            Battles::tick(101.0);
+            $check(count($jobs) === 2 && $mailboxTable->count() === 2, 'Запущены оба завершающихся боя.');
+            foreach ($jobs as $task) Battles::executeTask($task);
+            Battles::tick(101.1);
+            foreach ($repositories as $repository) {
+                $finished = $repository::state($owned[$repository][0]);
+                $check($finished['phase'] === 'finished' && $finished['job'] === null,
+                    'Завершённый бой не сохраняет старый token в retain.');
+            }
+            Battles::tick(101.2);
+            $check(count($jobs) === 2 && $mailboxTable->count() === 0, 'Finished не отправляется повторно, mailbox пуст.');
         }
     } finally {
         $dispatch->setValue(null, $oldDispatch); $limit->setValue(null, $oldLimit); $mailbox->retain([]); $clearOwn();

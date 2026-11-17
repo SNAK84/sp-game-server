@@ -2412,8 +2412,55 @@ main running/exit0/OOMfalse, worldPID=wsPID10, authorized/PlayerQueue0.
 Savers/runtimeSQL/cleanup/snapshot-budget ошибок0, возраст последнего снимка
 10,419с при интервале30с. RAM-first и native development/target-бюджеты прежние,
 target не выделялся. Проверки не подтверждают20K/1K CPU/SLO.
-Далее4Е4Д: CPU полных JSON-проходов/поисков, остальные переменные аллокации
-и задержки очистки.
+### 4Е4Д — без второго полного JSON-прохода ради retain
+
+До изменения каждый tick повторно разбирал все active JSON после обработки
+раундов только для построения актуального набора token. За время single-
+authority tick checkpoint меняет координатор, а TaskWorkers — только mailbox.
+Теперь короткий заголовок содержит исходный token; сохраняется исходный набор
+knownTokens и карта repository/key→oldToken только затронутых боёв. В конце
+старые token этих боёв исключаются, их строки перечитываются и валидируются
+прежним activeBattles, новые running jobs добавляются. Остальные большие
+JSON не разбираются повторно, второго общего metadata-обхода тоже нет.
+Карта живёт только до конца вызова, не между тиками; нового кэша/Table/SQL/
+schema/API нет. Порядок Planet→Space/native, лимит workers, время раундов,
+подкрепления/seed/retry/таймауты/ошибки и finished-переходы сохранены.
+
+Прежний unreadable первого прохода теперь сохраняется до конца tick, даже
+если строку восстановили бы между проходами: GC консервативно отложится
+до следующего полного успешного чтения. Это не освобождение неизвестных
+резервов. Повреждение затронутой строки перед retain по-прежнему обнаружено;
+исходные bytes/dirty и место для позднего ответа сохраняются. Другие
+gameplay-координаторы работают до/после tick, не параллельно с ним; новые
+параллельные писатели checkpoint потребовали бы пересмотра этого условия.
+
+BattleCoordinatorMainWorldProbe получил необязательный третий параметр
+samples=1, допустимо1..21; здесь9. Те же8/32 своих JSON262144B с будущими
+раундами на основном dev до/после, без нового мира/Table/Fleet/игроков/SQL.
+Медианы22,069257/70,421422→9,691874/39,314356мс:−56,08%/−44,17%.
+Heap798168/807832→798424/808088B, то есть+256B в этих сценариях.
+Все9 длительностей сохранены в приватных proof. Это bootstrap-микрозамер
+плоского padding JSON, не общий benchmark настоящего боя, длительная
+нагрузка или20K/1K CPU/SLO; линейный первый разбор остался.
+
+Before coordinator19 PASS; after23 PASS, добавлены два чистых однораундовых
+боя Planet/Space, переход в finished/job=null, очистка старых token и повтор
+без dispatch. Corruption148/mailbox45/consumers33/read67/space23/planet21/
+checkpoint40/boundary21 повторно PASS, после вместе421. Все fixture и markers,
+PlayerQueue/callback/workerLimit/mailbox возвращены в finally; generation
+не откатываются. Прежние ACK/DELETE регрессий моделируются только для своих
+служебных строк, как описано в соответствующих разделах.
+
+PHPStan(src/probe), lint PHP8.2/8.4, read-only модель135 и полный v2
+baseline217/restart PASS:151 ответ/99 запросов,2 queue round-trip, QA
+восстановлены. Hooks сняты, WSocket/main прежние, служебные SQL-строки0.
+Main running/exit0/OOMfalse, worldPID=wsPID10, authorized/PlayerQueue0;
+saver/runtimeSQL/cleanup/snapshot-budget ошибок0, возраст снимка10,314с при
+интервале30с. Native development/target-бюджеты и RAM-first прежние, target
+не выделялся. Матрица памяти не заменяет проверку CPU/задержек на20K/1K.
+
+Далее4Е4Е: оставшиеся линейные JSON-lookup и повторное чтение ожидающих
+jobs, переменные аллокации/границы хранения и задержки очистки.
 
 Ещё не проверены остальные переменные аллокации и границы хранения. Большой packed-backlog,
 времена world-capture/SQL/TTL и PHP heap всего target ещё не подтверждены;
