@@ -43,6 +43,8 @@ def main():
     check(demand['ProtocolSubscriptions'] == 8000, 'Контракт8 подписок на соединение прежний.')
     check(demand['PhalanxScans'] == 20000 and base['assumptions']['phalanxRetentionSeconds'] == 300,
           'Снимки фаланги считаются по аккаунтам, а не только1000 online.')
+    for name, rows, sync in (('PlanetBattles', 1500, 2500), ('SpaceBattles', 1500, 2500), ('FleetExpeditions', 3000, 4000)):
+        check(demand[name] == rows and demand[name + 'Sync'] == sync, 'Live/retained/sync-tail checkpoint учтены: ' + name)
     check(demand['PlayerQueue'] == 1000 and demand['PlayerQueuePayloads'] == 1000
           and demand['PlayerQueuePayloadAccounts'] == 1000, 'Ожидающие события и большие payload учтены отдельно.')
     check(scene['largePayloadAggregateQuotaFit'] and base['assumptions']['largePayloadsPerAccount'] == 4,
@@ -54,9 +56,10 @@ def main():
             'retentionSeconds': 300, 'ttlReadsPayload': False, 'ttlScan': 'on-full-metadata-pass', 'admissionBeforeCharge': True},
             'Настоящие лимиты и metadata TTL фаланги экспортированы: ' + profile)
         for name, policy in base['profiles'][profile]['checkpointPolicies'].items():
-            check(policy['rows'] == 128 and policy['syncRows'] == 256 and policy['maxBytes'] == 262144,
-                  'Текущий бюджет checkpoint читается из схемы, не увеличен: ' + profile + '/' + name)
-            check(policy['retainedUntilDeleteAck'] == (name == 'SpaceBattles'), 'Retained DELETE выделен отдельно: ' + name)
+            expected = (4096 if name == 'FleetExpeditions' else 2048) if profile == 'target' else 128
+            check(policy['rows'] == expected and policy['syncRows'] == 2 * expected and policy['maxBytes'] == 262144,
+                  'Бюджет checkpoint читается из профиля, размер строки прежний: ' + profile + '/' + name)
+            check(policy['retainedUntilDeleteAck'] == (name != 'FleetExpeditions'), 'Оба боевых DELETE удерживают слот до ACK: ' + name)
         mailbox = base['profiles'][profile]['workerMailboxPolicy']
         check(mailbox['reserveBeforeDispatch'] and not mailbox['lateReplyCreatesRow'], 'Mailbox публикуется только в резерв: ' + profile)
         check(mailbox['CombatMailbox'] == {'slots': 32, 'maxBytes': 262144}, 'Бюджет боевого mailbox прежний: ' + profile)
@@ -159,10 +162,23 @@ def main():
     phalanx = model('--accounts=1', '--online=0', '--phalanx-recent-account-fraction=0.01')
     check(phalanx['scenarios'][0]['estimatedSelectedRows']['PhalanxScans'] == 1, 'Дробное число снимков округляется вверх.')
 
+    idle = model('--accounts=20000', '--online=0', '--active-fraction=0')['scenarios'][0]
+    for name in ('PlanetBattles', 'SpaceBattles', 'FleetExpeditions'):
+        check(idle['estimatedSelectedRows'][name] == 500 and idle['estimatedSelectedRows'][name + 'Sync'] == 1500,
+              'Retained/sync-backlog не исчезают при online0/active0: ' + name)
+    stress = model('--accounts=20000', '--online=1000', '--planet-battles-per-active-fleet=1')['scenarios'][0]['profiles']['target']
+    check(not stress['selectedBudgetsFit'] and 'PlanetBattles' in stress['exceededBudgets']
+          and 'PlanetBattlesSync' in stress['exceededBudgets'], 'Больше боёв честно превышают оба бюджета, не обрезаются.')
+    stress = model('--accounts=20000', '--online=0', '--active-fraction=0',
+                   '--checkpoint-sync-backlog-per-account=1')['scenarios'][0]['profiles']['target']
+    check('PlanetBattlesSync' in stress['exceededBudgets'] and 'PlanetBattles' not in stress['exceededBudgets'],
+          'Переполнение sync отдельно от live-строк.')
+
     for argument in ('--history-commands-per-active=-1', '--message-overflow-fraction=1.01', '--large-command-fraction=1.01',
                      '--command-hours-per-day=25', '--receipt-packed-bytes=256.5',
                      '--report-packed-bytes=0', '--commands-per-online-minute=NaN',
-                     '--saved-reports-per-account=3', '--phalanx-recent-account-fraction=1.01', '--unknown=1'):
+                     '--saved-reports-per-account=3', '--phalanx-recent-account-fraction=1.01',
+                     '--planet-battles-per-active-fleet=1.01', '--retained-checkpoints-per-account=-1', '--unknown=1'):
         result = run(argument)
         check(result.returncode == 1 and not result.stdout, 'Некорректный параметр не даёт частичный JSON: ' + argument)
         check('SELECT ' not in result.stderr and 'Stack trace' not in result.stderr, 'В ошибке нет SQL/конфигурации.')
@@ -170,7 +186,8 @@ def main():
     help_result = run('--help')
     check(help_result.returncode == 0 and '--receipt-packed-bytes' in help_result.stdout
           and '--large-command-fraction' in help_result.stdout
-          and '--phalanx-recent-account-fraction' in help_result.stdout, 'Справка содержит новые коэффициенты.')
+          and '--phalanx-recent-account-fraction' in help_result.stdout
+          and '--checkpoint-sync-backlog-per-account' in help_result.stdout, 'Справка содержит новые коэффициенты.')
 
     # Меняется только process-local env-map диагностики. Файл .env и профиль
     # работающего main не затрагиваются; preflight проверяет до первой Table.

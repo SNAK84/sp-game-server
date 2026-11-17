@@ -26,6 +26,9 @@ final class RuntimeCapacity
         'SensorContacts' => 32768,
         // Последний снимок хранится5мин и после отключения; резерв для20K аккаунтов.
         'PhalanxScans' => 32768,
+        // Сценарий10K активных флотов:1000/1000/2500 живых checkpoint,
+        // по500 удержанных/сбойных сверх них; минимум20% свободных мест.
+        'PlanetBattles' => 2048, 'SpaceBattles' => 2048, 'FleetExpeditions' => 4096,
         'Config' => 256,
     ];
 

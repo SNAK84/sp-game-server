@@ -478,26 +478,27 @@ final class FleetSpaceBattleService
     /** Не удалять checkpoint, пока хотя бы одна связанная запись ещё ждёт flush. */
     public static function cleanupApplied(): void
     {
-        $applied = array_filter(SpaceBattles::getAll() ?? [], static fn($row) => $row['phase'] === 'applied');
-        if ($applied === []) return;
+        $keys = SpaceBattles::appliedKeys();
+        if ($keys === []) return;
         $pending = [];
         foreach (self::REPOSITORIES + ['battles' => SpaceBattles::class] as $name => $repository) {
             $sync = $repository::getPendingSync();
             $pending[$name] = array_fill_keys([...$sync['update'], ...$sync['delete']], true);
         }
-        foreach ($applied as $row) {
+        foreach ($keys as $key) {
             try {
-                $state = SpaceBattles::state((int)$row['id']);
-                if (!empty($state['cleanupRequested'])) { SpaceBattles::finishCleanup((int)$row['id'], $state['id']); continue; }
-                if (!isset($state['resolution']['syncRows']) || isset($pending['battles'][$row['id']])) continue;
+                $state = SpaceBattles::state($key);
+                if ($state === null || $state['phase'] !== 'applied') continue;
+                if (!empty($state['cleanupRequested'])) { SpaceBattles::finishCleanup($key, $state['id']); continue; }
+                if (!isset($state['resolution']['syncRows']) || isset($pending['battles'][$key])) continue;
                 $references = $state['resolution']['syncRows'];
                 foreach ($state['mission']['participants'] as $id => $_) foreach (FleetCommands::view((int)$id) as $command) {
                     $references['commands'][] = (int)$command['id'];
                 }
                 foreach ($references as $name => $ids) foreach ($ids as $id) if (isset($pending[$name][$id])) continue 3;
-                SpaceBattles::requestCleanup((int)$row['id'], $state['id']);
+                SpaceBattles::requestCleanup($key, $state['id']);
             } catch (\Throwable $error) { Logger::getInstance()->error('Очистка checkpoint боя отложена',
-                ['battleKey' => $row['id'], 'message' => $error->getMessage()]); }
+                ['battleKey' => $key, 'message' => $error->getMessage()]); }
         }
     }
 

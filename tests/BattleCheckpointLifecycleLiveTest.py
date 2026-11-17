@@ -26,8 +26,11 @@ def main():
         except (FileNotFoundError, json.JSONDecodeError):
             time.sleep(.25)
             continue
-        assert proof['id'] == 1900700001, 'Ожидался только служебный ключ probe.'
-        stored = sql('echo json_encode($db->fetchOne("SELECT state FROM space_battles WHERE id=?",[$x["id"]]));', {'id': proof['id']})
+        repository = proof.get('repository', 'SpaceBattles')
+        table, expected_id = {'PlanetBattles': ('planet_battles', 1900700002),
+                              'SpaceBattles': ('space_battles', 1900700001)}[repository]
+        assert proof['id'] == expected_id, 'Ожидался только служебный ключ probe.'
+        stored = sql('echo json_encode($db->fetchOne("SELECT state FROM ' + table + ' WHERE id=?",[$x["id"]]));', {'id': proof['id']})
         if stored is not None:
             assert json.loads(stored['state'])['id'] == proof['battleId'], 'SQL-ключ занят другой записью.'
             assert len(stored['state'].encode('utf-8')) == proof['checkpointBytes'], 'SQL-образ усечён или преждевременно заменён cleanup-marker.'
@@ -51,7 +54,7 @@ def main():
             assert health['ws.authorityPid'] in (0, proof['pid'])
             assert all(health[k] == 0 for k in ('storage.lastErrorAt', 'storage.runtimeSqlRejected',
                                               'storage.cleanupErrors', 'storage.snapshotBudgetHits'))
-            print('LIVE_BATTLE_CHECKPOINT_LIFECYCLE_OK', json.dumps({'seconds': proof['elapsedSeconds'],
+            print('LIVE_BATTLE_CHECKPOINT_LIFECYCLE_OK', json.dumps({'repository': repository, 'seconds': proof['elapsedSeconds'],
                   'checkpointCommitObserved': True, 'sqlDeleted': True, 'ramAndMarkerReleased': True,
                   'checkpointBytes': proof['checkpointBytes'], 'cleanupBytes': proof['cleanupBytes'],
                   'wsAuthorityObserved': health['ws.authorityPid'] != 0,

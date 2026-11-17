@@ -26,6 +26,8 @@ if (in_array('--help', $argv, true)) {
         . "--pending-commands-per-online=1 (отдельно от суточных terminal-квитанций)\n"
         . "--large-command-fraction=1 (доля pending, требующих отдельного payload)\n"
         . "--phalanx-recent-account-fraction=1 (доля аккаунтов со снимком за последние300с, включая offline)\n"
+        . "--planet-battles-per-active-fleet=0.1 --space-battles-per-active-fleet=0.1 --expeditions-per-active-fleet=0.25\n"
+        . "--retained-checkpoints-per-account=0.025 --checkpoint-sync-backlog-per-account=0.05\n"
         . "--message-overflow-fraction=0.25 --message-overflow-bytes=1024\n"
         . "--reports-per-account-day=0.1 --saved-reports-per-account=1 --bookmarks-per-account=2\n"
         . "--report-packed-bytes=8192\n"
@@ -44,6 +46,9 @@ try {
         'pending-commands-per-online' => '1',
         'large-command-fraction' => '1',
         'phalanx-recent-account-fraction' => '1',
+        'planet-battles-per-active-fleet' => '0.1', 'space-battles-per-active-fleet' => '0.1',
+        'expeditions-per-active-fleet' => '0.25', 'retained-checkpoints-per-account' => '0.025',
+        'checkpoint-sync-backlog-per-account' => '0.05',
         'receipt-packed-bytes' => '384', 'message-overflow-fraction' => '0.25',
         'message-overflow-bytes' => '1024', 'reports-per-account-day' => '0.1',
         'saved-reports-per-account' => '1', 'bookmarks-per-account' => '2',
@@ -68,6 +73,9 @@ try {
         $options[$key] = (float)$options[$key];
     }
     if ($options['active-fraction'] > 1) throw new InvalidArgumentException('Доля активных флотов должна быть от0 до1.');
+    foreach (['planet-battles-per-active-fleet', 'space-battles-per-active-fleet', 'expeditions-per-active-fleet'] as $key) {
+        if ($options[$key] > 1) throw new InvalidArgumentException('Доля checkpoint должна быть от0 до1.');
+    }
     if ($options['message-overflow-fraction'] > 1 || $options['large-command-fraction'] > 1
         || $options['phalanx-recent-account-fraction'] > 1 || $options['command-hours-per-day'] > 24
         || $options['saved-reports-per-account'] > $options['bookmarks-per-account']) {
@@ -98,6 +106,7 @@ try {
         foreach (['ProtocolCommands', 'BattleReports', 'BattleReportSaves'] as $name) {
             $budgets[$name] = $inventory['extraTables'][$name . 'Rows']['buckets'];
         }
+        foreach ($inventory['checkpointPolicies'] as $name => $policy) $budgets[$name . 'Sync'] = $policy['syncRows'];
         $profiles[$profile] = ['sharedAllocationModelBytes' => $inventory['totalSharedAllocationModelBytes'],
             'checkpointPolicies' => $inventory['checkpointPolicies'],
             'phalanxPolicy' => $inventory['phalanxPolicy'],
@@ -132,6 +141,18 @@ try {
         $recentReports = scenarioRows($accounts * $options['reports-per-account-day'] * $reportDays);
         $savedReports = scenarioRows($accounts * $options['saved-reports-per-account']);
         $reports = scenarioRows((float)$recentReports + $savedReports);
+        $retainedCheckpoints = scenarioRows($accounts * $options['retained-checkpoints-per-account']);
+        $checkpointSyncBacklog = scenarioRows($accounts * $options['checkpoint-sync-backlog-per-account']);
+        $checkpointRows = $checkpointBreakdown = [];
+        foreach (['PlanetBattles' => 'planet-battles-per-active-fleet', 'SpaceBattles' => 'space-battles-per-active-fleet',
+            'FleetExpeditions' => 'expeditions-per-active-fleet'] as $name => $coefficient) {
+            $live = scenarioRows($active * $options[$coefficient]);
+            $checkpointRows[$name] = scenarioRows((float)$live + $retainedCheckpoints);
+            // Все текущие строки могут быть dirty; старые tombstones задаются отдельно.
+            $checkpointRows[$name . 'Sync'] = scenarioRows((float)$checkpointRows[$name] + $checkpointSyncBacklog);
+            $checkpointBreakdown[$name] = ['live' => $live, 'retained' => $retainedCheckpoints,
+                'additionalSyncBacklog' => $checkpointSyncBacklog];
+        }
         $rows = ['Accounts' => $accounts, 'Users' => $accounts, 'Techs' => $accounts, 'UserResources' => $accounts,
             'Planets' => $bases, 'PlanetResources' => $bases, 'Builds' => $bases, 'Ships' => $bases, 'Defenses' => $bases,
             'Fleets' => $fleets, 'FleetsShips' => $fleets,
@@ -148,7 +169,7 @@ try {
             'BattleReportsBodies' => scenarioRows($reports * $blocks($options['report-packed-bytes'], $runtimeInline)),
             'BattleReportSaves' => scenarioRows($accounts * $options['bookmarks-per-account']),
             'PhalanxScans' => scenarioRows($accounts * $options['phalanx-recent-account-fraction']),
-            'Connect' => $online, 'ProtocolSubscriptions' => $online * $subscriptions];
+            'Connect' => $online, 'ProtocolSubscriptions' => $online * $subscriptions] + $checkpointRows;
         $estimates = [];
         foreach ($profiles as $profile => $inventory) {
             $utilization = [];
@@ -172,6 +193,7 @@ try {
                 'overflowMessages' => $overflowMessages, 'recentReports' => $recentReports, 'savedReports' => $savedReports,
                 'terminalReceipts' => $receipts, 'pendingReceipts' => $pendingReceipts,
                 'pendingReceiptBlocks' => $pendingReceipts * $completionBlocks,
+                'checkpoints' => $checkpointBreakdown,
                 'largePayloads' => $largePayloads, 'largePayloadQuota' => $online * PlayerQueuePayloads::MAX_PER_ACCOUNT],
             'estimatedSelectedRows' => $rows, 'profiles' => $estimates];
     }
@@ -191,6 +213,7 @@ try {
             'Размеры packed и доля overflow заданы явно, не получены из маленькой выборки dev; компрессия не гарантируется.',
             'Pending считаются ожидающими в PlayerQueue; доля больших событий задана отдельно. Прочие серверные события/недавно отключившиеся аккаунты не включены; агрегатная quota не гарантирует равномерное распределение.',
             'Снимки фаланги учитывают offline-владельцев: по умолчанию все аккаунты имеют свежий снимок. Это верхний сценарий числа строк, не частота сканов; полный metadata TTL-pass пока не ограничен временем.',
+            'Checkpoint считаются по всем активным флотам, включая offline: доли трёх сценариев заданы независимо. Экспедиции включают обратный путь. Удержанные/сбойные записи и дополнительный sync-backlog считаются по аккаунтам, не исчезают при active0; это сценарии, не измерения, не игровой баланс и не максимум всех возможных боёв.',
             'Учтены физический резерв accepted и payload очереди; прочие индексы, журналы добычи, mailbox, tombstones и обновления других типов тел вне модели.',
             'idealFullPassCalls очистки не учитывает time-budget hits, lag, ошибки и ожидание ACK: это не гарантия освобождения памяти за заданное время.',
             'PHP heap, COW, сокеты, снимки, ОС, БД и другие сервисы требуют отдельного запаса.',

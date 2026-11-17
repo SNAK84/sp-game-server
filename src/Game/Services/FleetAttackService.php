@@ -15,6 +15,7 @@ use SPGame\Game\Space\{Coordinate, CoordinateType};
 /** Адаптер ATTACK: прибытие, участники и локальный runtime commit, но не боевой расчёт. */
 final class FleetAttackService
 {
+    private static float $nextCleanupAt = 0.0;
     private const REPOSITORIES = [
         'ships' => Ships::class, 'defenses' => Defenses::class, 'resources' => PlanetResources::class,
         'fleets' => Fleets::class, 'fleetShips' => FleetsShips::class,
@@ -664,7 +665,42 @@ final class FleetAttackService
                 Logger::getInstance()->error('Завершение ATTACK отложено', ['planetId' => $planetId, 'message' => $error->getMessage()]);
             }
         }
+        if ($now >= self::$nextCleanupAt) { self::$nextCleanupAt = $now + 1.0; self::cleanupApplied(); }
         return array_keys($affected);
+    }
+
+    /** applied ACK получен только после общего COMMIT всех репозиториев мира.
+     * Не удаляем состояние, пока отложенная команда ещё использует battleWait:
+     * mustWait() намеренно считает отсутствие checkpoint ошибкой восстановления.
+     */
+    public static function cleanupApplied(): void
+    {
+        $keys = PlanetBattles::appliedKeys();
+        if ($keys === []) return;
+        $sync = PlanetBattles::getPendingSync();
+        $pending = array_fill_keys([...$sync['update'], ...$sync['delete']], true);
+        foreach ($keys as $planetId) {
+            try {
+                $state = PlanetBattles::state($planetId);
+                if ($state === null || $state['phase'] !== 'applied') continue;
+                if (!empty($state['cleanupRequested'])) { PlanetBattles::finishCleanup($planetId, $state['id']); continue; }
+                if (isset($pending[$planetId]) || !isset($state['mission'], $state['resolution'])) continue;
+                $fleetIds = array_unique([...($state['fleets'] ?? []),
+                    ...array_keys($state['mission']['participants'] ?? []), ...array_keys($state['mission']['waiting'] ?? []),
+                    ...($state['resolution']['retargetedFleets'] ?? [])]);
+                foreach ($fleetIds as $fleetId) foreach (FleetCommands::view((int)$fleetId) as $command) {
+                    if ($command['executed']) continue;
+                    $params = json_decode($command['params'], true, 512, JSON_THROW_ON_ERROR);
+                    $wait = $params['battleWait'] ?? [];
+                    if (($wait['scope'] ?? 'planet') !== 'space' && (int)($wait['planetId'] ?? 0) === $planetId
+                        && ($wait['id'] ?? null) === $state['id']) continue 3;
+                }
+                PlanetBattles::requestCleanup($planetId, $state['id']);
+            } catch (\Throwable $error) {
+                Logger::getInstance()->error('Очистка checkpoint планетарного боя отложена',
+                    ['planetId' => $planetId, 'message' => $error->getMessage()]);
+            }
+        }
     }
 
     private static function accountFor(int $ownerId, ?int $planetId = null): AccountData

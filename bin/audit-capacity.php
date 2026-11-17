@@ -144,7 +144,7 @@ foreach ([PlanetBattles::class, SpaceBattles::class, FleetExpeditions::class] as
     $checkpointPolicies[(new ReflectionClass($class))->getShortName()] = [
         'rows' => $layout['mainBuckets'], 'syncRows' => $layout['syncBuckets'],
         'maxBytes' => $class === FleetExpeditions::class ? $class::MAX_BYTES : $class::MAX_STATE_BYTES,
-        'retainedUntilDeleteAck' => $class === SpaceBattles::class];
+        'retainedUntilDeleteAck' => $class !== FleetExpeditions::class];
 }
 $result = ['php' => PHP_VERSION, 'swoole' => phpversion('swoole'), 'checkpointPolicies' => $checkpointPolicies,
     'phalanxPolicy' => ['slots' => PhalanxScans::capacity(), 'maxBytes' => PhalanxScans::MAX_BYTES,

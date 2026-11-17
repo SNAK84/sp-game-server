@@ -166,6 +166,29 @@ PHPStan(src/probes/CLI), PHP8.2/8.4 lint и Python compile PASS. Финальн�
 v2 baseline217/restart PASS:151 ответ/99 запросов,2 queue round-trip,
 QA-имена восстановлены. Оба временных hook сняты, main работает.
 
+После4Е3Г `PlanetBattleCleanupMainWorldProbe.php` временно вызывается после
+GameProtocolV2::initialize до сети/saver.21 PASS:262144B checkpoint, dirty/ACK,
+legacy applied без syncRows, живой battleWait, compact/plain/packed DELETE,
+новый бой на том же ключе/stale ACK, повтор finish, незавершённые фазы и
+applied без контекста. Собственная команда использует штатные индексы;
+finally сверяет их, позиции, строки, dirty, checkpoint и PlayerQueue.
+SQL/newTable/newWorld0; ID/generation монотонны, пропуски допустимы.
+Прежние BattleCheckpointMainWorldProbe40 и BattleCleanupBoundaryMainWorldProbe21
+повторно PASS после переноса cleanup в общий trait.
+
+Lifecycle probe принимает третий параметр PlanetBattles::class, по умолчанию
+остаётся SpaceBattles::class. Только два класса и ключи1900700002/1900700001.
+Два onStart-вызова с новыми proof path и atLimit=true одновременно проверены
+настоящим saver. Observer запускается до restart отдельно для каждого proof.
+INSERT/DELETE и освобождение RAM/marker подтверждены: Planet62,124с,
+Space62,104с. SQL262144B сохраняется полным,83B marker только в RAM до ACK.
+Observer SQL только SELECT; акторов/ресурсов/настоящего боя/аварии нет.
+Модель135 PASS: target main/sync, retained, sync-tail, online0/active0,
+stress/overflow без обрезания. Target не выделялся. PHPStan(src/probes/CLI),
+lint PHP8.2/8.4, Python compile и финальный full v2 baseline217/restart PASS:
+151 ответ/99 запросов,2 queue round-trip, QA восстановлены. Hooks сняты,
+main работает; оба служебных SQL-ключа отсутствуют.
+
 ## B045: нулевые значения Environment
 
 ```bash

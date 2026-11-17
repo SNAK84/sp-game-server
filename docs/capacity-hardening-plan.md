@@ -2110,7 +2110,70 @@ QA-имена восстановлены. Временные bootstrap/onStart h
 WSocket/main совпадают с исходными. Main запущен, saver/cleanup/runtimeSQL/
 snapshot budget ошибок нет; игровые данные по-прежнему в памяти, снимок30с.
 
-Далее4Е3Г: целевые бюджеты checkpoint(все три пока128/256/262144B).
+### 4Е3Г — жизненный цикл и целевые бюджеты checkpoint
+
+PlanetBattles сохранял applied навсегда, только перезаписывал новым боем на
+той же планете.128 мест ограничивали число разных когда-либо атакованных
+планет, а не одновременно хранимых боёв. Теперь applied освобождается через
+retained DELETE после ACK общего снимка мира. Этот ACK означает COMMIT всех
+репозиториев в одной транзакции RepositorySaver, не отдельный SQL одной
+таблицы. Новые изменения продолжившего полёт флота не являются несохранённым
+результатом старого боя. Applied без mission/resolution не удаляется автоматически.
+
+Пока unexecuted battleWait ссылается на эту planetId+id, очистка откладывается:
+mustWait() намеренно считает отсутствие checkpoint ошибкой восстановления.
+Проверяются participants/waiting/fleets/retargetedFleets. Новый бой может
+использовать тот же planetId до ACK старого DELETE: точные marker+row не дают
+старому ACK снять новую запись. Доклады/сообщения и механика боя не менялись.
+
+Проверенный retained DELETE перенесён из SpaceBattles в общий
+BattleCheckpointCleanup двух репозиториев: компактный marker83B, readback/
+rollback, освобождение только после ACK. appliedKeys читает phase+ключи,
+не копирует JSON всех running-боёв для поиска завершённых. Пространственный
+адаптер сохраняет прежний дополнительный барьер syncRows; его поведение при
+непрерывно dirty зависимых флотах ещё нужно проверить. Горячего SQL нет.
+
+Main-only PlanetBattleCleanupMainWorldProbe21 PASS:262144B, запрет до ACK,
+legacy applied без syncRows, живой wait, compact/plain/packed, старые ACK,
+новый бой на том же ключе, повтор finish; running/finished/settled/failed и
+неполный applied сохраняются. Команды/индексы/позиции/dirty/PlayerQueue и
+checkpoint восстановлены. ID/generation монотонны, пропуски допустимы.
+Нет SQL/newTable/newWorld. Прежние probe40 и boundary21 повторно PASS.
+
+Два служебных applied checkpoint ровно262144B, без игроков/флотов/ресурсов,
+одновременно прошли настоящий общий saver: INSERT/ACK→cleanup→DELETE/ACK→
+finish. Planet62,124с, Space62,104с. Observer только SELECT своих разрешённых
+ключей: полный SQL-образ до DELETE, затем отсутствие SQL/RAM/marker.
+Это не настоящий бой/нагрузочная приёмка; аварийной остановки не было.
+
+Target2048 PlanetBattles,2048 SpaceBattles,4096 FleetExpeditions;
+sync автоматически4096/4096/8192. Development128/256, JSON262144B и mailbox
+прежние. Main и sync трёх типов теперь входят в модель. Для стандартных10K
+активных флотов доли0,1/0,1/0,25 дают1000/1000/2500 живых состояний.
+Экспедиция считается до возвращения/очистки, не только внутри миссии.
+На каждый тип ещё20K×0,025=500 удержанных/сбойных состояний и20K×0,05=1000
+sync-backlog сверх dirty всех текущих строк. Хвосты считаются по аккаунтам,
+не исчезают при online0/active0. Для retained DELETE дополнительный sync-tail
+может быть избыточным — это консервативный сценарий, не измерение.
+
+| Checkpoint | Строк в сценарии | Target main/sync | Sync в сценарии |
+| --- | ---: | ---: | ---: |
+| PlanetBattles | 1500 | 2048/4096 | 2500 |
+| SpaceBattles | 1500 | 2048/4096 | 2500 |
+| FleetExpeditions | 3000 | 4096/8192 | 4000 |
+
+Коэффициенты настраиваемые, не технологические лимиты/баланс. Большие
+плотности/backlog честно дают exceeded, не обрезаются до target. Read-only
+модель135 PASS. Native target42905621856B/39,958974GiB(+4099853312B/3,818286GiB),
+только guard70% требует минимум57,084249GiB. Dev1711540576B/1,593996GiB прежний;
+target не включён. Это не доказательство throughput двух task workers,
+времени active(), p95/p99 и достаточности snapshot RAM.
+PHPStan(src/probes/CLI), PHP8.2/8.4 lint и Python compile PASS. Финальный full
+v2 baseline217/restart PASS:151 ответ/99 запросов,2 queue round-trip, QA
+восстановлены. Bootstrap/onStart hooks удалены, WSocket/main совпадают с
+исходными. Main работает, saver/cleanup/runtimeSQL/budget ошибок нет,30с прежние.
+
+Далее4Е4: оставшиеся переменные аллокации/горячие обходы и задержки очистки.
 Ещё не проверены остальные переменные аллокации и границы хранения. Большой packed-backlog,
 времена world-capture/SQL/TTL и PHP heap всего target ещё не подтверждены;
 если packed-снимок целиком превышает заданный бюджет, отказ остаётся явным,

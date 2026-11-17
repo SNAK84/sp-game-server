@@ -9,6 +9,8 @@ use Swoole\Table;
 /** Один текущий бой на планете. Записывает только координатор игрового цикла. */
 final class PlanetBattles extends BaseRepository
 {
+    use BattleCheckpointCleanup;
+
     public const MAX_STATE_BYTES = 262144;
     protected static Table $table;
     protected static Table $syncTable;

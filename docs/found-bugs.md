@@ -1070,6 +1070,22 @@
 
 ## B047 — ёмкости runtime/sync/connect не соответствуют20 000/1 000
 
+- Уточнение17.11.2026/4Е3Г: PlanetBattles навсегда сохранял applied-строки;
+  ёмкость128 зависела от всех когда-либо атакованных планет, не concurrency.
+  Добавлена очистка после общего COMMIT, с защитой живого battleWait и нового
+  боя на том же ключе. Retained DELETE/ACK вынесен из SpaceBattles в общий
+  trait двух репозиториев; BattleReports не удаляется. Main21/регресс40/
+  boundary21 PASS; строки/markers/индексы/очередь восстановлены, SQL/newTable0,
+  пропуски ID допустимы. Настоящий lifecycle двух262144B checkpoint PASS:
+  Planet62,124с/Space62,104с, INSERT→DELETE, RAM/marker освобождены, без акторов.
+  Target2048/2048/4096 и sync4096/4096/8192 включены в demand вместе с retained
+  и отдельным sync-tail; dev128/256 и размеры строк прежние. Модель135 PASS:
+  1500/1500/3000 строк, sync2500/2500/4000,20% резерв есть. Превышения/
+  online0/active0 учитываются без обрезания. Native target39,959GiB(+3,818),
+  dev1,594GiB прежний, target не включён. PHPStan/lint/compile и финальный
+  baseline217/restart PASS(151 ответ/99 запросов,2 queue round-trip), hooks
+  сняты, QA восстановлены, main работает, RAM-first/30с прежние. B047 открыт:
+  выбранные плотности не гарантируют произвольный backlog/CPU/tick/SLO.
 - Уточнение15.11.2026/4Е3В: PhalanxScans теперь profile-aware1024/32768;
   dev/16384B/JSON1MiB/TTL300с прежние. Ёмкость фиксируется после init,
   full admission до DTO/оплаты, обновление своего снимка разрешено при full.
