@@ -189,6 +189,28 @@ lint PHP8.2/8.4, Python compile и финальный full v2 baseline217/restar
 151 ответ/99 запросов,2 queue round-trip, QA восстановлены. Hooks сняты,
 main работает; оба служебных SQL-ключа отсутствуют.
 
+После4Е3Д `SpaceBattleCleanupMainWorldProbe.php` вызывается до сети/saver
+основного dev. protected=false воспроизводит старую блокировку10 PASS;
+обычный режим23 PASS проверяет более поздние dirty после общего ACK,
+непотерянное поколение команды, DELETE ACK и живой wait того же space key/id.
+Неисполненные фазы и неполный applied сохраняются. Исходные checkpoint,
+команды/индексы/позиции/dirty/PlayerQueue восстановлены, SQL-write/newTable0;
+ID/generation монотонны. Регрессии Planet21/checkpoint40/boundary21 PASS.
+
+Четвёртый параметр lifecycle probe lateDirty=true разрешён только для
+SpaceBattles: добавляет одну безопасную pending-команду без самого Fleet.
+Живой wait удерживает полный контекст до настоящего ACK applied; затем timer
+меняет команду, проверяет её dirty и запускает cleanup. После DELETE ACK боя
+команда удаляется обычным репозиторием и общим saver, без прямого SQL-write.
+Observer дополнительно проверяет её отсутствие в SQL.90,308с PASS включает
+три периода снимка30с: checkpoint UPDATE, checkpoint DELETE, command DELETE.
+Это не время боя и не новая миссия. Предельные262144B/compact83B подтверждены.
+Перед запуском нужен свежий proof path; временные bootstrap/onStart hooks
+удаляются перед финальным baseline и штатным перезапуском.
+Read-only модель135, PHPStan(src/probes), lint PHP8.2/8.4, Python compile и
+полный v2 baseline217/restart PASS(151 ответ/99 запросов,2 queue round-trip).
+QA восстановлены, hooks сняты, служебные SQL-строки отсутствуют; main работает.
+
 ## B045: нулевые значения Environment
 
 ```bash

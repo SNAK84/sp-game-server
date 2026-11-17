@@ -475,27 +475,29 @@ final class FleetSpaceBattleService
         return array_keys($affected);
     }
 
-    /** Не удалять checkpoint, пока хотя бы одна связанная запись ещё ждёт flush. */
+    /** ACK applied подтверждает общий COMMIT всех результатов боя. Более
+     * поздние изменения продолжившегося маршрута не удерживают старый бой.
+     * Незавершённый battleWait всё ещё требует полного контекста адаптера.
+     */
     public static function cleanupApplied(): void
     {
         $keys = SpaceBattles::appliedKeys();
         if ($keys === []) return;
-        $pending = [];
-        foreach (self::REPOSITORIES + ['battles' => SpaceBattles::class] as $name => $repository) {
-            $sync = $repository::getPendingSync();
-            $pending[$name] = array_fill_keys([...$sync['update'], ...$sync['delete']], true);
-        }
+        $sync = SpaceBattles::getPendingSync();
+        $pending = array_fill_keys([...$sync['update'], ...$sync['delete']], true);
         foreach ($keys as $key) {
             try {
                 $state = SpaceBattles::state($key);
                 if ($state === null || $state['phase'] !== 'applied') continue;
                 if (!empty($state['cleanupRequested'])) { SpaceBattles::finishCleanup($key, $state['id']); continue; }
-                if (!isset($state['resolution']['syncRows']) || isset($pending['battles'][$key])) continue;
-                $references = $state['resolution']['syncRows'];
-                foreach ($state['mission']['participants'] as $id => $_) foreach (FleetCommands::view((int)$id) as $command) {
-                    $references['commands'][] = (int)$command['id'];
+                if (!isset($state['mission'], $state['resolution']['syncRows']) || isset($pending[$key])) continue;
+                $fleetIds = array_unique([...($state['fleets'] ?? []), ...array_keys($state['mission']['participants'] ?? [])]);
+                foreach ($fleetIds as $id) foreach (FleetCommands::view((int)$id) as $command) {
+                    if ($command['executed']) continue;
+                    $wait = FleetControlService::params($command)['battleWait'] ?? [];
+                    if (($wait['scope'] ?? null) === 'space' && (int)($wait['key'] ?? 0) === $key
+                        && ($wait['id'] ?? null) === $state['id']) continue 3;
                 }
-                foreach ($references as $name => $ids) foreach ($ids as $id) if (isset($pending[$name][$id])) continue 3;
                 SpaceBattles::requestCleanup($key, $state['id']);
             } catch (\Throwable $error) { Logger::getInstance()->error('Очистка checkpoint боя отложена',
                 ['battleKey' => $key, 'message' => $error->getMessage()]); }

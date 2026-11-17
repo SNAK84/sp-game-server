@@ -2173,6 +2173,56 @@ v2 baseline217/restart PASS:151 ответ/99 запросов,2 queue round-tri
 восстановлены. Bootstrap/onStart hooks удалены, WSocket/main совпадают с
 исходными. Main работает, saver/cleanup/runtimeSQL/budget ошибок нет,30с прежние.
 
+### 4Е3Д — очистка пространственного боя при поздних dirty
+
+Подтверждён риск, оставленный после4Е3Г: SpaceBattles::cleanupApplied проверял
+текущие dirty всех строк resolution.syncRows и команд участников. После общего
+COMMIT старого боя флот уже продолжал маршрут и снова изменял эти строки.
+Очистка могла откладываться каждый тик, хотя боевые эффекты давно сохранены.
+
+Теперь барьером служит неподтверждённый marker самого applied: его ACK
+RepositorySaver выдаёт только после COMMIT общего снимка всех репозиториев.
+Более поздние dirty не теряются и не блокируют DELETE старого checkpoint.
+Новый общий SQL, отдельный flush, WAL и новые таблицы не добавлены. Проверка
+syncRows оставлена как признак полного контекста адаптера, а не требование
+чистоты зависимостей. Перед сжатием проверяются команды fleets/participants:
+unexecuted battleWait со scope=space и теми же key/id сохраняет полный контекст.
+Исполненный wait или wait другого боя не удерживает эту запись. Running/
+finished/settled/failed и неполный applied не удаляются. Результаты боёв,
+доклады, сообщения, баланс и клиентский протокол не менялись.
+
+Убран повторный сбор полных pending-карт Fleets/FleetsShips/FleetCommands/
+SpaceDebrisFields/Messages/ResourceBases. Это сокращает аллокации cleanup,
+но не является измерением времени tick. SpaceBattles::active/forFleet и
+остальные горячие обходы ещё требуют отдельной проверки.
+
+Основной dev: SpaceBattleCleanupMainWorldProbe before10 PASS воспроизводит
+повторную блокировку при трёх поздних изменениях команды. После исправления
+23 PASS: барьер до ACK, поздняя dirty, старый ACK команды, retained DELETE,
+живой wait/его исполнение/другие scope/key/id, фазы и неполный контекст.
+Исходные строки/markers/индексы/позиции и PlayerQueue восстановлены; нового
+мира/Table/SQL-write нет, монотонные ID/generation не откатываются.
+Регрессии Planet cleanup21/checkpoint40/boundary21 повторно PASS, всего105.
+Первая попытка bootstrap остановилась до fixture из-за неверной проверки
+пустоты FleetCommandView в самом probe; после count() воспроизведение прошло.
+
+Настоящий lifecycle на том же dev: полный checkpoint262144B и безопасная
+pending-команда без Fleet/игрока. После реального общего COMMIT timer меняет
+команду, удостоверяется в её dirty и вызывает cleanup: он публикует DELETE,
+не подтверждая новую команду. После DELETE ACK освобождены RAM/marker боя;
+временная команда удаляется отдельным штатным DELETE/ACK. Observer SELECT
+увидел полный SQL checkpoint, затем его отсутствие и отсутствие команды.
+Полный lifecycle90,308с включает три периода saveInterval30с, не длительность
+боя. Компактный marker83B не писался UPDATE в SQL. RuntimeSQL/ошибки saver/
+cleanup/snapshot-budget0; это не отдельный мир или настоящий игровой бой.
+
+Read-only модель135 PASS; development/target-бюджеты не менялись, target не
+выделялся. PHPStan(src/probes), lint PHP8.2/8.4, Python compile PASS. Полный
+v2 baseline217/restart PASS:151 ответ/99 запросов,2 queue round-trip, QA
+восстановлены. Временные hooks сняты; WSocket/main совпадают с исходными.
+Оба служебных SQL-ключа отсутствуют, основной сервер работает, worldPID=wsPID;
+ошибки saver/runtimeSQL/cleanup/snapshot-budget0, RAM-first/30с прежние.
+
 Далее4Е4: оставшиеся переменные аллокации/горячие обходы и задержки очистки.
 Ещё не проверены остальные переменные аллокации и границы хранения. Большой packed-backlog,
 времена world-capture/SQL/TTL и PHP heap всего target ещё не подтверждены;

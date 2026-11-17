@@ -2,7 +2,7 @@
 """Read-only наблюдение lifecycle probe на основном dev; запуск с временным onStart-hook.
 
 python3 -u tests/BattleCheckpointLifecycleLiveTest.py --proof .secrets/<run>/lifecycle.json
-Ничего не публикует/не перезапускает, SQL только SELECT одного служебного ключа.
+Ничего не публикует/не перезапускает, SQL только SELECT служебных ключей probe.
 """
 import argparse
 import json
@@ -45,6 +45,11 @@ def main():
             assert stored is None, 'После освобождения RAM в SQL остался checkpoint.'
             assert proof['sawCleanupRequested'] and proof['rowGone'] and proof['markerGone']
             assert proof['runtimeSqlWrites'] == 0
+            if proof.get('lateDirty'):
+                assert proof['dependencyDirtyAtCleanup'] and proof['dependencyDeleteRequested'] and proof['dependencyGone']
+                dependency = sql('echo json_encode($db->fetchOne("SELECT id FROM fleet_commands WHERE id=?",[$x["id"]]));',
+                                 {'id': proof['commandId']})
+                assert dependency is None, 'Временная зависимая команда осталась в SQL.'
             if proof['atLimit']:
                 assert proof['checkpointBytes'] == 262144 and proof['cleanupBytes'] < 128
             health = stats()['storage']
@@ -57,6 +62,7 @@ def main():
             print('LIVE_BATTLE_CHECKPOINT_LIFECYCLE_OK', json.dumps({'repository': repository, 'seconds': proof['elapsedSeconds'],
                   'checkpointCommitObserved': True, 'sqlDeleted': True, 'ramAndMarkerReleased': True,
                   'checkpointBytes': proof['checkpointBytes'], 'cleanupBytes': proof['cleanupBytes'],
+                  'lateDependencyDirty': proof.get('dependencyDirtyAtCleanup', False),
                   'wsAuthorityObserved': health['ws.authorityPid'] != 0,
                   'newWorld': False, 'observerSqlWrites': 0}), flush=True)
             return
