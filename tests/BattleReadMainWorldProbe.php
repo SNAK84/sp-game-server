@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use SPGame\Game\Repositories\{PlanetBattles, PlayerQueue, SpaceBattles};
-use SPGame\Game\Services\ResourceBaseService;
+use SPGame\Game\Services\{FleetAttackService, ResourceBaseService};
 
 /** Только bootstrap основного dev до сети/saver. Существующие Table, свои
  * ключи, без Fleet/игроков/SQL. finally возвращает строки и dirty; служебные
@@ -10,7 +10,7 @@ use SPGame\Game\Services\ResourceBaseService;
  */
 return static function (string $path, bool $protected = true, bool $batched = true): void {
     if (file_exists($path)) return;
-    $checks = 0; $measurements = []; $siteMeasurements = [];
+    $checks = 0; $measurements = []; $siteMeasurements = []; $fleetMeasurements = [];
     $check = static function (bool $ok, string $message) use (&$checks): void {
         if (!$ok) throw new RuntimeException('Battle read: ' . $message);
         ++$checks;
@@ -67,6 +67,23 @@ return static function (string $path, bool $protected = true, bool $batched = tr
                         'retainedBytes' => $retained, 'samples' => 9, 'queriesPerSample' => 16, 'sortedSamplesMs' => $durations];
                     $check($absent, 'Все16 отсутствующих siteId не заняты боем.');
                     $check($retained < 65536, 'Между lookup не удерживаются полные combat JSON.');
+                    foreach (['single', 'scoped'] as $mode) {
+                        $times = [];
+                        for ($sample = 0; $sample < 5; ++$sample) {
+                            $inBattle = $mode === 'scoped' ? SpaceBattles::fleetPresenceReader() : null;
+                            $decisions = [];
+                            $start = hrtime(true);
+                            foreach (array_slice($owned, 0, $count) as $fleetId) {
+                                $decisions[] = FleetAttackService::mustWait(['fleet_id' => $fleetId, 'command_type' => 0], $inBattle);
+                                $decisions[] = FleetAttackService::mustWait(['fleet_id' => $fleetId + 5000, 'command_type' => 0], $inBattle);
+                            }
+                            $times[] = (hrtime(true) - $start) / 1e6;
+                            $check($decisions === array_merge(...array_fill(0, $count, [true, false])),
+                                'Планировщик задерживает только участников боя.');
+                        }
+                        sort($times);
+                        $fleetMeasurements[$count][$mode] = $times[2];
+                    }
                 }
             }
             $growth = $measurements[$name][16] - $measurements[$name][4];
@@ -108,6 +125,13 @@ return static function (string $path, bool $protected = true, bool $batched = tr
             $check($bad, 'Ошибка посещённого JSON не скрывается.');
             if ($repository === SpaceBattles::class) {
                 $lookup = $newLookup();
+                $inBattle = SpaceBattles::fleetPresenceReader();
+                $check($inBattle($first), 'Раннее совпадение флота перед повреждённой записью.');
+                foreach ([1901499998, 1901499999] as $missingFleet) {
+                    $bad = false;
+                    try { $inBattle($missingFleet); } catch (JsonException) { $bad = true; }
+                    $check($bad && $inBattle($first), 'Повтор ошибки и доступ к ранее найденному участнику.');
+                }
                 $check($lookup($first), 'Scoped lookup останавливается до повреждённого позднего JSON.');
                 $bad = false;
                 try { $lookup(1901499999); } catch (JsonException) { $bad = true; }
@@ -144,6 +168,9 @@ return static function (string $path, bool $protected = true, bool $batched = tr
                 if ($repository === SpaceBattles::class) {
                     $lookup = $newLookup();
                     $check($lookup($first) === ($phase !== 'applied'), 'Новый reader видит фазу ' . $phase . '.');
+                    $inBattle = SpaceBattles::fleetPresenceReader();
+                    $check(!$inBattle($first) && $inBattle($first + 2000) === ($phase !== 'applied'),
+                        'Свежая проверка видит подкрепление и текущую фазу.');
                 }
             }
             if ($repository === SpaceBattles::class) {
@@ -151,6 +178,24 @@ return static function (string $path, bool $protected = true, bool $batched = tr
                 $repository::store($first, $changed); $lookup = $newLookup();
                 $check(!$lookup($first) && $lookup($first + 3000), 'Новая операция видит изменённый siteId с прежним int-приведением.');
                 unset($lookup);
+                unset($changed['padding']);
+                $changed['fleets'] = [(string)$first, $first + 2800, $first + 2800];
+                $repository::store($first, $changed);
+                $inBattle = SpaceBattles::fleetPresenceReader();
+                $check(!$inBattle($first) && $inBattle($first + 2800), 'Строковый ID не совпадает с числом, повторы допустимы.');
+                $changed['fleets'] = range($first + 10000, $first + 15000);
+                $repository::store($first, $changed);
+                $inBattle = SpaceBattles::fleetPresenceReader();
+                $check($inBattle($first + 15000) && !$inBattle($first) && $inBattle($last),
+                    'При превышении бюджета поиска учитываются весь состав и остальные бои.');
+                $changed['fleets'] = 'invalid';
+                $repository::store($first, $changed);
+                $inBattle = SpaceBattles::fleetPresenceReader();
+                foreach ([1, 2] as $attempt) {
+                    $bad = false;
+                    try { $inBattle($first); } catch (TypeError) { $bad = true; }
+                    $check($bad, 'Повреждённый список участников останавливает каждый поиск.');
+                }
             }
         } finally {
             foreach ($owned as $key) {
@@ -164,7 +209,7 @@ return static function (string $path, bool $protected = true, bool $batched = tr
     }
     $check(PlayerQueue::getAll() === $queue, 'PlayerQueue прежняя.');
     file_put_contents($path, json_encode(['ok' => true, 'checks' => $checks, 'protected' => $protected,
-        'peakBytes' => $measurements, 'siteLookups' => $siteMeasurements, 'batched' => $batched,
+        'peakBytes' => $measurements, 'siteLookups' => $siteMeasurements, 'fleetLookupMedianMs' => $fleetMeasurements, 'batched' => $batched,
         'newWorld' => false, 'newTables' => 0, 'sqlWrites' => 0,
         'originalStateRestored' => true], JSON_THROW_ON_ERROR), LOCK_EX);
     chmod($path, 0600);

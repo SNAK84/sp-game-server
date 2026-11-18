@@ -68,13 +68,14 @@ final class FleetInterceptionFlightService
     public static function process(float $time): array
     {
         $affected = [];
+        $inBattle = SpaceBattles::fleetPresenceReader();
         foreach (FleetCommands::findByIndex('command_type', (string)Command::MOVE_IN_SYSTEM->value) ?? [] as $command) {
             if ((int)$command['executed'] || (float)$command['execute_time'] <= $time) continue;
             $id = (int)$command['fleet_id'];
             try {
                 $params = FleetControlService::params($command);
                 if (!isset($params['interception']) || isset($params['pause']) || !empty($params['returnLeg'])) continue;
-                if (SpaceBattles::forFleet($id) !== null) continue;
+                if ($inBattle($id)) continue;
                 $fleet = FleetsData::getInstance()->get($id);
                 if ($fleet === null || $time < $fleet->getCurrentPositionTime()) continue;
                 $user = Users::findExistingById($fleet->getOwnerId());

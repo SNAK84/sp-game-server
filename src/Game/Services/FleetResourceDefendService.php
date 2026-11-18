@@ -197,9 +197,10 @@ final class FleetResourceDefendService
     public static function reschedule(float $now): void
     {
         $occupied = [];
+        $inBattle = SpaceBattles::fleetPresenceReader();
         foreach (self::holds() as $item) try {
             $command = $item['command']; $params = $item['params']; $id = (int)$command['fleet_id'];
-            if (SpaceBattles::forFleet($id) !== null) continue;
+            if ($inBattle($id)) continue;
             $fleet = FleetsData::getInstance()->get($id); if ($fleet === null) continue;
             $at = Coordinate::fromArray($params['target']); $siteId = (int)$at->getSiteId();
             $base = ResourceBases::findExistingById($siteId); $hostId = (int)($base['owner_id'] ?? 0);

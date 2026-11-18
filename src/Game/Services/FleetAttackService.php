@@ -192,9 +192,11 @@ final class FleetAttackService
         return isset($params['battleWait']);
     }
 
-    public static function mustWait(array $command): bool
+    public static function mustWait(array $command, ?\Closure $inSpaceBattle = null): bool
     {
-        if (\SPGame\Game\Repositories\SpaceBattles::forFleet((int)($command['fleet_id'] ?? 0)) !== null) return true;
+        $fleetId = (int)($command['fleet_id'] ?? 0);
+        if ($inSpaceBattle !== null ? $inSpaceBattle($fleetId)
+            : \SPGame\Game\Repositories\SpaceBattles::forFleet($fleetId) !== null) return true;
         if ((int)$command['command_type'] === FleetCommandType::EXPEDITION->value
             && (\SPGame\Game\Repositories\FleetExpeditions::state((int)$command['fleet_id'])['phase'] ?? '') === 'failed') return true;
         $params = json_decode($command['params'] ?? '{}', true, 512, JSON_THROW_ON_ERROR);

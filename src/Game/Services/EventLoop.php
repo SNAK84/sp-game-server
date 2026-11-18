@@ -23,6 +23,7 @@ use SPGame\Game\Repositories\Vars;
 
 use SPGame\Game\Repositories\PlayerQueue;
 use SPGame\Game\Repositories\FleetCommands;
+use SPGame\Game\Repositories\SpaceBattles;
 use SPGame\Game\Enums\FleetCommandType;
 use SPGame\Game\Fleet\Fleet;
 use SPGame\Game\Space\CoordinateType;
@@ -254,10 +255,11 @@ class EventLoop
                     $now,
                     static function (float $eventNow) use (&$currentCommand, &$failedFleets): ?array {
                         $baseEvent = ResourceBaseService::nextEvent($eventNow, $failedFleets);
-                        $command = FleetCommands::nextDueCommand($eventNow, static function (array $command) use (&$currentCommand, &$failedFleets): bool {
+                        $inBattle = SpaceBattles::fleetPresenceReader();
+                        $command = FleetCommands::nextDueCommand($eventNow, static function (array $command) use (&$currentCommand, &$failedFleets, $inBattle): bool {
                             if (isset($failedFleets[(int)$command['fleet_id']])) return false;
                             $currentCommand = $command;
-                            if (!FleetAttackService::mustWait($command)) return true;
+                            if (!FleetAttackService::mustWait($command, $inBattle)) return true;
                             $currentCommand = null;
                             return false;
                         });

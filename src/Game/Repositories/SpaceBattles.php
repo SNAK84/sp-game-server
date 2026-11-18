@@ -12,6 +12,8 @@ final class SpaceBattles extends BaseRepository
     use BattleCheckpointCleanup;
 
     public const MAX_STATE_BYTES = PlanetBattles::MAX_STATE_BYTES;
+    // Бюджет временного набора ID на один обход. Размер боя им не ограничен.
+    private const FLEET_LOOKUP_BUDGET = 4096;
     protected static Table $table;
     protected static Table $syncTable;
     protected static array $indexTables = [];
@@ -37,6 +39,37 @@ final class SpaceBattles extends BaseRepository
     {
         $row = self::findById($key);
         return $row === null ? null : json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    /** Проверка участия для серии чтений до следующего изменения боёв. */
+    public static function fleetPresenceReader(): \Closure
+    {
+        $keys = null;
+        $offset = 0;
+        $members = [];
+        return static function (int $fleetId) use (&$keys, &$offset, &$members): bool {
+            if ($members === null) return self::forFleet($fleetId) !== null;
+            if (isset($members[$fleetId])) return true;
+            $keys ??= self::activeKeys();
+            while (isset($keys[$offset])) {
+                $row = self::findExistingById($keys[$offset]);
+                if ($row !== null && $row['phase'] !== 'applied') {
+                    $ids = json_decode($row['state'], true, 512, JSON_THROW_ON_ERROR)['fleets'];
+                    // При ошибке чтения курсор остаётся на этой строке.
+                    if (count($members) + count($ids) > self::FLEET_LOOKUP_BUDGET) {
+                        $members = null;
+                        unset($row, $ids);
+                        return self::forFleet($fleetId) !== null;
+                    }
+                    foreach ($ids as $id) {
+                        if (is_int($id)) $members[$id] = true;
+                    }
+                }
+                ++$offset;
+                if (isset($members[$fleetId])) return true;
+            }
+            return false;
+        };
     }
 
     public static function store(int $key, array $state): void
