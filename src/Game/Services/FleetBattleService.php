@@ -210,10 +210,8 @@ final class FleetBattleService
                     if ($reply !== null) {
                         $reply = json_decode($reply, true, 512, JSON_THROW_ON_ERROR);
                         if (isset($reply['error'])) throw new \RuntimeException($reply['error']);
-                        if (count($reply['combat']['rounds'] ?? []) !== $job['round']) {
-                            throw new \LogicException('Боевой процесс вернул неверный номер раунда.');
-                        }
-                        $state['combat'] = $reply['combat'];
+                        FleetCombatService::applyTaskRound($state['combat'], $reply['combat'], $job['round']);
+                        unset($reply);
                         $state['job'] = null;
                         $state['attempts'] = 0;
                         if (FleetCombatService::isFinished($state['combat'])) $state['phase'] = 'finished';
@@ -254,8 +252,8 @@ final class FleetBattleService
                     // Сначала snapshot фиксируется в runtime, потом доставляется чистому вычислителю.
                     $repository::store($planetId, $state);
                     ++$busy;
-                    if (!(self::$dispatch)(['kind' => 'combat_round', 'token' => $token,
-                        'combat' => $state['combat'], 'seed' => hash_hmac('sha256', (string)$round, $state['seed'])])) {
+                    $seed = hash_hmac('sha256', (string)$round, $state['seed']);
+                    if (!(self::$dispatch)(FleetCombatService::roundTask('combat_round', $token, $seed, $state['combat']))) {
                         throw new \RuntimeException('Не удалось передать раунд боевому процессу.');
                     }
                 } catch (\Throwable $error) {
@@ -326,10 +324,7 @@ final class FleetBattleService
             throw new \InvalidArgumentException('Некорректное задание боевого процесса.');
         }
         try {
-            $seed = hex2bin($task['seed']);
-            $random = new \Random\Randomizer(new \Random\Engine\Xoshiro256StarStar($seed));
-            $reply = ['combat' => FleetCombatService::calculateRound($task['combat'],
-                static fn(int $min, int $max): int => $random->getInt($min, $max))];
+            $reply = ['combat' => FleetCombatService::calculateTaskRound($task)];
             $encoded = json_encode($reply, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
             if (strlen($encoded) > PlanetBattles::MAX_STATE_BYTES) throw new \OverflowException('Результат раунда превышает вместимость mailbox.');
         } catch (\Throwable $error) {

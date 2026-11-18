@@ -78,7 +78,7 @@ $battleTests['delayed workers admit reinforcements by round sequence not wall cl
     Battles::executeTask($GLOBALS['roundJobs'][0]);
     Battles::tick(112);
     $second = $GLOBALS['roundJobs'][1];
-    transportAssert(count($second['combat']['rounds']) === 1 && isset($second['combat']['d']['delayed']),
+    transportAssert($second['round'] === 2 && $second['combat']['rounds'] === [] && isset($second['combat']['d']['delayed']),
         'Подкрепление входит во второй раунд, не в несуществующий двенадцатый.');
     transportAssert($second['combat']['roundLimit'] === Combat::DEFAULT_ROUNDS,
         'Подкрепление не перезапускает лимит боя.');
@@ -89,7 +89,7 @@ $battleTests['ten rounds finish once and keep protection until explicit gameplay
     for ($round = 1; $round <= 10; ++$round) {
         Battles::tick(100 + $round);
         $task = $GLOBALS['roundJobs'][$round - 1];
-        transportAssert(count($task['combat']['rounds']) === $round - 1, 'Последовательное продолжение, не пересчёт с нуля.');
+        transportAssert($task['round'] === $round && $task['combat']['rounds'] === [], 'Задание содержит номер текущего раунда без прошедших залпов.');
         Battles::executeTask($task);
     }
     Battles::tick(111);

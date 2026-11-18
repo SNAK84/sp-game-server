@@ -56,6 +56,44 @@ final class FleetCombatService
     {
         if (self::isFinished($state)) return $state;
         $roll ??= static fn(int $min, int $max): int => random_int($min, $max);
+        return self::resolveRound($state, count($state['rounds']) + 1, $roll);
+    }
+
+    /** История уже сохранена координатором. Вычислителю нужны текущие группы и номер залпа. */
+    public static function roundTask(string $kind, string $token, string $seed, array $combat): array
+    {
+        $round = count($combat['rounds']) + 1;
+        $combat['rounds'] = [];
+        return ['kind' => $kind, 'token' => $token, 'seed' => $seed, 'round' => $round, 'combat' => $combat];
+    }
+
+    public static function calculateTaskRound(array $task): array
+    {
+        $combat = $task['combat'];
+        $round = $task['round'] ?? null;
+        if (!is_int($round) || $round < 1 || $round > $combat['roundLimit']
+            || $combat['rounds'] !== [] || self::isFinished($combat)) {
+            throw new \LogicException('Некорректное задание боевого раунда.');
+        }
+        $random = new \Random\Randomizer(new \Random\Engine\Xoshiro256StarStar(hex2bin($task['seed'])));
+        return self::resolveRound($combat, $round, $random->getInt(...));
+    }
+
+    /** Присоединяем ровно один результат к принятой истории текущего задания. */
+    public static function applyTaskRound(array &$combat, array $result, int $round): void
+    {
+        $rounds = $result['rounds'] ?? null;
+        if (count($combat['rounds']) + 1 !== $round || !is_array($rounds) || count($rounds) !== 1
+            || ($rounds[0]['number'] ?? null) !== $round) {
+            throw new \LogicException('Боевой процесс вернул неверный номер раунда.');
+        }
+        $result['rounds'] = $combat['rounds'];
+        $result['rounds'][] = $rounds[0];
+        $combat = $result;
+    }
+
+    private static function resolveRound(array $state, int $round, callable $roll): array
+    {
         $a = &$state['a'];
         $d = &$state['d'];
         foreach ([&$a, &$d] as &$side) {
@@ -73,7 +111,7 @@ final class FleetCombatService
             $state['damageA'], $state['packets'], $state['work']);
         $shotsD = self::fire($startD, $a, $state['rapidfire'], $roll,
             $state['damageD'], $state['packets'], $state['work']);
-        $state['rounds'][] = ['number' => count($state['rounds']) + 1,
+        $state['rounds'][] = ['number' => $round,
             'attacker' => self::snapshot($a), 'defender' => self::snapshot($d),
             'shotsAttacker' => $shotsA, 'shotsDefender' => $shotsD];
         return $state;

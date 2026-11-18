@@ -80,6 +80,7 @@ return static function (string $path): void {
         // Реальные две функции TaskWorker в дочернем процессе. После fork он
         // видит те же Table/mutex, но не имеет права создавать строку ответа.
         $taskCombat = Combat::startBattle(['a' => $group], ['d' => $group]);
+        $taskCombat = Combat::calculateRound($taskCombat, static fn(int $min, int $max): int => $min);
         $childTokens = [bin2hex(random_bytes(16)), bin2hex(random_bytes(16))];
         $late = bin2hex(random_bytes(16));
         $check($combat->reserve($childTokens[0]) && $expedition->reserve($childTokens[1]) && $combat->reserve($late), 'Резервы созданы родителем.');
@@ -88,7 +89,7 @@ return static function (string $path): void {
             try {
                 foreach ([['combat_round', $childTokens[0]], ['expedition_round', $childTokens[1]], ['combat_round', $late]] as [$kind, $token]) {
                     $service = $kind === 'combat_round' ? Battles::class : Expeditions::class;
-                    $service::executeTask(['kind' => $kind, 'token' => $token, 'combat' => $taskCombat, 'seed' => str_repeat('01', 32)]);
+                    $service::executeTask(Combat::roundTask($kind, $token, str_repeat('01', 32), $taskCombat));
                 }
                 $worker->exit(0);
             } catch (Throwable) { $worker->exit(1); }
@@ -104,7 +105,25 @@ return static function (string $path): void {
         $check($status['pid'] === $pid && $status['code'] === 0, 'Обе функции worker отработали в отдельном процессе.');
         foreach ([$combat, $expedition] as $i => $mailbox) {
             $reply = json_decode($mailbox->read($childTokens[$i]) ?? 'null', true, 512, JSON_THROW_ON_ERROR);
-            $check(count($reply['combat']['rounds'] ?? []) === 1, 'Ответ дочернего процесса доступен координатору.');
+            $check(count($reply['combat']['rounds'] ?? []) === 1 && $reply['combat']['rounds'][0]['number'] === 2,
+                'Дочерний процесс вернул второй раунд без предыдущего залпа.');
+            $accepted = $taskCombat;
+            Combat::applyTaskRound($accepted, $reply['combat'], 2);
+            $random = new Random\Randomizer(new Random\Engine\Xoshiro256StarStar(str_repeat("\x01", 32)));
+            $expected = Combat::calculateRound($taskCombat, $random->getInt(...));
+            $check($accepted === $expected, 'После применения ответа история и урон совпадают в обоих типах боя.');
+            try {
+                Combat::applyTaskRound($accepted, $reply['combat'], 2);
+                throw new RuntimeException('Дубликат раунда принят дважды.');
+            } catch (LogicException) {
+                $check($accepted === $expected, 'Повтор результата сохраняет принятую историю.');
+            }
+            try {
+                Combat::applyTaskRound($accepted, $reply['combat'], 3);
+                throw new RuntimeException('Ответ с чужим номером раунда принят.');
+            } catch (LogicException) {
+                $check($accepted === $expected, 'Отказ устаревшему номеру не изменяет бой.');
+            }
             $mailbox->release($childTokens[$i]);
         }
         $check($combat->read($late) === null && !$get($combat, 'table')->exists($late), 'Поздний worker не восстановил удалённый резерв.');

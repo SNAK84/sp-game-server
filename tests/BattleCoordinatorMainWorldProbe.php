@@ -12,6 +12,7 @@ return static function (string $path, bool $protected = true, int $samples = 1):
     if (file_exists($path)) return;
     if ($samples < 1 || $samples > 21) throw new InvalidArgumentException('От1 до21 замеров tick.');
     $checks = 0; $measurements = []; $waitingMeasurements = []; $inactiveMeasurements = [];
+    $roundTransfer = [];
     $check = static function (bool $ok, string $message) use (&$checks): void {
         if (!$ok) throw new RuntimeException('Battle coordinator: ' . $message);
         ++$checks;
@@ -157,6 +158,61 @@ return static function (string $path, bool $protected = true, int $samples = 1):
             $check($cache->getValue() === [], 'Освобождённые ключи удалены из кэша при следующем выборе.');
             $group = ['type' => 204, 'kind' => 'fleet', 'count' => 10, 'attack' => 1.0,
                 'hull' => 10000.0, 'shield' => 0.0, 'unitCost' => 4000.0, 'experience' => 0.0];
+            // Одинаковый поздний раунд до и после изменения передачи. Используем
+            // настоящие снимки и накопленный урон с воспроизводимой последовательностью.
+            $groups = [];
+            for ($i = 0; $i < 64; ++$i) $groups['group:' . $i] = $group;
+            $combat = Combat::startBattle($groups, $groups);
+            $engine = new Random\Randomizer(new Random\Engine\Xoshiro256StarStar(str_repeat('q', 32)));
+            for ($i = 0; $i < 8; ++$i) $combat = Combat::calculateRound($combat, $engine->getInt(...));
+            $key = $owned[PlanetBattles::class][0];
+            $seed = str_repeat('7', 64);
+            PlanetBattles::store($key, ['id' => str_repeat('8', 32), 'phase' => 'running', 'startedAt' => 100.0,
+                'seed' => $seed, 'combat' => $combat, 'pending' => [], 'fleets' => [], 'job' => null, 'attempts' => 0]);
+            $peakDuring = static function (callable $operation): int {
+                gc_collect_cycles();
+                $base = memory_get_usage(); memory_reset_peak_usage();
+                $operation();
+                return memory_get_peak_usage() - $base;
+            };
+            foreach ([9, 10] as $round) {
+                $now = 100.0 + $round;
+                $dispatchPeak = $peakDuring(static fn() => Battles::tick($now));
+                $check(count($jobs) === 1, 'Отправлен один очередной раунд большого боя.');
+                $task = array_pop($jobs);
+                $check($task['round'] === $round && $task['combat']['rounds'] === [], 'Прошлые раунды остались у координатора.');
+                $wire = serialize($task);
+                $token = $task['token']; unset($task);
+                $workerPeak = $peakDuring(static fn() => Battles::executeTask(unserialize($wire, ['allowed_classes' => false])));
+                $reply = $mailbox->read($token);
+                $check(is_string($reply), 'В mailbox опубликован результат большого раунда.');
+                $replyBytes = strlen($reply); unset($reply);
+                $applyPeak = $peakDuring(static fn() => Battles::tick($now + 0.1));
+                $engine = new Random\Randomizer(new Random\Engine\Xoshiro256StarStar(hash_hmac('sha256', (string)$round, $seed, true)));
+                $combat = Combat::calculateRound($combat, $engine->getInt(...));
+                $actual = PlanetBattles::state($key);
+                $check($actual['combat'] === $combat && $actual['job'] === null
+                    && $actual['phase'] === ($round === 10 ? 'finished' : 'running') && !$mailboxTable->exists($token),
+                    'Все раунды, потери, опыт и фаза совпадают с полным расчётом при том же seed.');
+                $roundTransfer[$round] = ['serializedTaskBytes' => strlen($wire), 'replyBytes' => $replyBytes,
+                    'dispatchPeakBytes' => $dispatchPeak, 'workerPeakBytes' => $workerPeak, 'applyPeakBytes' => $applyPeak];
+                unset($actual, $wire);
+            }
+            unset($groups, $combat);
+            $clearOwn();
+            Battles::begin($key, ['a' => $group], ['d' => $group], 100.0);
+            Battles::tick(101.0);
+            $task = array_pop($jobs);
+            $state = PlanetBattles::state($key);
+            $state['padding'] = '';
+            $state['padding'] = str_repeat('x', PlanetBattles::MAX_STATE_BYTES - strlen($json($state)) - 4);
+            PlanetBattles::store($key, $state);
+            Battles::executeTask($task); Battles::tick(101.1);
+            $failed = PlanetBattles::state($key);
+            $check($failed['phase'] === 'failed' && $failed['combat'] === $state['combat'] && $mailboxTable->count() === 0,
+                'Если полный результат не помещается в checkpoint, прежний бой сохранён и резерв освобождён.');
+            unset($state, $failed, $task);
+            $clearOwn();
             foreach ([0, 1] as $i) Battles::begin($owned[PlanetBattles::class][$i], ['a' => $group], ['d' => $group], 100.0);
             Battles::beginSpace($owned[SpaceBattles::class][0], ['a' => $group], ['d' => $group], 100.0);
             $order = [];
@@ -255,7 +311,7 @@ return static function (string $path, bool $protected = true, int $samples = 1):
         $check(PlayerQueue::getAll() === $queue && $mailboxTable->count() === 0, 'PlayerQueue прежняя, mailbox освобождён.');
     }
     file_put_contents($path, $json(['ok' => true, 'checks' => $checks, 'protected' => $protected, 'samplesPerRepository' => $measurements,
-        'waitingJobs' => $waitingMeasurements,
+        'waitingJobs' => $waitingMeasurements, 'roundTransfer' => $roundTransfer,
         'inactivePerRepository' => $inactiveMeasurements,
         'newTables' => 0, 'newWorld' => false, 'sqlWrites' => 0, 'originalStateRestored' => true]), LOCK_EX);
     chmod($path, 0600);

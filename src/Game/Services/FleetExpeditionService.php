@@ -566,8 +566,7 @@ final class FleetExpeditionService
 	{
 		if (($task['kind'] ?? '') !== 'expedition_round' || !preg_match('/^[a-f0-9]{32}$/D', $task['token'] ?? '')) throw new \InvalidArgumentException('Некорректное задание экспедиционного боя.');
 		try {
-			$random = new \Random\Randomizer(new \Random\Engine\Xoshiro256StarStar(hex2bin($task['seed'])));
-			$reply = ['combat' => FleetCombatService::calculateRound($task['combat'], static fn($min, $max) => $random->getInt($min, $max))];
+			$reply = ['combat' => FleetCombatService::calculateTaskRound($task)];
 			$encoded = json_encode($reply, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
 			if (strlen($encoded) > States::MAX_BYTES) throw new \OverflowException('Результат экспедиционного раунда слишком велик.');
 		} catch (\Throwable $error) {
@@ -587,8 +586,8 @@ final class FleetExpeditionService
 			if ($reply !== null) {
 				$reply = json_decode($reply, true, 512, JSON_THROW_ON_ERROR);
 				if (isset($reply['error'])) throw new \RuntimeException($reply['error']);
-				if (count($reply['combat']['rounds']) !== $job['round']) throw new \LogicException('Неверный номер экспедиционного раунда.');
-				$state['plan']['battle'] = $reply['combat'];
+				FleetCombatService::applyTaskRound($state['plan']['battle'], $reply['combat'], $job['round']);
+				unset($reply);
 				unset($state['job']);
 				States::store($fleet->getId(), $state);
 				self::$mailbox->release($job['token']);
@@ -622,12 +621,10 @@ final class FleetExpeditionService
 			try {
 				$state['job'] = ['token' => $token, 'round' => $round, 'submittedAt' => $now];
 				States::store($fleet->getId(), $state);
-				if (!(self::$dispatch)([
-					'kind' => 'expedition_round',
-					'token' => $token,
-					'combat' => $state['plan']['battle'],
-					'seed' => hash_hmac('sha256', count($state['events'] ?? []) . ':' . $round, $state['seed'])
-				])) throw new \RuntimeException('Не удалось отправить экспедиционный раунд.');
+				$seed = hash_hmac('sha256', count($state['events'] ?? []) . ':' . $round, $state['seed']);
+				if (!(self::$dispatch)(FleetCombatService::roundTask('expedition_round', $token, $seed, $state['plan']['battle']))) {
+					throw new \RuntimeException('Не удалось отправить экспедиционный раунд.');
+				}
 			} catch (\Throwable $error) {
 				self::$mailbox->release($token);
 				throw $error;

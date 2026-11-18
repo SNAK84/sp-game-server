@@ -39,7 +39,7 @@ $server->set(['worker_num' => 1, 'task_worker_num' => 2, 'task_enable_coroutine'
 Battles::initializeWorkers(static fn(array $task): bool => $server->task($task) !== false, 2);
 $server->on('Receive', static function (): void {});
 $server->on('Task', static function (Server $server, int $taskId, int $workerId, array $task) use ($evidence): void {
-    $evidence->set($task['token'], ['pid' => getmypid(), 'round' => count($task['combat']['rounds']) + 1]);
+    $evidence->set($task['token'], ['pid' => getmypid(), 'round' => $task['round']]);
     Battles::executeTask($task);
 });
 $server->on('Finish', static function (): void {});
