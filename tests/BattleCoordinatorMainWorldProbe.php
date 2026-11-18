@@ -30,6 +30,7 @@ return static function (string $path, bool $protected = true, int $samples = 1):
     $queue = PlayerQueue::getAll();
     $dispatch = new ReflectionProperty(Battles::class, 'dispatch'); $oldDispatch = $dispatch->getValue();
     $limit = new ReflectionProperty(Battles::class, 'workerLimit'); $oldLimit = $limit->getValue();
+    $cache = new ReflectionProperty(Battles::class, 'headerCache'); $oldCache = $cache->getValue();
     $jobs = [];
     $clearOwn = static function () use ($tables, $markers, &$owned): void {
         foreach ($owned as $repository => $keys) foreach ($keys as $key) {
@@ -62,6 +63,12 @@ return static function (string $path, bool $protected = true, int $samples = 1):
             $measurements[$count] = ['peakBytes' => $peak, 'elapsedMs' => $durations[intdiv($samples, 2)],
                 'samples' => $samples, 'sortedSamplesMs' => $durations];
             $check($unchanged, 'Будущие раунды не отправляются worker.');
+            if ($protected) {
+                $cached = $cache->getValue();
+                $check(count($cached) === 8 && array_sum(array_map(static fn(array $entry): int => strlen($entry['raw']), $cached)) === 2097152,
+                    'При 8 и 32 больших записях сохранены ровно 8 исходных строк.');
+                unset($cached);
+            }
         }
         $growth = $measurements[16]['peakBytes'] - $measurements[4]['peakBytes'];
         $check($protected ? $growth < 1048576 : $growth > 4194304,
@@ -127,6 +134,27 @@ return static function (string $path, bool $protected = true, int $samples = 1):
                 $clearOwn(); $mailbox->retain([]);
             }
             $limit->setValue(null, 2);
+            // Смена задания в том же ключе при той же длине JSON, затем повреждение
+            // только native phase. Даже с прогретым заголовком GC должен видеть это.
+            $key = $owned[SpaceBattles::class][0];
+            $oldToken = bin2hex(random_bytes(16)); $newToken = bin2hex(random_bytes(16));
+            $mailbox->reserve($oldToken);
+            $waiting = ['phase' => 'running', 'job' => ['token' => $oldToken, 'submittedAt' => 100.0]];
+            SpaceBattles::store($key, $waiting); Battles::tick(100.1);
+            $mailbox->reserve($newToken);
+            $waiting['job']['token'] = $newToken;
+            SpaceBattles::store($key, $waiting); Battles::tick(100.2);
+            $check($mailbox->tokens() === [$newToken => true], 'Изменение байтов той же длины меняет владельца резерва.');
+            $tables[SpaceBattles::class]->set((string)$key, ['state' => '{']);
+            Battles::tick(100.3);
+            $check($mailboxTable->exists($newToken) && $tables[SpaceBattles::class]->get((string)$key, 'state') === '{',
+                'Повреждение байтов прогретого боя оставляет резерв и исходную запись.');
+            SpaceBattles::store($key, $waiting); Battles::tick(100.35);
+            $tables[SpaceBattles::class]->set((string)$key, ['phase' => 'failed']);
+            Battles::tick(100.4);
+            $check($mailboxTable->exists($newToken), 'Несовпадение native phase с прогретым JSON откладывает GC.');
+            $clearOwn(); $mailbox->retain([]); Battles::tick(100.5);
+            $check($cache->getValue() === [], 'Освобождённые ключи удалены из кэша при следующем выборе.');
             $group = ['type' => 204, 'kind' => 'fleet', 'count' => 10, 'attack' => 1.0,
                 'hull' => 10000.0, 'shield' => 0.0, 'unitCost' => 4000.0, 'experience' => 0.0];
             foreach ([0, 1] as $i) Battles::begin($owned[PlanetBattles::class][$i], ['a' => $group], ['d' => $group], 100.0);
@@ -217,6 +245,7 @@ return static function (string $path, bool $protected = true, int $samples = 1):
                 'Некорректное время не превращается в бесконечное быстрое ожидание.');
         }
     } finally {
+        $cache->setValue(null, $oldCache);
         $dispatch->setValue(null, $oldDispatch); $limit->setValue(null, $oldLimit); $mailbox->retain([]); $clearOwn();
         foreach ($repositories as $repository) {
             foreach ($before[$repository][0] as $key => $row) $tables[$repository]->set((string)$key, $row);
