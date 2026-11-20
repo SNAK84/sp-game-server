@@ -483,16 +483,12 @@ final class FleetSpaceBattleService
      */
     public static function cleanupApplied(): void
     {
-        $keys = SpaceBattles::appliedKeys();
-        if ($keys === []) return;
-        $sync = SpaceBattles::getPendingSync();
-        $pending = array_fill_keys([...$sync['update'], ...$sync['delete']], true);
-        foreach ($keys as $key) {
+        foreach (SpaceBattles::cleanupCandidates() as $key) {
             try {
                 $state = SpaceBattles::state($key);
                 if ($state === null || $state['phase'] !== 'applied') continue;
                 if (!empty($state['cleanupRequested'])) { SpaceBattles::finishCleanup($key, $state['id']); continue; }
-                if (!isset($state['mission'], $state['resolution']['syncRows']) || isset($pending[$key])) continue;
+                if (!isset($state['mission'], $state['resolution']['syncRows'])) continue;
                 $fleetIds = array_unique([...($state['fleets'] ?? []), ...array_keys($state['mission']['participants'] ?? [])]);
                 foreach ($fleetIds as $id) foreach (FleetCommands::view((int)$id) as $command) {
                     if ($command['executed']) continue;

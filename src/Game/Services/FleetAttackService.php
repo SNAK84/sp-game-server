@@ -683,16 +683,12 @@ final class FleetAttackService
      */
     public static function cleanupApplied(): void
     {
-        $keys = PlanetBattles::appliedKeys();
-        if ($keys === []) return;
-        $sync = PlanetBattles::getPendingSync();
-        $pending = array_fill_keys([...$sync['update'], ...$sync['delete']], true);
-        foreach ($keys as $planetId) {
+        foreach (PlanetBattles::cleanupCandidates() as $planetId) {
             try {
                 $state = PlanetBattles::state($planetId);
                 if ($state === null || $state['phase'] !== 'applied') continue;
                 if (!empty($state['cleanupRequested'])) { PlanetBattles::finishCleanup($planetId, $state['id']); continue; }
-                if (isset($pending[$planetId]) || !isset($state['mission'], $state['resolution'])) continue;
+                if (!isset($state['mission'], $state['resolution'])) continue;
                 $fleetIds = array_unique([...($state['fleets'] ?? []),
                     ...array_keys($state['mission']['participants'] ?? []), ...array_keys($state['mission']['waiting'] ?? []),
                     ...($state['resolution']['retargetedFleets'] ?? [])]);

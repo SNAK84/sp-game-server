@@ -9,10 +9,36 @@ use SPGame\Game\Services\RepositorySaver;
 /** Чтение и retained DELETE двух боевых checkpoint. Не история BattleReports. */
 trait BattleCheckpointCleanup
 {
+    private static int $lastCleanupKey = 0;
+
     /** Список ключей без копирования больших JSON неоконченных боёв. */
     public static function appliedKeys(): array
     {
         return static::phaseKeys(['applied']);
+    }
+
+    /** Обходим подтверждённые applied по кругу. Проверка времени между ключами
+     * включает работу вызывающего адаптера над предыдущей записью.
+     */
+    public static function cleanupCandidates(): \Generator
+    {
+        $deadline = hrtime(true) + 2_000_000;
+        $keys = static::appliedKeys();
+        sort($keys, SORT_NUMERIC);
+        $count = count($keys);
+        $start = 0;
+        while ($start < $count && $keys[$start] <= self::$lastCleanupKey) ++$start;
+        $remaining = 8;
+        for ($i = 0; $i < $count; ++$i) {
+            $key = $keys[($start + $i) % $count];
+            self::$lastCleanupKey = $key;
+            $marker = static::$syncTable->get((string)$key);
+            if (empty($marker['need_update']) && empty($marker['need_delete'])) {
+                --$remaining;
+                yield $key;
+            }
+            if ($remaining === 0 || hrtime(true) >= $deadline) break;
+        }
     }
 
     public static function activeKeys(): array
