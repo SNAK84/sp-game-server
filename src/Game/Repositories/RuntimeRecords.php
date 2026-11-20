@@ -12,6 +12,7 @@ final class RuntimeRecords
     /** Одна порция в секунду; это цель полного обхода, не гарантия при time hits/lag. */
     public const SWEEP_TARGET_CALLS = 300;
     public const SWEEP_BUDGET_MS = 2.0;
+    private const INLINE_BYTES = 256;
     public const SPECS = [
         // development rows/blocks, target rows/blocks. Рост только target:
         // 2,88млн суточных квитанций,272000 блоков докладов и свободный резерв.
@@ -44,7 +45,7 @@ final class RuntimeRecords
             'body_capacity' => [Table::TYPE_INT, 8],
             'body_size' => [Table::TYPE_INT, 8], 'version' => [Table::TYPE_INT, 8],
             'deleted' => [Table::TYPE_INT, 8], 'dirty_since' => [Table::TYPE_FLOAT, 8],
-            'inline' => [Table::TYPE_STRING, 256], 'expires_at' => [Table::TYPE_FLOAT, 8]];
+            'inline' => [Table::TYPE_STRING, self::INLINE_BYTES], 'expires_at' => [Table::TYPE_FLOAT, 8]];
     }
 
     public static function sweepBudget(string $name, int $minimum): int
@@ -142,12 +143,20 @@ final class RuntimeRecords
             // Резервируем худший размер terminal-квитанции до PlayerQueue.
             // Завершение переиспользует уже занятые блоки, даже если пул заполнен.
             $reserve = $this->name === 'ProtocolCommands' && $value['state'] === 'accepted' ? $this->maxBytes + 1 : 0;
-            $inline = $reserve === 0 && strlen($payload) <= 256;
+            $inline = $reserve === 0 && strlen($payload) <= self::INLINE_BYTES;
             $capacity = $inline ? 0 : max(strlen($payload), $reserve);
+            $inlineBytes = $inline ? $payload : '';
+            if (!$inline && $this->name === 'ProtocolCommands' && $reserve === 0) {
+                // Тело завершённой квитанции хранится в блоках. В свободном поле
+                // оставляем точный ключ SQL, включая исходный регистр request_id.
+                $identity = ['world_id' => $value['world_id'], 'player_id' => $value['player_id'], 'request_id' => $value['request_id']];
+                $packedKey = "\x00" . json_encode($identity, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+                if (strlen($packedKey) <= self::INLINE_BYTES) $inlineBytes = $packedKey;
+            }
             $row = ['key' => $key, 'body_id' => 0, 'body_capacity' => $capacity,
                 'body_size' => strlen($payload), 'version' => $this->sequence->add(1), 'deleted' => 0,
                 'dirty_since' => $dirty ? (($found[1]['dirty_since'] ?? 0) ?: microtime(true)) : 0.0,
-                'inline' => $inline ? $payload : '',
+                'inline' => $inlineBytes,
                 // Внутренняя дата sweep не меняет публичный TTL квитанции:
                 // accepted нуждается в сверке с очередью, а не удалении.
                 'expires_at' => $this->name === 'ProtocolCommands' ? ($value['state'] === 'accepted'
@@ -260,14 +269,15 @@ final class RuntimeRecords
             foreach ($this->dirty as $slot => $marker) {
                 $row = $this->rows->get((string)$slot);
                 if ($row === false || $row['version'] !== $marker['version'] || $row['dirty_since'] <= 0) throw new \RuntimeException('Повреждён shared dirty-индекс.');
+                $hasDeleteKey = $this->name === 'ProtocolCommands' && $row['deleted'] && $row['body_id'] !== 0 && $row['inline'] !== '';
                 $entry = ['key' => $row['key'], 'version' => $row['version'],
-                    'deleted' => (bool)$row['deleted'], 'packed' => $this->packed($row)];
+                    'deleted' => (bool)$row['deleted'], 'packed' => $hasDeleteKey ? $row['inline'] : $this->packed($row)];
                 if ($compact) {
-                    // Крупный результат команды уже сжат при записи в RAM.
-                    // Повторный deflate удерживает блокировку мира при каждом снимке.
+                    // Крупный результат уже сжат в RAM, а короткий ключ удаления
+                    // дешевле записать целиком под блокировкой мира.
                     $alreadyCompressed = $this->name === 'ProtocolCommands' && $row['body_size'] >= 4096
                         && $entry['packed'][0] === "\x01";
-                    $entry = \SPGame\Game\Services\RepositorySaver::packSnapshotEntry($entry, compress: !$alreadyCompressed);
+                    $entry = \SPGame\Game\Services\RepositorySaver::packSnapshotEntry($entry, compress: !$hasDeleteKey && !$alreadyCompressed);
                 }
                 $snapshot[$slot] = $entry;
                 \SPGame\Game\Services\RepositorySaver::assertSnapshotBudget();

@@ -80,6 +80,52 @@ return static function (string $path, bool $batched = true): void {
             $records->acknowledge([$slot => $records->snapshot(true)[$slot]]);
             $cursor->setValue($records, $start);
         }
+        // При загрузке из SQL регистр request_id сохраняется, а RAM-ключ нормализован.
+        // Длинное экранированное имя мира также проверяет обычный путь с полным телом.
+        foreach ([$world . ':A', $world . str_repeat("\x01", 36)] as $testWorld) {
+            $requestId = strtoupper($row['request_id']);
+            $legacy = array_replace($row, ['world_id' => $testWorld, 'request_id' => $requestId,
+                'outcome' => json_encode(['sample' => bin2hex(random_bytes(6000))], JSON_THROW_ON_ERROR)]);
+            $identity = ['world_id' => $testWorld, 'player_id' => $row['player_id'], 'request_id' => $requestId];
+            $key = $testWorld . ':' . $row['player_id'] . ':' . strtolower($requestId);
+            $hash = substr(hash('sha256', $key), 0, 32);
+            if ($index->exists($hash)) throw new LogicException('Ключ QA уже занят.');
+            $selectIds = static fn(): array => array_column($db->fetchAll(
+                'SELECT request_id FROM protocol_commands WHERE world_id=? AND player_id=? ORDER BY request_id',
+                [$testWorld, $row['player_id']]), 'request_id');
+            $records->put($key, $legacy, false);
+            $slot = $index->get($hash, 'slot');
+            try {
+                $cursor->setValue($records, $slot);
+                ProtocolCommands::cleanup(86401.0);
+                $delete = [$slot => $records->snapshot(true)[$slot]];
+                $projected = $records->snapshotValue($delete[$slot]);
+                $expected = $testWorld === $world . ':A' ? $identity : $legacy;
+                if ($projected !== $expected) throw new RuntimeException('Повреждён ключ удаления или потерян резервный формат.');
+                $db->beginTransaction();
+                try {
+                    if ($selectIds() !== []) throw new LogicException('SQL-ключи QA уже заняты.');
+                    foreach ([$requestId, strtolower($requestId)] as $id) {
+                        $seed = array_replace($legacy, ['request_id' => $id]);
+                        ProtocolCommands::writeSaveSnapshot([['deleted' => false, 'packed' => "\x00" . json_encode($seed, JSON_THROW_ON_ERROR)]], $db);
+                    }
+                    ProtocolCommands::writeSaveSnapshot($delete, $db);
+                    if ($selectIds() !== [strtolower($requestId)]) throw new RuntimeException('SQL удалил чужой регистр request_id.');
+                } finally {
+                    $db->rollBack();
+                }
+                if ($records->snapshot(true)[$slot] !== $delete[$slot]) throw new RuntimeException('Откат снял dirty.');
+                [$new, $created] = ProtocolCommands::reserve($testWorld, $row['player_id'], $requestId, $row['fingerprint'], $row['epoch']);
+                $records->acknowledge($delete);
+                if (!$created || $records->get($key) !== $new || !isset($records->snapshot()[$slot])) {
+                    throw new RuntimeException('Поздний ACK удаления затронул новую команду.');
+                }
+            } finally {
+                $records->delete($key);
+                $records->acknowledge([$slot => $records->snapshot(true)[$slot]]);
+                $cursor->setValue($records, $start);
+            }
+        }
     }
     file_put_contents($path, json_encode(['deletedRows' => 257, 'statements' => $statements, 'ms' => $ms, 'rollback' => true], JSON_THROW_ON_ERROR), LOCK_EX);
 };

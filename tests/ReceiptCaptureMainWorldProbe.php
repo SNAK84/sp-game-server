@@ -26,6 +26,35 @@ return static function (RepositorySaver $saver, string $path): void {
     };
     $expected = []; $keys = []; $measurements = [];
     $random = new Random\Randomizer(new Random\Engine\Xoshiro256StarStar(str_repeat('Q', 32)));
+    $measure = static function (int $count) use ($check): array {
+        $times = [];
+        $legacyBytes = 0;
+        for ($sample = 0; $sample < 6; ++$sample) {
+            $base = memory_get_usage(); memory_reset_peak_usage();
+            $snapshot = MiningCheckpoints::worldLocked(static function () use (&$elapsed): array {
+                $start = hrtime(true);
+                $snapshot = ProtocolCommands::captureSaveSnapshot(true);
+                $elapsed = (hrtime(true) - $start) / 1000000;
+                return $snapshot;
+            }, true);
+            $retained = memory_get_usage() - $base;
+            $peak = memory_get_peak_usage() - $base;
+            if ($sample !== 0) $times[] = $elapsed;
+            $check(count($snapshot) === $count, 'Снимок должен включать все изменённые записи.');
+            $encoded = array_sum(array_map('strlen', $snapshot));
+            if ($sample === 5) {
+                foreach (ProtocolCommands::captureSaveSnapshot() as $slot => $plain) {
+                    $check(RepositorySaver::unpackSnapshotEntry($snapshot[$slot]) === $plain,
+                        'Компактная запись изменила данные или поколение квитанции.');
+                    $legacyBytes += strlen(RepositorySaver::packSnapshotEntry($plain));
+                }
+            }
+            unset($snapshot);
+        }
+        sort($times);
+        return ['medianMs' => $times[2], 'encodedBytes' => $encoded, 'defaultCodecBytes' => $legacyBytes,
+            'retainedBytes' => $retained, 'peakBytes' => $peak];
+    };
     try {
         foreach ([32, 256] as $count) {
             for ($i = count($expected); $i < $count; ++$i) {
@@ -37,33 +66,7 @@ return static function (RepositorySaver $saver, string $path): void {
                 $check($finished['state'] === 'applied' && strlen($finished['outcome']) === 14813, 'Ожидался полный крупный результат.');
                 $expected[$id] = hash('sha256', $finished['outcome']);
             }
-            $times = [];
-            $legacyBytes = 0;
-            for ($sample = 0; $sample < 6; ++$sample) {
-                $base = memory_get_usage(); memory_reset_peak_usage();
-                $snapshot = MiningCheckpoints::worldLocked(static function () use (&$elapsed): array {
-                    $start = hrtime(true);
-                    $snapshot = ProtocolCommands::captureSaveSnapshot(true);
-                    $elapsed = (hrtime(true) - $start) / 1000000;
-                    return $snapshot;
-                }, true);
-                $retained = memory_get_usage() - $base;
-                $peak = memory_get_peak_usage() - $base;
-                if ($sample !== 0) $times[] = $elapsed;
-                $check(count($snapshot) === $count + count($dirtyBefore), 'Снимок должен включать все изменённые записи.');
-                $encoded = array_sum(array_map('strlen', $snapshot));
-                if ($sample === 5) {
-                    foreach (ProtocolCommands::captureSaveSnapshot() as $slot => $plain) {
-                        $check(RepositorySaver::unpackSnapshotEntry($snapshot[$slot]) === $plain,
-                            'Компактная запись изменила данные или поколение квитанции.');
-                        $legacyBytes += strlen(RepositorySaver::packSnapshotEntry($plain));
-                    }
-                }
-                unset($snapshot);
-            }
-            sort($times);
-            $measurements[$count] = ['medianMs' => $times[2], 'encodedBytes' => $encoded, 'defaultCodecBytes' => $legacyBytes,
-                'retainedBytes' => $retained, 'peakBytes' => $peak];
+            $measurements[$count] = $measure($count + count($dirtyBefore));
         }
         $limit = new ReflectionProperty($saver, 'snapshotMaxBytes');
         $originalLimit = $limit->getValue($saver);
@@ -90,6 +93,12 @@ return static function (RepositorySaver $saver, string $path): void {
             $check($row['state'] === 'applied' && $row['digest'] === $expected[$row['request_id']], 'Содержимое SQL не совпало с квитанцией.');
         }
         $check(ProtocolCommands::captureSaveSnapshot() === [], 'ACK не снял подтверждённые версии.');
+        $deletions = [];
+        $marked = 0;
+        foreach ([32, 256] as $count) {
+            while ($marked < $count) $records->delete($keys[$marked++]);
+            $deletions[$count] = $measure($count);
+        }
     } finally {
         foreach ($keys as $key) $records->delete($key);
         if ($keys !== [] && !$saver->saveInBackground()) throw new RuntimeException('Не подтверждено удаление тестовых квитанций.');
@@ -98,5 +107,5 @@ return static function (RepositorySaver $saver, string $path): void {
     $index = (new ReflectionProperty($records, 'keys'))->getValue($records);
     foreach ($keys as $key) $check(!$index->exists(substr(hash('sha256', $key), 0, 32)), 'Ключ не освобождён после COMMIT.');
     file_put_contents($path, json_encode(['checks' => $checks, 'measurements' => $measurements, 'worldSnapshot' => $worldSnapshot,
-        'otherDirtyReceipts' => count($dirtyBefore), 'remainingSql' => 0], JSON_THROW_ON_ERROR), LOCK_EX);
+        'deletions' => $deletions, 'otherDirtyReceipts' => count($dirtyBefore), 'remainingSql' => 0], JSON_THROW_ON_ERROR), LOCK_EX);
 };
