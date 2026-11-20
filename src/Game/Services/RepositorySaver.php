@@ -29,12 +29,12 @@ class RepositorySaver
     }
 
     /** Внутренний RAM-формат, не SQL/wire. Удерживаем строку, не дерево PHP-массивов. */
-    public static function packSnapshotEntry(array $entry): string
+    public static function packSnapshotEntry(array $entry, bool $compress = true): string
     {
         $raw = serialize($entry);
         if (strlen($raw) > self::SNAPSHOT_ENTRY_MAX_BYTES) throw new \OverflowException('Слишком большая строка снимка.');
         self::assertSnapshotBudget();
-        $packed = gzdeflate($raw, 1);
+        $packed = $compress ? gzdeflate($raw, 1) : false;
         self::assertSnapshotBudget();
         return is_string($packed) && strlen($packed) < strlen($raw) ? "\x01" . $packed : "\x00" . $raw;
     }

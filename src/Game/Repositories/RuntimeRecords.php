@@ -262,7 +262,14 @@ final class RuntimeRecords
                 if ($row === false || $row['version'] !== $marker['version'] || $row['dirty_since'] <= 0) throw new \RuntimeException('Повреждён shared dirty-индекс.');
                 $entry = ['key' => $row['key'], 'version' => $row['version'],
                     'deleted' => (bool)$row['deleted'], 'packed' => $this->packed($row)];
-                $snapshot[$slot] = $compact ? \SPGame\Game\Services\RepositorySaver::packSnapshotEntry($entry) : $entry;
+                if ($compact) {
+                    // Крупный результат команды уже сжат при записи в RAM.
+                    // Повторный deflate удерживает блокировку мира при каждом снимке.
+                    $alreadyCompressed = $this->name === 'ProtocolCommands' && $row['body_size'] >= 4096
+                        && $entry['packed'][0] === "\x01";
+                    $entry = \SPGame\Game\Services\RepositorySaver::packSnapshotEntry($entry, compress: !$alreadyCompressed);
+                }
+                $snapshot[$slot] = $entry;
                 \SPGame\Game\Services\RepositorySaver::assertSnapshotBudget();
             }
             return $snapshot;

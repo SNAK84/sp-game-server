@@ -62,6 +62,14 @@ plain/packed репозиториев, generation ACK, большой payload/TT
 compact saver через обычные команды QA. Штатный restart/очередь проверяются
 `RamQueueRestartLiveTest.py --execute`, только при отсутствии других клиентов.
 
+Для этапа 4Е4О `ReceiptCaptureMainWorldProbe.php` принимает текущий
+RepositorySaver и путь результата после GameProtocolV2::initialize до сети.
+Проверка создаёт для QA 32, затем 256 квитанций с воспроизводимыми крупными
+результатами. Она измеряет время захвата под блокировкой мира, объём записей
+и память PHP, сравнивает компактный снимок с полным построчно. Отдельно
+проверяет отказ по бюджету, сохранение всех результатов через общий COMMIT
+и освобождение тестовых ключей при следующем сохранении.
+
 После4Е1 модель проверяет также реальные constants/policy mailbox и большого
 payload(91 PASS). Main-only `WorkerMailboxMainWorldProbe.php` вызывается после
 обоих initializeWorkers, до Server::start/saver.45 PASS на основном dev:
