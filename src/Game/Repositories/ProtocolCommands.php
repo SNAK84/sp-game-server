@@ -12,6 +12,7 @@ final class ProtocolCommands
     public const RETENTION = 86400;
     public const MAX_AGE = 300;
     public const MAX_RECORD_BYTES = 16384;
+    private const DELETE_BATCH_SIZE = 128;
     private static RuntimeRecords $records;
 
     public static function init(?RepositorySaver $saver = null): void
@@ -106,7 +107,7 @@ final class ProtocolCommands
         // по себе не отменяет ещё ожидающее событие и не разрешает replay.
         self::$records->sweep(static function (array $row) use ($now): bool {
             if ($row['state'] === 'accepted') { self::reconcilePending($row); return false; }
-            return $row['expires_at'] < $now;
+            return $row['expires_at'] <= $now;
         }, RuntimeRecords::sweepBudget('ProtocolCommands', 512), $now);
     }
 
@@ -120,7 +121,7 @@ final class ProtocolCommands
     public static function saveGuardKey(): string { return 'ProtocolCommands:save'; }
     public static function purgeExpiredSql(float $now): void
     {
-        RepositoryGuard::run(self::saveGuardKey(), static fn() => Database::getInstance()->executeAffected('DELETE FROM protocol_commands WHERE expires_at<? AND state<>? ORDER BY expires_at LIMIT 2048', [$now, 'accepted']));
+        RepositoryGuard::run(self::saveGuardKey(), static fn() => Database::getInstance()->executeAffected('DELETE FROM protocol_commands WHERE expires_at<=? AND state<>? ORDER BY expires_at LIMIT 2048', [$now, 'accepted']));
     }
     public static function captureSaveSnapshot(bool $compact = false): array { return self::$records->snapshot($compact); }
     public static function acknowledgeSaveSnapshot(array $snapshot): void { self::$records->acknowledge($snapshot); }
@@ -128,17 +129,29 @@ final class ProtocolCommands
 
     public static function writeSaveSnapshot(array $snapshot, Database $db): void
     {
+        $deletes = [];
+        $fields = ['world_id','player_id','request_id','fingerprint','epoch','claim','operation','state','outcome','created_at','expires_at'];
         foreach ($snapshot as $entry) {
             $entry = RepositorySaver::unpackSnapshotEntry($entry);
             $row = self::$records->snapshotValue($entry);
-            if ($entry['deleted']) $db->query('DELETE FROM protocol_commands WHERE world_id=? AND player_id=? AND request_id=?',
-                [$row['world_id'], $row['player_id'], $row['request_id']]);
-            else {
-                $fields = ['world_id','player_id','request_id','fingerprint','epoch','claim','operation','state','outcome','created_at','expires_at'];
-                $db->query('INSERT INTO protocol_commands (' . implode(',', $fields) . ') VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE '
-                    . implode(',', array_map(static fn(string $f): string => $f . '=VALUES(' . $f . ')', $fields)),
-                    array_map(static fn(string $f) => is_float($row[$f]) ? json_encode($row[$f], JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR) : $row[$f], $fields));
+            if ($entry['deleted']) {
+                $deletes[] = [$row['world_id'], $row['player_id'], $row['request_id']];
+                if (count($deletes) === self::DELETE_BATCH_SIZE) self::flushDeletes($db, $deletes);
+                continue;
             }
+            self::flushDeletes($db, $deletes);
+            $db->query('INSERT INTO protocol_commands (' . implode(',', $fields) . ') VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE '
+                . implode(',', array_map(static fn(string $f): string => $f . '=VALUES(' . $f . ')', $fields)),
+                array_map(static fn(string $f) => is_float($row[$f]) ? json_encode($row[$f], JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR) : $row[$f], $fields));
         }
+        self::flushDeletes($db, $deletes);
+    }
+
+    private static function flushDeletes(Database $db, array &$keys): void
+    {
+        if ($keys === []) return;
+        $tuples = implode(',', array_fill(0, count($keys), '(?,?,?)'));
+        $db->query("DELETE FROM protocol_commands WHERE (world_id,player_id,request_id) IN ($tuples)", array_merge(...$keys));
+        $keys = [];
     }
 }
